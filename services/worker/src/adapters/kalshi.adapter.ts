@@ -11,7 +11,7 @@ import {
 } from '@data-module/core';
 import { type VenueAdapter, type AdapterConfig, DEFAULT_ADAPTER_CONFIG } from './types.js';
 
-const KALSHI_API_BASE = 'https://trading-api.kalshi.com/trade-api/v2';
+const KALSHI_API_BASE = 'https://api.elections.kalshi.com/trade-api/v2';
 
 interface KalshiMarket {
   ticker: string;
@@ -77,21 +77,17 @@ export class KalshiAdapter implements VenueAdapter {
     const limit = params?.limit ?? this.config.pageSize;
     const cursor = params?.cursor;
 
-    const queryParams = new URLSearchParams();
-    queryParams.set('limit', String(limit));
-    queryParams.set('status', 'open');
+    const url = new URL(`${this.config.baseUrl}/markets`);
+    url.searchParams.set('limit', String(limit));
+    url.searchParams.set('status', 'open');
 
     if (cursor) {
-      queryParams.set('cursor', cursor);
+      url.searchParams.set('cursor', cursor);
     }
 
-    const path = `/trade-api/v2/markets?${queryParams.toString()}`;
-    const url = `${this.config.baseUrl.replace('/trade-api/v2', '')}${path}`;
-
+    // Markets endpoint is public - no auth needed
     const response = await withRetry(
-      () => this.auth
-        ? this.fetchWithAuth(url, 'GET', path)
-        : this.fetchWithTimeout(url),
+      () => this.fetchWithTimeout(url.toString()),
       {
         maxAttempts: 3,
         baseDelayMs: 1000,
@@ -187,14 +183,13 @@ export class KalshiAdapter implements VenueAdapter {
   }
 
   /**
-   * Fetch orderbook for a specific market (authenticated)
+   * Fetch orderbook for a specific market (public endpoint)
    */
   private async fetchOrderbook(ticker: string): Promise<KalshiOrderbook> {
-    const path = `/trade-api/v2/markets/${ticker}/orderbook`;
-    const url = `${this.config.baseUrl.replace('/trade-api/v2', '')}${path}`;
+    const url = `${this.config.baseUrl}/markets/${ticker}/orderbook`;
 
     const response = await withRetry(
-      () => this.fetchWithAuth(url, 'GET', path),
+      () => this.fetchWithTimeout(url),
       {
         maxAttempts: 3,
         baseDelayMs: 1000,
@@ -225,9 +220,6 @@ export class KalshiAdapter implements VenueAdapter {
     const pathWithoutQuery = path.split('?')[0];
     const message = timestamp + method + pathWithoutQuery;
 
-    console.log(`[kalshi] DEBUG: url=${url}`);
-    console.log(`[kalshi] DEBUG: message=${message}`);
-    console.log(`[kalshi] DEBUG: apiKeyId=${this.auth.apiKeyId}`);
 
     // Sign with RSA-PSS SHA256
     const signature = crypto.sign('sha256', Buffer.from(message), {
