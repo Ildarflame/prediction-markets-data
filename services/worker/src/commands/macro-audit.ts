@@ -796,10 +796,28 @@ export async function runAuditPack(options: AuditPackOptions): Promise<AuditPack
 
       // Restore and print row
       console.log = originalLog;
-      const verdictShort = row.verdict.replace('PRESENT_', '').replace('_', ' ');
-      const rateStr = isNaN(rateStrict) ? 'N/A' : `${(rateStrict * 100).toFixed(0)}%`;
+
+      // v2.4.9: Smart verdict formatting
+      let verdictStr: string;
+      if (rateStrict >= 0.9) {
+        // High detection rate - show checkmark regardless of broad count
+        verdictStr = `✅ ${(rateStrict * 100).toFixed(0)}%`;
+      } else if (dbStrict === 0 && dbBroad > 0) {
+        // No strict hits but broad hits - expected behavior
+        verdictStr = 'broad-only (ok)';
+      } else if (dbStrict === 0 && dbBroad === 0) {
+        // No data at all
+        verdictStr = 'NO DATA';
+      } else if (isNaN(rateStrict)) {
+        verdictStr = 'N/A';
+      } else {
+        // Low detection rate
+        verdictStr = `${(rateStrict * 100).toFixed(0)}%`;
+      }
+
+      const rateStr = isNaN(rateStrict) ? '-' : `${(rateStrict * 100).toFixed(0)}%`;
       console.log(
-        `${row.entity.padEnd(18)} | ${String(dbStrict).padStart(7)} | ${String(dbBroad).padStart(6)} | ${String(detected).padStart(6)} | ${rateStr.padStart(6)} | ${verdictShort}`
+        `${row.entity.padEnd(18)} | ${String(dbStrict).padStart(7)} | ${String(dbBroad).padStart(6)} | ${String(detected).padStart(6)} | ${rateStr.padStart(6)} | ${verdictStr}`
       );
     } catch (err) {
       console.log = originalLog;
@@ -807,8 +825,10 @@ export async function runAuditPack(options: AuditPackOptions): Promise<AuditPack
     }
   }
 
-  console.log(`${'-'.repeat(70)}`);
-  console.log(`\n[macro:audit-pack] Complete.\n`);
+  console.log(`${'-'.repeat(90)}`);
+  console.log(`\nLegend: Strict=entity-specific keywords | Broad=generic terms (diagnostic only)`);
+  console.log(`Rate%=Detected/Strict | ✅=rate>=90% | broad-only=no strict hits, expected`);
+  console.log(`\n[macro:audit-pack v2.4.9] Complete.\n`);
 
   return results;
 }
