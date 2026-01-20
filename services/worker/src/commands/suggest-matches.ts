@@ -218,9 +218,11 @@ export const TOPIC_KEYWORDS: Record<Exclude<TopicFilter, 'all'>, string[]> = {
     'bitcoin', 'btc', 'ethereum', 'eth', 'solana', 'sol', 'crypto',
     'xrp', 'ripple', 'doge', 'dogecoin', 'cardano', 'ada',
   ],
+  // Macro keywords - token-based only, specific to economic indicators
   macro: [
-    'cpi', 'gdp', 'inflation', 'fed', 'fomc', 'interest rate', 'unemployment',
-    'nonfarm', 'payrolls', 'pce', 'ppi', 'jobs report',
+    'cpi', 'gdp', 'inflation', 'unemployment', 'jobless',
+    'payrolls', 'nonfarm', 'nfp', 'fed', 'fomc',
+    'rates', 'interest', 'pce', 'pmi',
   ],
   politics: [
     'trump', 'biden', 'harris', 'election', 'president', 'presidential',
@@ -278,6 +280,138 @@ interface EntityIndex {
   byEntity: Map<string, Set<number>>;
   byYear: Map<number, Set<number>>;
   markets: Map<number, IndexedMarket>;
+}
+
+/**
+ * Macro-specific index for candidate generation
+ * Uses macroEntity + period for more precise matching
+ */
+interface MacroEntityIndex extends EntityIndex {
+  // Key format: "ENTITY:YYYY-MM" for month, "ENTITY:YYYY-Qn" for quarter, "ENTITY:YYYY" for year
+  byMacroEntityPeriod: Map<string, Set<number>>;
+}
+
+/**
+ * Build a key for macro entity + period indexing
+ */
+function buildMacroPeriodKey(entity: string, period: { type: string | null; year?: number; month?: number; quarter?: number }): string | null {
+  if (!period.type || !period.year) return null;
+
+  if (period.type === 'month' && period.month) {
+    return `${entity}:${period.year}-${String(period.month).padStart(2, '0')}`;
+  } else if (period.type === 'quarter' && period.quarter) {
+    return `${entity}:${period.year}-Q${period.quarter}`;
+  } else if (period.type === 'year') {
+    return `${entity}:${period.year}`;
+  }
+  return null;
+}
+
+/**
+ * Get all compatible period keys for a given entity + period
+ * For a month, returns both the month key and the quarter key
+ */
+function getCompatiblePeriodKeys(entity: string, period: { type: string | null; year?: number; month?: number; quarter?: number }): string[] {
+  if (!period.type || !period.year) return [];
+
+  const keys: string[] = [];
+
+  if (period.type === 'month' && period.month) {
+    // Add exact month key
+    keys.push(`${entity}:${period.year}-${String(period.month).padStart(2, '0')}`);
+    // Add quarter key (month falls within this quarter)
+    const quarter = Math.ceil(period.month / 3);
+    keys.push(`${entity}:${period.year}-Q${quarter}`);
+    // Add year key
+    keys.push(`${entity}:${period.year}`);
+  } else if (period.type === 'quarter' && period.quarter) {
+    // Add quarter key
+    keys.push(`${entity}:${period.year}-Q${period.quarter}`);
+    // Add all months in the quarter
+    const startMonth = (period.quarter - 1) * 3 + 1;
+    for (let m = startMonth; m < startMonth + 3; m++) {
+      keys.push(`${entity}:${period.year}-${String(m).padStart(2, '0')}`);
+    }
+    // Add year key
+    keys.push(`${entity}:${period.year}`);
+  } else if (period.type === 'year') {
+    // Add year key
+    keys.push(`${entity}:${period.year}`);
+    // Add all quarters
+    for (let q = 1; q <= 4; q++) {
+      keys.push(`${entity}:${period.year}-Q${q}`);
+    }
+    // Add all months
+    for (let m = 1; m <= 12; m++) {
+      keys.push(`${entity}:${period.year}-${String(m).padStart(2, '0')}`);
+    }
+  }
+
+  return keys;
+}
+
+/**
+ * Calculate macro entity score
+ * Returns 0.5 if there's at least one matching macro entity, 0 otherwise
+ */
+function macroEntityScore(leftMacroEntities: Set<string> | undefined, rightMacroEntities: Set<string> | undefined): number {
+  if (!leftMacroEntities?.size || !rightMacroEntities?.size) return 0;
+
+  for (const entity of leftMacroEntities) {
+    if (rightMacroEntities.has(entity)) {
+      return 0.5; // Any match gives full score
+    }
+  }
+  return 0;
+}
+
+/**
+ * Calculate period match score
+ * Returns 0.4 for exact match, 0.2 for compatible (e.g., month in quarter), 0 otherwise
+ */
+function periodScore(
+  leftPeriod: { type: string | null; year?: number; month?: number; quarter?: number } | undefined,
+  rightPeriod: { type: string | null; year?: number; month?: number; quarter?: number } | undefined
+): number {
+  if (!leftPeriod?.type || !rightPeriod?.type) return 0;
+  if (leftPeriod.year !== rightPeriod.year) return 0;
+
+  // Exact match: same type and values
+  if (leftPeriod.type === rightPeriod.type) {
+    if (leftPeriod.type === 'month' && leftPeriod.month === rightPeriod.month) {
+      return 0.4; // Exact month match
+    }
+    if (leftPeriod.type === 'quarter' && leftPeriod.quarter === rightPeriod.quarter) {
+      return 0.4; // Exact quarter match
+    }
+    if (leftPeriod.type === 'year') {
+      return 0.4; // Exact year match
+    }
+  }
+
+  // Compatible: month in quarter
+  if (leftPeriod.type === 'month' && rightPeriod.type === 'quarter') {
+    const quarter = Math.ceil(leftPeriod.month! / 3);
+    if (quarter === rightPeriod.quarter) {
+      return 0.2; // Month falls within quarter
+    }
+  }
+  if (leftPeriod.type === 'quarter' && rightPeriod.type === 'month') {
+    const quarter = Math.ceil(rightPeriod.month! / 3);
+    if (quarter === leftPeriod.quarter) {
+      return 0.2; // Quarter contains month
+    }
+  }
+
+  // Year contains month/quarter
+  if (leftPeriod.type === 'year' && (rightPeriod.type === 'month' || rightPeriod.type === 'quarter')) {
+    return 0.2; // Year is broader
+  }
+  if (rightPeriod.type === 'year' && (leftPeriod.type === 'month' || leftPeriod.type === 'quarter')) {
+    return 0.2; // Year is broader
+  }
+
+  return 0; // Incompatible
 }
 
 /**
@@ -383,6 +517,135 @@ function findCandidatesByEntity(
 }
 
 /**
+ * Build macro entity + period index for target markets
+ * Used for more precise macro market matching
+ */
+function buildMacroEntityIndex(markets: EligibleMarket[]): MacroEntityIndex {
+  const byEntity = new Map<string, Set<number>>();
+  const byYear = new Map<number, Set<number>>();
+  const byMacroEntityPeriod = new Map<string, Set<number>>();
+  const marketsMap = new Map<number, IndexedMarket>();
+
+  for (const market of markets) {
+    const fingerprint = buildFingerprint(market.title, market.closeTime, { metadata: market.metadata });
+    const normalizedTitle = normalizeTitleForFuzzy(market.title);
+
+    const indexed: IndexedMarket = { market, fingerprint, normalizedTitle };
+    marketsMap.set(market.id, indexed);
+
+    // Standard entity index
+    for (const entity of fingerprint.entities) {
+      if (!byEntity.has(entity)) {
+        byEntity.set(entity, new Set());
+      }
+      byEntity.get(entity)!.add(market.id);
+    }
+
+    // Standard year index
+    if (fingerprint.period?.year) {
+      const year = fingerprint.period.year;
+      if (!byYear.has(year)) {
+        byYear.set(year, new Set());
+      }
+      byYear.get(year)!.add(market.id);
+    } else if (market.closeTime) {
+      const year = market.closeTime.getFullYear();
+      if (!byYear.has(year)) {
+        byYear.set(year, new Set());
+      }
+      byYear.get(year)!.add(market.id);
+    }
+
+    // Macro entity + period index (only for MACRO_PERIOD intent)
+    if (fingerprint.macroEntities?.size && fingerprint.period?.type) {
+      for (const macroEntity of fingerprint.macroEntities) {
+        const key = buildMacroPeriodKey(macroEntity, fingerprint.period);
+        if (key) {
+          if (!byMacroEntityPeriod.has(key)) {
+            byMacroEntityPeriod.set(key, new Set());
+          }
+          byMacroEntityPeriod.get(key)!.add(market.id);
+        }
+      }
+    }
+  }
+
+  return { byEntity, byYear, byMacroEntityPeriod, markets: marketsMap };
+}
+
+/**
+ * Find candidate markets for macro matching using entity + period index
+ * More precise than general entity matching
+ */
+function findMacroCandidates(
+  leftFingerprint: MarketFingerprint,
+  leftCloseTime: Date | null,
+  index: MacroEntityIndex,
+  maxCandidates: number = 200
+): Set<number> {
+  const candidates = new Set<number>();
+  const scores = new Map<number, number>();
+
+  // If left has macro entities and period, use precise matching
+  if (leftFingerprint.macroEntities?.size && leftFingerprint.period?.type) {
+    for (const macroEntity of leftFingerprint.macroEntities) {
+      // Get all compatible period keys
+      const keys = getCompatiblePeriodKeys(macroEntity, leftFingerprint.period);
+
+      for (const key of keys) {
+        const marketIds = index.byMacroEntityPeriod.get(key);
+        if (marketIds) {
+          for (const id of marketIds) {
+            candidates.add(id);
+            // Score by match quality - exact match gets higher score
+            const isExactKey = key === buildMacroPeriodKey(macroEntity, leftFingerprint.period);
+            scores.set(id, (scores.get(id) || 0) + (isExactKey ? 2 : 1));
+          }
+        }
+      }
+    }
+  }
+
+  // Fallback: if no candidates from period matching, use entity-only
+  if (candidates.size === 0) {
+    // Use general entities as fallback
+    for (const entity of leftFingerprint.entities) {
+      const marketIds = index.byEntity.get(entity);
+      if (marketIds) {
+        for (const id of marketIds) {
+          candidates.add(id);
+          scores.set(id, (scores.get(id) || 0) + 1);
+        }
+      }
+    }
+
+    // Still no candidates? Use year-based fallback
+    if (candidates.size === 0) {
+      const year = leftFingerprint.period?.year || leftCloseTime?.getFullYear();
+      if (year) {
+        const yearMarkets = index.byYear.get(year);
+        if (yearMarkets) {
+          for (const id of yearMarkets) {
+            candidates.add(id);
+            if (candidates.size >= maxCandidates) break;
+          }
+        }
+      }
+    }
+  }
+
+  // Limit candidates by score
+  if (candidates.size > maxCandidates) {
+    const sorted = Array.from(candidates).sort((a, b) =>
+      (scores.get(b) || 0) - (scores.get(a) || 0)
+    );
+    return new Set(sorted.slice(0, maxCandidates));
+  }
+
+  return candidates;
+}
+
+/**
  * Check if two titles share at least one keyword
  * Used as a prefilter to skip obviously unrelated markets
  */
@@ -441,40 +704,60 @@ function calculateMatchScore(
     left.fingerprint.intent === MarketIntent.MACRO_PERIOD ||
     right.fingerprint.intent === MarketIntent.MACRO_PERIOD;
 
-  // MACRO_PERIOD uses period gating instead of day-level date gating
+  // MACRO_PERIOD uses special scoring and gating
   if (isMacroPeriodIntent) {
     const leftPeriod = left.fingerprint.period;
     const rightPeriod = right.fingerprint.period;
+    const leftMacro = left.fingerprint.macroEntities;
+    const rightMacro = right.fingerprint.macroEntities;
 
-    // If either period is null/undefined, cap the score
-    if (!leftPeriod?.type || !rightPeriod?.type) {
-      // Still calculate scores but mark as period gate fail (will be capped later)
-      const entScore = entityScore(left.fingerprint.entities, right.fingerprint.entities);
-      const numScore = numberScore(left.fingerprint.numbers, right.fingerprint.numbers);
-      const fzScore = fuzzyTitleScore(left.normalizedTitle, right.normalizedTitle);
-      const leftTokens = tokenize(left.market.title);
-      const rightTokens = tokenize(right.market.title);
-      const jcScore = jaccard(leftTokens, rightTokens);
+    // Pre-calculate scores for breakdown
+    const entScore = entityScore(left.fingerprint.entities, right.fingerprint.entities);
+    const numScore = numberScore(left.fingerprint.numbers, right.fingerprint.numbers);
+    const fzScore = fuzzyTitleScore(left.normalizedTitle, right.normalizedTitle);
+    const leftTokens = tokenize(left.market.title);
+    const rightTokens = tokenize(right.market.title);
+    const jcScore = jaccard(leftTokens, rightTokens);
 
+    // HARD GATE 1: Both must have macro entities
+    if (!leftMacro?.size || !rightMacro?.size) {
       return {
         score: 0,
-        reason: `PERIOD_GATE_FAIL (period missing: left=${leftPeriod?.type || 'null'}, right=${rightPeriod?.type || 'null'})`,
-        breakdown: { entity: entScore, date: 0, number: numScore, fuzzy: fzScore, jaccard: jcScore },
+        reason: `MACRO_GATE_FAIL (macro entities missing: left=${leftMacro?.size || 0}, right=${rightMacro?.size || 0})`,
+        breakdown: { entity: entScore, period: 0, number: numScore, fuzzy: fzScore, jaccard: jcScore },
         dateGateFailed: false,
         textGateFailed: false,
         periodGateFailed: true,
       };
     }
 
-    // Check period compatibility
-    if (!periodsCompatible(leftPeriod, rightPeriod)) {
-      const entScore = entityScore(left.fingerprint.entities, right.fingerprint.entities);
-      const numScore = numberScore(left.fingerprint.numbers, right.fingerprint.numbers);
-      const fzScore = fuzzyTitleScore(left.normalizedTitle, right.normalizedTitle);
-      const leftTokens = tokenize(left.market.title);
-      const rightTokens = tokenize(right.market.title);
-      const jcScore = jaccard(leftTokens, rightTokens);
+    // HARD GATE 2: Macro entities must overlap
+    const macroEntScore = macroEntityScore(leftMacro, rightMacro);
+    if (macroEntScore === 0) {
+      return {
+        score: 0,
+        reason: `MACRO_GATE_FAIL (no macro entity overlap: [${Array.from(leftMacro).join(',')}] vs [${Array.from(rightMacro).join(',')}])`,
+        breakdown: { entity: entScore, macroEntity: 0, period: 0, number: numScore, fuzzy: fzScore, jaccard: jcScore },
+        dateGateFailed: false,
+        textGateFailed: false,
+        periodGateFailed: true,
+      };
+    }
 
+    // HARD GATE 3: Period must be present
+    if (!leftPeriod?.type || !rightPeriod?.type) {
+      return {
+        score: 0,
+        reason: `PERIOD_GATE_FAIL (period missing: left=${leftPeriod?.type || 'null'}, right=${rightPeriod?.type || 'null'})`,
+        breakdown: { entity: entScore, macroEntity: macroEntScore, period: 0, number: numScore, fuzzy: fzScore, jaccard: jcScore },
+        dateGateFailed: false,
+        textGateFailed: false,
+        periodGateFailed: true,
+      };
+    }
+
+    // HARD GATE 4: Period must be compatible
+    if (!periodsCompatible(leftPeriod, rightPeriod)) {
       const leftPeriodStr = leftPeriod.type === 'month' ? `${leftPeriod.year}-${leftPeriod.month}` :
                            leftPeriod.type === 'quarter' ? `Q${leftPeriod.quarter} ${leftPeriod.year}` :
                            `${leftPeriod.year}`;
@@ -485,12 +768,41 @@ function calculateMatchScore(
       return {
         score: 0,
         reason: `PERIOD_GATE_FAIL (incompatible: ${leftPeriodStr} vs ${rightPeriodStr})`,
-        breakdown: { entity: entScore, date: 0, number: numScore, fuzzy: fzScore, jaccard: jcScore },
+        breakdown: { entity: entScore, macroEntity: macroEntScore, period: 0, number: numScore, fuzzy: fzScore, jaccard: jcScore },
         dateGateFailed: false,
         textGateFailed: false,
         periodGateFailed: true,
       };
     }
+
+    // Calculate period score (0.4 exact, 0.2 compatible)
+    const perScore = periodScore(leftPeriod, rightPeriod);
+
+    // MACRO_PERIOD scoring formula:
+    // macroEntity (0.5) + period (0.4) + number (0.05) + text bonus (0.05)
+    // Total max = 1.0
+    const textBonus = (fzScore + jcScore) / 2 * 0.1; // Up to 0.05 contribution
+    const numberBonus = numScore * 0.1; // Up to 0.05 contribution
+
+    const score = macroEntScore + perScore + numberBonus + textBonus;
+
+    const leftPeriodStr = leftPeriod.type === 'month' ? `${leftPeriod.year}-${leftPeriod.month}` :
+                         leftPeriod.type === 'quarter' ? `Q${leftPeriod.quarter} ${leftPeriod.year}` :
+                         `${leftPeriod.year}`;
+    const rightPeriodStr = rightPeriod.type === 'month' ? `${rightPeriod.year}-${rightPeriod.month}` :
+                          rightPeriod.type === 'quarter' ? `Q${rightPeriod.quarter} ${rightPeriod.year}` :
+                          `${rightPeriod.year}`;
+
+    const reason = `MACRO: me=${macroEntScore.toFixed(2)} per=${perScore.toFixed(2)}(${leftPeriodStr}/${rightPeriodStr}) num=${numberBonus.toFixed(2)} txt=${textBonus.toFixed(2)}`;
+
+    return {
+      score,
+      reason,
+      breakdown: { entity: entScore, macroEntity: macroEntScore, period: perScore, number: numScore, fuzzy: fzScore, jaccard: jcScore },
+      dateGateFailed: false,
+      textGateFailed: false,
+      periodGateFailed: false,
+    };
   }
 
   // Date gating check - strict matching for PRICE_DATE markets (not used for MACRO_PERIOD)
@@ -851,13 +1163,25 @@ async function debugMarket(
 
   console.log(`\n[debug] ${toVenue} markets: ${rightStats.total} -> ${rightStats.afterKeywordFilter} (kw) -> ${rightStats.afterSportsFilter} (sports) -> ${rightStats.afterTopicFilter} (topic)`);
 
-  // Build index
-  const index = buildEntityIndex(rightMarkets);
-  console.log(`[debug] Index: ${index.byEntity.size} unique entities, ${index.byYear.size} years`);
+  // Build index - use macro-specific index for topic=macro
+  const isMacroTopic = options.topic === 'macro';
+  const index = isMacroTopic
+    ? buildMacroEntityIndex(rightMarkets)
+    : buildEntityIndex(rightMarkets);
 
-  // Find candidates
-  const candidateIds = findCandidatesByEntity(leftFingerprint, leftMarket.closeTime, index, 1000);
-  console.log(`[debug] Found ${candidateIds.size} candidates by entity overlap\n`);
+  if (isMacroTopic) {
+    const macroIndex = index as MacroEntityIndex;
+    console.log(`[debug] Macro index: ${macroIndex.byMacroEntityPeriod.size} entity+period keys, ${index.byEntity.size} entities, ${index.byYear.size} years`);
+  } else {
+    console.log(`[debug] Index: ${index.byEntity.size} unique entities, ${index.byYear.size} years`);
+  }
+
+  // Find candidates - use macro candidates for topic=macro or MACRO_PERIOD intent
+  const useMacroMatching = isMacroTopic || leftFingerprint.intent === MarketIntent.MACRO_PERIOD;
+  const candidateIds = useMacroMatching && isMacroTopic
+    ? findMacroCandidates(leftFingerprint, leftMarket.closeTime, index as MacroEntityIndex, 200)
+    : findCandidatesByEntity(leftFingerprint, leftMarket.closeTime, index, 1000);
+  console.log(`[debug] Found ${candidateIds.size} candidates by ${useMacroMatching ? 'macro entity+period' : 'entity'} overlap\n`);
 
   // Score all candidates
   const leftIndexed: IndexedMarket = {
@@ -1099,9 +1423,19 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     }
 
     // Build entity-based index for right markets
-    console.log(`[matching] Building entity index for ${toVenue}...`);
-    const index = buildEntityIndex(rightMarkets);
-    console.log(`[matching] Index built: ${index.byEntity.size} unique entities, ${index.byYear.size} years`);
+    // Use macro-specific index for topic=macro
+    const isMacroTopic = topic === 'macro';
+    console.log(`[matching] Building ${isMacroTopic ? 'macro entity+period' : 'entity'} index for ${toVenue}...`);
+    const index = isMacroTopic
+      ? buildMacroEntityIndex(rightMarkets)
+      : buildEntityIndex(rightMarkets);
+
+    if (isMacroTopic) {
+      const macroIndex = index as MacroEntityIndex;
+      console.log(`[matching] Macro index built: ${macroIndex.byMacroEntityPeriod.size} entity+period keys, ${index.byEntity.size} entities, ${index.byYear.size} years`);
+    } else {
+      console.log(`[matching] Index built: ${index.byEntity.size} unique entities, ${index.byYear.size} years`);
+    }
 
     // Get set of markets that already have confirmed links
     const confirmedLeft = new Set<number>();
@@ -1117,6 +1451,25 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     console.log(`[matching] Processing matches...`);
     let processed = 0;
     let noEntityCount = 0;
+
+    // Macro coverage tracking
+    const macroStats = {
+      leftByEntity: new Map<string, number>(),
+      rightByEntity: new Map<string, number>(),
+      matchedByEntity: new Map<string, number>(),
+      unmatchedMarkets: [] as { id: number; title: string; macroEntities: string[]; period: string }[],
+    };
+
+    // Build right-side macro entity counts (from index)
+    if (isMacroTopic) {
+      for (const [, indexed] of index.markets) {
+        if (indexed.fingerprint.macroEntities?.size) {
+          for (const entity of indexed.fingerprint.macroEntities) {
+            macroStats.rightByEntity.set(entity, (macroStats.rightByEntity.get(entity) || 0) + 1);
+          }
+        }
+      }
+    }
 
     for (const leftMarket of leftMarkets) {
       // Skip if already has confirmed link
@@ -1137,8 +1490,19 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
         noEntityCount++;
       }
 
-      // Find candidates using entity index
-      const candidateIds = findCandidatesByEntity(leftFingerprint, leftMarket.closeTime, index);
+      // Track left-side macro entities
+      if (isMacroTopic && leftFingerprint.macroEntities?.size) {
+        for (const entity of leftFingerprint.macroEntities) {
+          macroStats.leftByEntity.set(entity, (macroStats.leftByEntity.get(entity) || 0) + 1);
+        }
+      }
+
+      // Find candidates using appropriate index
+      // Use macro candidates for topic=macro or MACRO_PERIOD intent
+      const useMacroMatching = isMacroTopic || leftFingerprint.intent === MarketIntent.MACRO_PERIOD;
+      const candidateIds = useMacroMatching && isMacroTopic
+        ? findMacroCandidates(leftFingerprint, leftMarket.closeTime, index as MacroEntityIndex, 200)
+        : findCandidatesByEntity(leftFingerprint, leftMarket.closeTime, index, 500);
       result.candidatesConsidered += candidateIds.size;
 
       // Score candidates and find top-k
@@ -1212,13 +1576,36 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
         }
       }
 
+      // Track macro matches/unmatched
+      if (isMacroTopic && leftFingerprint.macroEntities?.size) {
+        if (topCandidates.length > 0) {
+          // Market found a match - track by macro entity
+          for (const entity of leftFingerprint.macroEntities) {
+            macroStats.matchedByEntity.set(entity, (macroStats.matchedByEntity.get(entity) || 0) + 1);
+          }
+        } else {
+          // Market is unmatched - add to unmatched list
+          const periodStr = leftFingerprint.period?.type === 'month'
+            ? `${leftFingerprint.period.year}-${String(leftFingerprint.period.month).padStart(2, '0')}`
+            : leftFingerprint.period?.type === 'quarter'
+            ? `Q${leftFingerprint.period.quarter} ${leftFingerprint.period.year}`
+            : leftFingerprint.period?.year ? `${leftFingerprint.period.year}` : 'none';
+          macroStats.unmatchedMarkets.push({
+            id: leftMarket.id,
+            title: leftMarket.title,
+            macroEntities: Array.from(leftFingerprint.macroEntities),
+            period: periodStr,
+          });
+        }
+      }
+
       processed++;
       if (processed % 100 === 0) {
         console.log(`[matching] Processed ${processed}/${leftMarkets.length - confirmedLeft.size} markets...`);
       }
     }
 
-    console.log(`\n[matching] Suggest-matches v2.3 complete:`);
+    console.log(`\n[matching] Suggest-matches v2.4 complete:`);
     console.log(`  Left markets (${fromVenue}): ${result.leftCount}`);
     console.log(`  Right markets (${toVenue}): ${result.rightCount}`);
     console.log(`  Skipped (already confirmed): ${result.skippedConfirmed}`);
@@ -1233,6 +1620,53 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
 
     if (result.errors.length > 0) {
       console.log(`  Errors: ${result.errors.length}`);
+    }
+
+    // Macro coverage report (only for topic=macro)
+    if (isMacroTopic) {
+      console.log(`\n[macro-coverage] Macro Entity Coverage Report:`);
+      console.log(`${'Entity'.padEnd(15)} | ${'Left'.padStart(6)} | ${'Right'.padStart(6)} | ${'Matched'.padStart(8)} | ${'Rate'.padStart(6)}`);
+      console.log('-'.repeat(50));
+
+      // Get all unique macro entities from both sides
+      const allEntities = new Set([
+        ...macroStats.leftByEntity.keys(),
+        ...macroStats.rightByEntity.keys(),
+      ]);
+
+      // Sort alphabetically
+      const sortedEntities = Array.from(allEntities).sort();
+
+      let totalLeft = 0;
+      let totalMatched = 0;
+
+      for (const entity of sortedEntities) {
+        const left = macroStats.leftByEntity.get(entity) || 0;
+        const right = macroStats.rightByEntity.get(entity) || 0;
+        const matched = macroStats.matchedByEntity.get(entity) || 0;
+        const rate = left > 0 ? ((matched / left) * 100).toFixed(1) + '%' : 'N/A';
+
+        console.log(`${entity.padEnd(15)} | ${String(left).padStart(6)} | ${String(right).padStart(6)} | ${String(matched).padStart(8)} | ${rate.padStart(6)}`);
+
+        totalLeft += left;
+        totalMatched += matched;
+      }
+
+      console.log('-'.repeat(50));
+      const totalRate = totalLeft > 0 ? ((totalMatched / totalLeft) * 100).toFixed(1) + '%' : 'N/A';
+      console.log(`${'TOTAL'.padEnd(15)} | ${String(totalLeft).padStart(6)} | ${String('').padStart(6)} | ${String(totalMatched).padStart(8)} | ${totalRate.padStart(6)}`);
+
+      // Show unmatched markets (up to 10)
+      if (macroStats.unmatchedMarkets.length > 0) {
+        console.log(`\n[macro-coverage] Unmatched Markets (${macroStats.unmatchedMarkets.length} total):`);
+        const toShow = macroStats.unmatchedMarkets.slice(0, 10);
+        for (const m of toShow) {
+          console.log(`  ID=${m.id} [${m.macroEntities.join(',')}] [${m.period}] "${m.title.substring(0, 60)}${m.title.length > 60 ? '...' : ''}"`);
+        }
+        if (macroStats.unmatchedMarkets.length > 10) {
+          console.log(`  ... and ${macroStats.unmatchedMarkets.length - 10} more`);
+        }
+      }
     }
 
   } catch (error) {
