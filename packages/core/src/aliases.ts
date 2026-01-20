@@ -34,9 +34,12 @@ export const ENTITY_ALIASES: Record<string, string> = {
   'trump': 'DONALD_TRUMP',
   'donald trump': 'DONALD_TRUMP',
   'donald j trump': 'DONALD_TRUMP',
+  'trump jr': 'DONALD_TRUMP_JR',
+  'donald trump jr': 'DONALD_TRUMP_JR',
   'biden': 'JOE_BIDEN',
   'joe biden': 'JOE_BIDEN',
   'joseph biden': 'JOE_BIDEN',
+  'hunter biden': 'HUNTER_BIDEN',
   'harris': 'KAMALA_HARRIS',
   'kamala harris': 'KAMALA_HARRIS',
   'kamala': 'KAMALA_HARRIS',
@@ -54,9 +57,32 @@ export const ENTITY_ALIASES: Record<string, string> = {
   'rfk': 'RFK_JR',
   'rfk jr': 'RFK_JR',
   'robert kennedy': 'RFK_JR',
+  'robert f kennedy': 'RFK_JR',
   'kennedy': 'RFK_JR',
   'obama': 'BARACK_OBAMA',
   'barack obama': 'BARACK_OBAMA',
+  'michelle obama': 'MICHELLE_OBAMA',
+  'musk': 'ELON_MUSK',
+  'elon musk': 'ELON_MUSK',
+  'elon': 'ELON_MUSK',
+  'bezos': 'JEFF_BEZOS',
+  'jeff bezos': 'JEFF_BEZOS',
+  'pelosi': 'NANCY_PELOSI',
+  'nancy pelosi': 'NANCY_PELOSI',
+  'mccarthy': 'KEVIN_MCCARTHY',
+  'kevin mccarthy': 'KEVIN_MCCARTHY',
+  'schumer': 'CHUCK_SCHUMER',
+  'chuck schumer': 'CHUCK_SCHUMER',
+  'mcconnell': 'MITCH_MCCONNELL',
+  'mitch mcconnell': 'MITCH_MCCONNELL',
+  'aoc': 'AOC',
+  'ocasio-cortez': 'AOC',
+  'alexandria ocasio-cortez': 'AOC',
+  'sanders': 'BERNIE_SANDERS',
+  'bernie sanders': 'BERNIE_SANDERS',
+  'bernie': 'BERNIE_SANDERS',
+  'warren': 'ELIZABETH_WARREN',
+  'elizabeth warren': 'ELIZABETH_WARREN',
 
   // Politicians - International
   'putin': 'VLADIMIR_PUTIN',
@@ -194,10 +220,70 @@ export const ENTITY_ALIASES: Record<string, string> = {
  */
 export const TICKER_PATTERNS: RegExp[] = [
   // Crypto tickers: $BTC, BTC, etc.
-  /\$?(?:BTC|ETH|SOL|XRP|DOGE|ADA|BNB|AVAX|MATIC|DOT|LINK|LTC|USDT|USDC)\b/gi,
+  /\$?(?:BTC|ETH|SOL|XRP|DOGE|ADA|BNB|AVAX|MATIC|DOT|LINK|LTC|USDT|USDC|PEPE|SHIB|UNI|AAVE|CRV|MKR|COMP|SNX|YFI|SUSHI|CAKE)\b/gi,
   // Stock tickers: $AAPL, AAPL, etc.
-  /\$(?:AAPL|GOOGL|GOOG|AMZN|MSFT|TSLA|NVDA|META|NFLX|SPY|QQQ)\b/gi,
+  /\$(?:AAPL|GOOGL|GOOG|AMZN|MSFT|TSLA|NVDA|META|NFLX|SPY|QQQ|VIX|GLD|SLV|USO|TLT|IWM|DIA)\b/gi,
+  // Commodities
+  /\b(?:GOLD|SILVER|OIL|WTI|BRENT|NATURAL GAS|COPPER)\b/gi,
 ];
+
+/**
+ * Kalshi event ticker prefix to entity mapping
+ * Maps Kalshi eventTicker prefixes to canonical entity names
+ */
+export const KALSHI_TICKER_MAP: Record<string, string> = {
+  'KXETH': 'ETHEREUM',
+  'KXBTC': 'BITCOIN',
+  'KXSOL': 'SOLANA',
+  'KXDOGE': 'DOGECOIN',
+  'KXXRP': 'XRP',
+  'KXADA': 'CARDANO',
+  'KXBNB': 'BNB',
+  'KXAVAX': 'AVALANCHE',
+  'KXMATIC': 'POLYGON',
+  'KXLINK': 'CHAINLINK',
+  'KXLTC': 'LITECOIN',
+  // Economic
+  'KXCPI': 'CPI',
+  'KXGDP': 'GDP',
+  'KXNFP': 'NFP',
+  'KXFOMC': 'FOMC',
+  'KXFEDFUNDS': 'FED_RATE',
+  'KXUNEMPLOYMENT': 'UNEMPLOYMENT',
+  // Stocks
+  'KXSPY': 'SP500',
+  'KXTSLA': 'TSLA',
+  'KXAAPL': 'AAPL',
+  'KXNVDA': 'NVDA',
+  // Political
+  'KXPRES': 'US_PRESIDENTIAL_ELECTION',
+  'KXSENATE': 'US_SENATE',
+  'KXHOUSE': 'US_HOUSE',
+};
+
+/**
+ * Extract entity from Kalshi eventTicker prefix
+ * E.g., "KXETH-24JAN26" → "ETHEREUM"
+ */
+export function extractEntityFromKalshiTicker(eventTicker: string): string | null {
+  if (!eventTicker) return null;
+
+  // Try exact prefix match first
+  for (const [prefix, entity] of Object.entries(KALSHI_TICKER_MAP)) {
+    if (eventTicker.startsWith(prefix)) {
+      return entity;
+    }
+  }
+
+  // Try to extract crypto tickers from pattern like KXETH, KXBTC
+  const cryptoMatch = eventTicker.match(/^KX(ETH|BTC|SOL|DOGE|XRP|ADA|BNB|AVAX|MATIC|LINK|LTC)/i);
+  if (cryptoMatch) {
+    const ticker = cryptoMatch[1].toUpperCase();
+    return ENTITY_ALIASES[ticker.toLowerCase()] || ticker;
+  }
+
+  return null;
+}
 
 /**
  * Normalize a token using the alias map

@@ -7,7 +7,7 @@ import {
   IngestionRepository,
   type Venue as DbVenue,
 } from '@data-module/db';
-import { createAdapter, type VenueAdapter, type KalshiAuthConfig } from '../adapters/index.js';
+import { createAdapter, type VenueAdapter, type KalshiAuthConfig, KalshiAdapter } from '../adapters/index.js';
 
 export interface IngestOptions {
   venue: Venue;
@@ -59,35 +59,45 @@ export async function runIngestion(options: IngestOptions): Promise<IngestResult
       kalshiAuth: options.kalshiAuth,
     });
 
-    // Load checkpoint
-    const state = await ingestionRepo.getOrCreateState(venue as DbVenue, 'markets');
+    // Fetch markets - use fetchAllMarkets for Kalshi (supports catalog mode)
+    let allMarkets: MarketDTO[] = [];
 
-    // Fetch markets with pagination
-    const allMarkets: MarketDTO[] = [];
-    let cursor = state.cursor ?? undefined;
-    let totalFetched = 0;
+    if (adapter instanceof KalshiAdapter) {
+      // Kalshi: use fetchAllMarkets which supports catalog mode
+      allMarkets = await adapter.fetchAllMarkets((progress) => {
+        console.log(`[${venue}] Progress: ${progress.totalMarkets} markets fetched`);
+        if (progress.seriesFetched !== undefined) {
+          console.log(`[${venue}] Series: ${progress.seriesFetched}, Events: ${progress.eventsFetched}`);
+        }
+      });
+    } else {
+      // Other venues: use pagination
+      const state = await ingestionRepo.getOrCreateState(venue as DbVenue, 'markets');
+      let cursor = state.cursor ?? undefined;
+      let totalFetched = 0;
 
-    while (totalFetched < maxMarkets) {
-      console.log(`[${venue}] Fetching markets (cursor: ${cursor ?? 'start'})...`);
+      while (totalFetched < maxMarkets) {
+        console.log(`[${venue}] Fetching markets (cursor: ${cursor ?? 'start'})...`);
 
-      const result = await adapter.fetchMarkets({ cursor, limit: pageSize });
-      allMarkets.push(...result.items);
-      totalFetched += result.items.length;
+        const result = await adapter.fetchMarkets({ cursor, limit: pageSize });
+        allMarkets.push(...result.items);
+        totalFetched += result.items.length;
 
-      console.log(`[${venue}] Fetched ${result.items.length} markets (total: ${totalFetched})`);
+        console.log(`[${venue}] Fetched ${result.items.length} markets (total: ${totalFetched})`);
 
-      // Update cursor checkpoint
-      if (result.nextCursor) {
-        await ingestionRepo.updateCursor(venue as DbVenue, 'markets', result.nextCursor);
-        cursor = result.nextCursor;
-      } else {
-        // Reset cursor when we've fetched all
-        await ingestionRepo.updateCursor(venue as DbVenue, 'markets', null);
-        break;
+        // Update cursor checkpoint
+        if (result.nextCursor) {
+          await ingestionRepo.updateCursor(venue as DbVenue, 'markets', result.nextCursor);
+          cursor = result.nextCursor;
+        } else {
+          // Reset cursor when we've fetched all
+          await ingestionRepo.updateCursor(venue as DbVenue, 'markets', null);
+          break;
+        }
+
+        // Respect rate limits
+        await new Promise((r) => setTimeout(r, 100));
       }
-
-      // Respect rate limits
-      await new Promise((r) => setTimeout(r, 100));
     }
 
     stats.marketsFetched = allMarkets.length;

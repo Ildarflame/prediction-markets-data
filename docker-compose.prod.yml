@@ -46,9 +46,22 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-datamodule}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-datamodule}?schema=public
+      NODE_ENV: production
+      # Kalshi API credentials
       KALSHI_API_KEY_ID: ${KALSHI_API_KEY_ID}
       KALSHI_PRIVATE_KEY_PEM: ${KALSHI_PRIVATE_KEY_PEM}
-      NODE_ENV: production
+      # Kalshi ingestion settings (v1.2.2)
+      KALSHI_BASE_URL: ${KALSHI_BASE_URL:-}
+      KALSHI_USE_DEMO: ${KALSHI_USE_DEMO:-false}
+      KALSHI_MARKETS_LIMIT: ${KALSHI_MARKETS_LIMIT:-1000}
+      KALSHI_MAX_PAGES: ${KALSHI_MAX_PAGES:-0}
+      KALSHI_MODE: ${KALSHI_MODE:-markets}
+      KALSHI_SERIES_TICKERS: ${KALSHI_SERIES_TICKERS:-}
+      KALSHI_SERIES_CATEGORIES: ${KALSHI_SERIES_CATEGORIES:-}
+      KALSHI_EVENTS_STATUS: ${KALSHI_EVENTS_STATUS:-open,closed}
+      KALSHI_WITH_NESTED_MARKETS: ${KALSHI_WITH_NESTED_MARKETS:-true}
+      KALSHI_GLOBAL_CAP_MARKETS: ${KALSHI_GLOBAL_CAP_MARKETS:-100000}
+      # Dedup settings
       DEDUP_EPSILON_KALSHI: ${DEDUP_EPSILON_KALSHI:-0.001}
       DEDUP_MIN_INTERVAL_SECONDS_KALSHI: ${DEDUP_MIN_INTERVAL_SECONDS_KALSHI:-60}
     command: ["node", "services/worker/dist/cli.js", "ingest", "-v", "kalshi", "-m", "loop", "-i", "${INGEST_INTERVAL_SECONDS:-60}"]

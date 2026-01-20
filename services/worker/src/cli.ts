@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -274,14 +274,17 @@ program
   .command('suggest-matches')
   .description('Find potential market matches between venues (v2: fingerprint-based)')
   .requiredOption('--from <venue>', `Source venue (${getSupportedVenues().join(', ')})`)
-  .requiredOption('--to <venue>', `Target venue (${getSupportedVenues().join(', ')})`)
-  .option('--min-score <number>', 'Minimum match score (0-1)', '0.55')
+  .option('--to <venue>', `Target venue (${getSupportedVenues().join(', ')})`)
+  .option('--min-score <number>', 'Minimum match score (0-1)', '0.6')
   .option('--top-k <number>', 'Top K matches per source market', '10')
   .option('--lookback-hours <hours>', 'Include closed markets within N hours', '24')
   .option('--limit-left <number>', 'Max source markets to process', '2000')
+  .option('--limit-right <number>', 'Max target markets to fetch', '20000')
   .option('--debug-one <marketId>', 'Debug single market: show top 20 candidates with breakdown')
   .option('--require-overlap-keywords', 'Skip pairs with no keyword overlap (default: true)', true)
   .option('--no-require-overlap-keywords', 'Disable keyword overlap prefilter')
+  .option('--exclude-sports', 'Exclude sports/esports markets (default: true)', true)
+  .option('--no-exclude-sports', 'Disable sports/esports exclusion filter')
   .action(async (opts) => {
     const supportedVenues = getSupportedVenues();
 
@@ -290,12 +293,15 @@ program
       process.exit(1);
     }
 
-    if (!supportedVenues.includes(opts.to)) {
-      console.error(`Invalid --to venue: ${opts.to}. Supported: ${supportedVenues.join(', ')}`);
+    // Default --to to the other venue
+    const toVenue = opts.to || (opts.from === 'polymarket' ? 'kalshi' : 'polymarket');
+
+    if (!supportedVenues.includes(toVenue)) {
+      console.error(`Invalid --to venue: ${toVenue}. Supported: ${supportedVenues.join(', ')}`);
       process.exit(1);
     }
 
-    if (opts.from === opts.to) {
+    if (opts.from === toVenue) {
       console.error('--from and --to must be different venues');
       process.exit(1);
     }
@@ -303,13 +309,15 @@ program
     try {
       const result = await runSuggestMatches({
         fromVenue: opts.from as Venue,
-        toVenue: opts.to as Venue,
+        toVenue: toVenue as Venue,
         minScore: parseFloat(opts.minScore),
         topK: parseInt(opts.topK, 10),
         lookbackHours: parseInt(opts.lookbackHours, 10),
         limitLeft: parseInt(opts.limitLeft, 10),
+        limitRight: parseInt(opts.limitRight, 10),
         debugMarketId: opts.debugOne ? parseInt(opts.debugOne, 10) : undefined,
         requireOverlapKeywords: opts.requireOverlapKeywords,
+        excludeSports: opts.excludeSports,
       });
 
       if (result.errors.length > 0) {
@@ -466,6 +474,44 @@ program
       await runOverlapReport({ keywords });
     } catch (error) {
       console.error('Overlap report error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Kalshi metadata sample command
+program
+  .command('kalshi:meta-sample')
+  .description('Sample Kalshi market metadata to understand available fields')
+  .option('--limit <number>', 'Number of markets to sample', '20')
+  .action(async (opts) => {
+    try {
+      await runMetaSample({
+        venue: 'kalshi',
+        limit: parseInt(opts.limit, 10),
+      });
+    } catch (error) {
+      console.error('Meta sample error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Polymarket metadata sample command
+program
+  .command('polymarket:meta-sample')
+  .description('Sample Polymarket market metadata to understand available fields')
+  .option('--limit <number>', 'Number of markets to sample', '20')
+  .action(async (opts) => {
+    try {
+      await runMetaSample({
+        venue: 'polymarket',
+        limit: parseInt(opts.limit, 10),
+      });
+    } catch (error) {
+      console.error('Meta sample error:', error);
       process.exit(1);
     } finally {
       await disconnect();

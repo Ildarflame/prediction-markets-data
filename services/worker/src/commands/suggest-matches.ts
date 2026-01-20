@@ -5,6 +5,7 @@ import {
   entityScore,
   numberScore,
   dateScore,
+  passesDateGate,
   tokenize,
   jaccard,
   type MarketFingerprint,
@@ -18,6 +19,107 @@ import {
 } from '@data-module/db';
 import { distance } from 'fastest-levenshtein';
 
+/**
+ * Sports exclusion patterns for Kalshi
+ * Based on eventTicker prefixes that indicate sports/esports markets
+ */
+export const KALSHI_SPORTS_PREFIXES = [
+  'KXMVESPORT',   // Esports multi-game
+  'KXMVENBASI',   // NBA parlays
+  'KXNCAAMBGA',   // NCAA basketball
+  'KXTABLETEN',   // Table tennis
+  'KXNBAREB',     // NBA rebounds
+  'KXNFL',        // NFL
+];
+
+/**
+ * Keywords in title that indicate sports/esports markets
+ */
+export const SPORTS_TITLE_KEYWORDS = [
+  // Player stat patterns (e.g., "yes Player: 10+")
+  'yes ',         // Parlay format starts with "yes"
+  ': 1+', ': 2+', ': 3+', ': 4+', ': 5+', ': 6+', ': 7+', ': 8+', ': 9+',
+  ': 10+', ': 15+', ': 20+', ': 25+', ': 30+', ': 40+', ': 50+',
+  'points scored', 'wins by over', 'wins by under',
+  'first quarter', 'second quarter', 'third quarter', 'fourth quarter',
+  'steals', 'rebounds', 'assists', 'touchdowns', 'yards',
+  'kill handicap', 'tower handicap', 'map handicap', // Esports
+];
+
+/**
+ * Esports exclusion patterns for Polymarket
+ */
+export const POLYMARKET_ESPORTS_KEYWORDS = [
+  'kill handicap', 'tower handicap', 'map handicap',
+  'ninjas in pyjamas', 'team we', 'forze', 'sangal',
+  'esports', 'dota', 'league of legends', 'cs:go', 'valorant',
+];
+
+/**
+ * Extended market info with metadata for filtering
+ */
+interface MarketWithMeta extends EligibleMarket {
+  metadata?: Record<string, unknown> | null;
+}
+
+/**
+ * Check if a Kalshi market should be excluded based on eventTicker prefix
+ */
+function isKalshiSportsMarket(metadata: Record<string, unknown> | null | undefined, prefixes: string[]): boolean {
+  if (!metadata) return false;
+  const eventTicker = metadata.eventTicker || metadata.event_ticker;
+  if (typeof eventTicker !== 'string') return false;
+
+  return prefixes.some(prefix => eventTicker.startsWith(prefix));
+}
+
+/**
+ * Check if a market title contains sports keywords
+ */
+function hasSportsTitleKeyword(title: string, keywords: string[]): boolean {
+  const lowerTitle = title.toLowerCase();
+  return keywords.some(keyword => lowerTitle.includes(keyword.toLowerCase()));
+}
+
+/**
+ * Filter out sports markets from eligible markets
+ */
+function filterSportsMarkets(
+  markets: MarketWithMeta[],
+  venue: string,
+  options: {
+    excludeKalshiPrefixes?: string[];
+    excludeTitleKeywords?: string[];
+  }
+): { filtered: EligibleMarket[]; stats: { prefixExcluded: number; keywordExcluded: number } } {
+  const { excludeKalshiPrefixes = [], excludeTitleKeywords = [] } = options;
+  const filtered: EligibleMarket[] = [];
+  let prefixExcluded = 0;
+  let keywordExcluded = 0;
+
+  for (const market of markets) {
+    // Check Kalshi eventTicker prefix
+    if (venue === 'kalshi' && excludeKalshiPrefixes.length > 0) {
+      if (isKalshiSportsMarket(market.metadata, excludeKalshiPrefixes)) {
+        prefixExcluded++;
+        continue;
+      }
+    }
+
+    // Check title keywords
+    if (excludeTitleKeywords.length > 0) {
+      if (hasSportsTitleKeyword(market.title, excludeTitleKeywords)) {
+        keywordExcluded++;
+        continue;
+      }
+    }
+
+    filtered.push(market);
+  }
+
+  return { filtered, stats: { prefixExcluded, keywordExcluded } };
+}
+
 export interface SuggestMatchesOptions {
   fromVenue: CoreVenue;
   toVenue: CoreVenue;
@@ -25,8 +127,14 @@ export interface SuggestMatchesOptions {
   topK?: number;
   lookbackHours?: number;
   limitLeft?: number;
+  limitRight?: number;
   debugMarketId?: number;
   requireOverlapKeywords?: boolean;
+  targetKeywords?: string[];
+  // Sports exclusion options
+  excludeSports?: boolean;
+  excludeKalshiPrefixes?: string[];
+  excludeTitleKeywords?: string[];
 }
 
 export interface SuggestMatchesResult {
@@ -37,6 +145,7 @@ export interface SuggestMatchesResult {
   suggestionsUpdated: number;
   skippedConfirmed: number;
   skippedNoOverlap: number;
+  skippedDateGate: number;
   errors: string[];
 }
 
@@ -194,17 +303,31 @@ function fuzzyTitleScore(titleA: string, titleB: string): number {
 /**
  * Calculate weighted match score using multiple signals
  * Weights: 0.35 entity + 0.25 date + 0.25 number + 0.10 fuzzy + 0.05 jaccard
+ * Returns score=0 if date gate fails for PRICE_DATE markets
  */
 function calculateMatchScore(
   left: IndexedMarket,
   right: IndexedMarket
-): { score: number; reason: string; breakdown: Record<string, number> } {
+): { score: number; reason: string; breakdown: Record<string, number>; dateGateFailed: boolean } {
+  // Date gating check - strict matching for PRICE_DATE markets
+  const leftDate = left.fingerprint.dates[0];
+  const rightDate = right.fingerprint.dates[0];
+  const passesGate = passesDateGate(leftDate, rightDate, left.fingerprint.intent, right.fingerprint.intent);
+
+  // If date gate fails for date-sensitive markets, return 0 score
+  if (!passesGate) {
+    return {
+      score: 0,
+      reason: `DATE_GATE_FAIL (${left.fingerprint.intent}/${right.fingerprint.intent})`,
+      breakdown: { entity: 0, date: 0, number: 0, fuzzy: 0, jaccard: 0 },
+      dateGateFailed: true,
+    };
+  }
+
   // Entity score (0-1)
   const entScore = entityScore(left.fingerprint.entities, right.fingerprint.entities);
 
   // Date score (0-1)
-  const leftDate = left.fingerprint.dates[0];
-  const rightDate = right.fingerprint.dates[0];
   const dtScore = dateScore(leftDate, rightDate);
 
   // Number score (0-1)
@@ -236,7 +359,7 @@ function calculateMatchScore(
 
   const reason = `ent=${entScore.toFixed(2)} dt=${dtScore.toFixed(2)} num=${numScore.toFixed(2)} fz=${fzScore.toFixed(2)} jc=${jcScore.toFixed(2)}`;
 
-  return { score, reason, breakdown };
+  return { score, reason, breakdown, dateGateFailed: false };
 }
 
 /**
@@ -274,8 +397,17 @@ async function debugMarket(
   const leftFingerprint = buildFingerprint(leftMarket.title, leftMarket.closeTime);
   console.log(`  Entities: ${leftFingerprint.entities.join(', ') || 'none'}`);
   console.log(`  Numbers: ${leftFingerprint.numbers.join(', ') || 'none'}`);
-  console.log(`  Dates: ${leftFingerprint.dates.map(d => d.raw).join(', ') || 'none'}`);
+
+  // Show dates with precision
+  if (leftFingerprint.dates.length > 0) {
+    const dateInfo = leftFingerprint.dates.map(d => `${d.raw} (${d.precision})`).join(', ');
+    console.log(`  Dates: ${dateInfo}`);
+  } else {
+    console.log(`  Dates: none`);
+  }
+
   console.log(`  Comparator: ${leftFingerprint.comparator}`);
+  console.log(`  Intent: ${leftFingerprint.intent}`);
   console.log(`  Fingerprint: ${leftFingerprint.fingerprint}`);
 
   // Get target markets
@@ -307,48 +439,76 @@ async function debugMarket(
     reason: string;
     breakdown: Record<string, number>;
     fingerprint: MarketFingerprint;
+    dateGateFailed: boolean;
   }> = [];
+
+  let dateGateFailCount = 0;
 
   for (const rightId of candidateIds) {
     const rightIndexed = index.markets.get(rightId);
     if (!rightIndexed) continue;
 
     const result = calculateMatchScore(leftIndexed, rightIndexed);
+    if (result.dateGateFailed) {
+      dateGateFailCount++;
+    }
     scores.push({
       market: rightIndexed.market,
       score: result.score,
       reason: result.reason,
       breakdown: result.breakdown,
       fingerprint: rightIndexed.fingerprint,
+      dateGateFailed: result.dateGateFailed,
     });
   }
 
-  // Sort by score
-  scores.sort((a, b) => b.score - a.score);
+  // Sort by score (date gate failures at the bottom)
+  scores.sort((a, b) => {
+    if (a.dateGateFailed && !b.dateGateFailed) return 1;
+    if (!a.dateGateFailed && b.dateGateFailed) return -1;
+    return b.score - a.score;
+  });
+
+  console.log(`Date gate failures: ${dateGateFailCount}/${candidateIds.size} candidates`);
 
   // Show top 20
-  console.log(`Top 20 candidates:\n`);
-  console.log('Rank | Score | Entity | Date   | Number | Fuzzy  | Jaccard | Title');
-  console.log('-'.repeat(120));
+  console.log(`\nTop 20 candidates:\n`);
+  console.log('Rank | Score | Gate | Intent      | Entity | Date   | Number | Title');
+  console.log('-'.repeat(130));
 
   for (let i = 0; i < Math.min(20, scores.length); i++) {
     const s = scores[i];
-    const truncTitle = s.market.title.length > 50 ? s.market.title.slice(0, 47) + '...' : s.market.title;
+    const truncTitle = s.market.title.length > 45 ? s.market.title.slice(0, 42) + '...' : s.market.title;
+    const gateStatus = s.dateGateFailed ? 'FAIL' : 'OK  ';
+    const intent = s.fingerprint.intent.padEnd(11);
     console.log(
-      `${String(i + 1).padStart(4)} | ${s.score.toFixed(3)} | ${s.breakdown.entity.toFixed(3)}  | ${s.breakdown.date.toFixed(3)}  | ${s.breakdown.number.toFixed(3)}  | ${s.breakdown.fuzzy.toFixed(3)}  | ${s.breakdown.jaccard.toFixed(3)}   | ${truncTitle}`
+      `${String(i + 1).padStart(4)} | ${s.score.toFixed(3)} | ${gateStatus} | ${intent} | ${s.breakdown.entity.toFixed(3)}  | ${s.breakdown.date.toFixed(3)}  | ${s.breakdown.number.toFixed(3)}  | ${truncTitle}`
     );
   }
 
   console.log('\nDetailed top 5:\n');
   for (let i = 0; i < Math.min(5, scores.length); i++) {
     const s = scores[i];
-    console.log(`#${i + 1} (score=${s.score.toFixed(4)}):`);
+    const gateIcon = s.dateGateFailed ? '❌' : '✓';
+    console.log(`#${i + 1} (score=${s.score.toFixed(4)}) ${gateIcon}:`);
     console.log(`  Title: ${s.market.title}`);
     console.log(`  ID: ${s.market.id}`);
+    console.log(`  Intent: ${s.fingerprint.intent}`);
     console.log(`  Entities: ${s.fingerprint.entities.join(', ') || 'none'}`);
     console.log(`  Numbers: ${s.fingerprint.numbers.join(', ') || 'none'}`);
-    console.log(`  Dates: ${s.fingerprint.dates.map(d => d.raw).join(', ') || 'none'}`);
+
+    // Show dates with precision
+    if (s.fingerprint.dates.length > 0) {
+      const dateInfo = s.fingerprint.dates.map(d => `${d.raw} (${d.precision})`).join(', ');
+      console.log(`  Dates: ${dateInfo}`);
+    } else {
+      console.log(`  Dates: none`);
+    }
+
     console.log(`  Breakdown: ${s.reason}`);
+    if (s.dateGateFailed) {
+      console.log(`  Status: DATE_GATE_FAILED - intents: source=${leftFingerprint.intent}, target=${s.fingerprint.intent}`);
+    }
     console.log('');
   }
 }
@@ -356,16 +516,30 @@ async function debugMarket(
 /**
  * Run suggest-matches job with fingerprint-based matching
  */
+// Default keywords for matching political/economic markets
+const MATCHING_KEYWORDS = [
+  'trump', 'biden', 'harris', 'election', 'president', 'congress', 'senate', 'house',
+  'bitcoin', 'btc', 'ethereum', 'eth', 'crypto',
+  'cpi', 'gdp', 'inflation', 'fed', 'rate',
+  'ukraine', 'russia', 'china', 'war',
+];
+
 export async function runSuggestMatches(options: SuggestMatchesOptions): Promise<SuggestMatchesResult> {
   const {
     fromVenue,
     toVenue,
-    minScore = 0.55,
+    minScore = 0.6,  // Raised from 0.55 for better quality
     topK = 10,
     lookbackHours = 24,
     limitLeft = 2000,
+    limitRight = 20000,
     debugMarketId,
     requireOverlapKeywords = true,
+    targetKeywords = MATCHING_KEYWORDS,
+    // Sports exclusion options - enabled by default
+    excludeSports = true,
+    excludeKalshiPrefixes = excludeSports ? KALSHI_SPORTS_PREFIXES : [],
+    excludeTitleKeywords = excludeSports ? SPORTS_TITLE_KEYWORDS : [],
   } = options;
 
   // Handle debug mode
@@ -379,6 +553,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       suggestionsUpdated: 0,
       skippedConfirmed: 0,
       skippedNoOverlap: 0,
+      skippedDateGate: 0,
       errors: [],
     };
   }
@@ -395,27 +570,59 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     suggestionsUpdated: 0,
     skippedConfirmed: 0,
     skippedNoOverlap: 0,
+    skippedDateGate: 0,
     errors: [],
   };
 
   console.log(`[matching] Starting suggest-matches v2: ${fromVenue} -> ${toVenue}`);
-  console.log(`[matching] minScore=${minScore}, topK=${topK}, lookbackHours=${lookbackHours}, limitLeft=${limitLeft}, requireOverlap=${requireOverlapKeywords}`);
+  console.log(`[matching] minScore=${minScore}, topK=${topK}, lookbackHours=${lookbackHours}, limitLeft=${limitLeft}, limitRight=${limitRight}, requireOverlap=${requireOverlapKeywords}`);
+  console.log(`[matching] Target keywords: ${targetKeywords.slice(0, 10).join(', ')}${targetKeywords.length > 10 ? '...' : ''}`);
+  console.log(`[matching] Sports exclusion: ${excludeSports ? 'enabled' : 'disabled'} (prefixes: ${excludeKalshiPrefixes.length}, keywords: ${excludeTitleKeywords.length})`);
 
   try {
     // Fetch eligible markets from both venues
     console.log(`[matching] Fetching eligible markets from ${fromVenue}...`);
-    const leftMarkets = await marketRepo.listEligibleMarkets(fromVenue as Venue, {
+    let leftMarkets = await marketRepo.listEligibleMarkets(fromVenue as Venue, {
       lookbackHours,
       limit: limitLeft,
+      titleKeywords: targetKeywords,
     });
+    const leftBeforeFilter = leftMarkets.length;
+
+    // Apply sports filtering to left markets (Polymarket)
+    if (excludeTitleKeywords.length > 0) {
+      const polyKeywords = fromVenue === 'polymarket' ? [...excludeTitleKeywords, ...POLYMARKET_ESPORTS_KEYWORDS] : excludeTitleKeywords;
+      const { filtered, stats } = filterSportsMarkets(leftMarkets, fromVenue, {
+        excludeKalshiPrefixes: fromVenue === 'kalshi' ? excludeKalshiPrefixes : [],
+        excludeTitleKeywords: polyKeywords,
+      });
+      leftMarkets = filtered;
+      if (stats.prefixExcluded > 0 || stats.keywordExcluded > 0) {
+        console.log(`[matching] ${fromVenue} filtered: ${leftBeforeFilter} -> ${leftMarkets.length} (prefix: -${stats.prefixExcluded}, keyword: -${stats.keywordExcluded})`);
+      }
+    }
     result.leftCount = leftMarkets.length;
     console.log(`[matching] Found ${leftMarkets.length} eligible markets from ${fromVenue}`);
 
-    console.log(`[matching] Fetching eligible markets from ${toVenue}...`);
-    const rightMarkets = await marketRepo.listEligibleMarkets(toVenue as Venue, {
+    console.log(`[matching] Fetching eligible markets from ${toVenue} (filtering by keywords)...`);
+    let rightMarkets = await marketRepo.listEligibleMarkets(toVenue as Venue, {
       lookbackHours,
-      limit: 10000,
+      limit: limitRight,
+      titleKeywords: targetKeywords,
     });
+    const rightBeforeFilter = rightMarkets.length;
+
+    // Apply sports filtering to right markets (Kalshi)
+    if (excludeKalshiPrefixes.length > 0 || excludeTitleKeywords.length > 0) {
+      const { filtered, stats } = filterSportsMarkets(rightMarkets, toVenue, {
+        excludeKalshiPrefixes: toVenue === 'kalshi' ? excludeKalshiPrefixes : [],
+        excludeTitleKeywords,
+      });
+      rightMarkets = filtered;
+      if (stats.prefixExcluded > 0 || stats.keywordExcluded > 0) {
+        console.log(`[matching] ${toVenue} filtered: ${rightBeforeFilter} -> ${rightMarkets.length} (prefix: -${stats.prefixExcluded}, keyword: -${stats.keywordExcluded})`);
+      }
+    }
     result.rightCount = rightMarkets.length;
     console.log(`[matching] Found ${rightMarkets.length} eligible markets from ${toVenue}`);
 
@@ -484,6 +691,12 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
 
         const matchResult = calculateMatchScore(leftIndexed, rightIndexed);
 
+        // Track date gate failures
+        if (matchResult.dateGateFailed) {
+          result.skippedDateGate++;
+          continue;
+        }
+
         if (matchResult.score >= minScore) {
           scores.push({
             rightId,
@@ -531,6 +744,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     console.log(`  Right markets (${toVenue}): ${result.rightCount}`);
     console.log(`  Skipped (already confirmed): ${result.skippedConfirmed}`);
     console.log(`  Skipped (no keyword overlap): ${result.skippedNoOverlap}`);
+    console.log(`  Skipped (date gate): ${result.skippedDateGate}`);
     console.log(`  Candidates considered: ${result.candidatesConsidered}`);
     console.log(`  Suggestions created: ${result.suggestionsCreated}`);
     console.log(`  Suggestions updated: ${result.suggestionsUpdated}`);

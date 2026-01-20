@@ -313,26 +313,48 @@ export class MarketRepository {
     options: {
       lookbackHours?: number;
       limit?: number;
+      titleKeywords?: string[];
     } = {}
   ): Promise<EligibleMarket[]> {
-    const { lookbackHours = 24, limit = 5000 } = options;
+    const { lookbackHours = 24, limit = 5000, titleKeywords } = options;
     const lookbackCutoff = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
 
-    // Get markets with outcomes
-    const markets = await this.prisma.market.findMany({
-      where: {
-        venue,
-        OR: [
-          { status: 'active' },
+    // Build where clause
+    const statusConditions = [
+      { status: 'active' as const },
+      {
+        status: 'closed' as const,
+        closeTime: { gte: lookbackCutoff },
+      },
+    ];
+
+    // Add keyword filter if specified (use AND to combine with status)
+    let whereClause: any = {
+      venue,
+      OR: statusConditions,
+    };
+
+    if (titleKeywords && titleKeywords.length > 0) {
+      whereClause = {
+        AND: [
+          { venue },
+          { OR: statusConditions },
           {
-            status: 'closed',
-            closeTime: { gte: lookbackCutoff },
+            OR: titleKeywords.map(kw => ({
+              title: { contains: kw, mode: 'insensitive' as const },
+            })),
           },
         ],
-      },
+      };
+    }
+
+    // Get markets with outcomes (order by ID desc to get newer markets first)
+    const markets = await this.prisma.market.findMany({
+      where: whereClause,
       include: {
         outcomes: true,
       },
+      orderBy: { id: 'desc' },
       take: limit,
     });
 
@@ -354,6 +376,7 @@ export class MarketRepository {
         category: market.category,
         closeTime: market.closeTime,
         venue: market.venue,
+        metadata: market.metadata as Record<string, unknown> | null,
       });
     }
 
@@ -370,4 +393,5 @@ export interface EligibleMarket {
   category: string | null;
   closeTime: Date | null;
   venue: Venue;
+  metadata?: Record<string, unknown> | null;
 }

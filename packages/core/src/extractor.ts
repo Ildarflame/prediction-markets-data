@@ -15,6 +15,26 @@ export enum Comparator {
 }
 
 /**
+ * Market intent classification for matching rules
+ */
+export enum MarketIntent {
+  PRICE_DATE = 'PRICE_DATE',   // "ETH $3700 by Jan 26" - requires strict date match
+  ELECTION = 'ELECTION',       // "Trump wins 2024" - year-level match
+  METRIC_DATE = 'METRIC_DATE', // "CPI above 3% in Dec" - month-level match
+  GENERAL = 'GENERAL',         // Generic market - flexible date matching
+}
+
+/**
+ * Date precision level
+ */
+export enum DatePrecision {
+  DAY = 'DAY',
+  MONTH = 'MONTH',
+  QUARTER = 'QUARTER',
+  YEAR = 'YEAR',
+}
+
+/**
  * Extracted date with optional components
  */
 export interface ExtractedDate {
@@ -22,6 +42,7 @@ export interface ExtractedDate {
   month?: number;
   day?: number;
   raw: string;
+  precision: DatePrecision;
 }
 
 /**
@@ -32,6 +53,7 @@ export interface MarketFingerprint {
   numbers: number[];
   dates: ExtractedDate[];
   comparator: Comparator;
+  intent: MarketIntent;
   fingerprint: string;
 }
 
@@ -184,7 +206,32 @@ export function extractDates(title: string): ExtractedDate[] {
     const year = parseInt(match[3], 10);
 
     if (month && day >= 1 && day <= 31 && year >= 2020 && year <= 2030) {
-      dates.push({ year, month, day, raw: match[0] });
+      dates.push({ year, month, day, raw: match[0], precision: DatePrecision.DAY });
+    }
+  }
+
+  // Pattern: Month Day (without year) - Dec 31, Jan 26
+  const monthDayPattern = /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?\b/gi;
+
+  while ((match = monthDayPattern.exec(title)) !== null) {
+    const monthName = match[1].toLowerCase();
+    const month = MONTH_MAP[monthName] || MONTH_MAP[monthName.slice(0, 3)];
+    const day = parseInt(match[2], 10);
+
+    if (month && day >= 1 && day <= 31) {
+      // Check if this wasn't already captured with a year
+      const alreadyHasYear = dates.some(d => d.month === month && d.day === day && d.year);
+      if (!alreadyHasYear) {
+        // Infer year based on current date - assume near future
+        const now = new Date();
+        let year = now.getFullYear();
+        const potentialDate = new Date(year, month - 1, day);
+        // If date is more than 3 months in the past, assume next year
+        if (potentialDate.getTime() < now.getTime() - 90 * 24 * 60 * 60 * 1000) {
+          year++;
+        }
+        dates.push({ year, month, day, raw: match[0], precision: DatePrecision.DAY });
+      }
     }
   }
 
@@ -200,7 +247,7 @@ export function extractDates(title: string): ExtractedDate[] {
       // Check if this wasn't already captured with a day
       const alreadyHasDay = dates.some(d => d.year === year && d.month === month && d.day);
       if (!alreadyHasDay) {
-        dates.push({ year, month, raw: match[0] });
+        dates.push({ year, month, raw: match[0], precision: DatePrecision.MONTH });
       }
     }
   }
@@ -211,7 +258,7 @@ export function extractDates(title: string): ExtractedDate[] {
   while ((match = endOfYearPattern.exec(title)) !== null) {
     const year = parseInt(match[1], 10);
     if (year >= 2020 && year <= 2030) {
-      dates.push({ year, month: 12, day: 31, raw: match[0] });
+      dates.push({ year, month: 12, day: 31, raw: match[0], precision: DatePrecision.YEAR });
     }
   }
 
@@ -228,7 +275,8 @@ export function extractDates(title: string): ExtractedDate[] {
         year,
         month: quarterEndMonth[quarter],
         day: quarterEndDay[quarter],
-        raw: match[0]
+        raw: match[0],
+        precision: DatePrecision.QUARTER,
       });
     }
   }
@@ -243,7 +291,7 @@ export function extractDates(title: string): ExtractedDate[] {
       if (beforeMatch.includes('by') || beforeMatch.includes('in') ||
           beforeMatch.includes('before') || beforeMatch.includes('until') ||
           beforeMatch.includes('during')) {
-        dates.push({ year, raw: match[0] });
+        dates.push({ year, raw: match[0], precision: DatePrecision.YEAR });
       }
     }
   }
@@ -255,7 +303,7 @@ export function extractDates(title: string): ExtractedDate[] {
     const month = parseInt(match[2], 10);
     const day = parseInt(match[3], 10);
     if (year >= 2020 && year <= 2030 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-      dates.push({ year, month, day, raw: match[0] });
+      dates.push({ year, month, day, raw: match[0], precision: DatePrecision.DAY });
     }
   }
 
@@ -299,6 +347,51 @@ export function extractComparator(title: string): Comparator {
   return Comparator.UNKNOWN;
 }
 
+// Crypto/price tickers for PRICE_DATE detection
+const PRICE_TICKERS = ['BTC', 'BITCOIN', 'ETH', 'ETHEREUM', 'SOL', 'SOLANA', 'XRP', 'DOGE', 'ADA'];
+
+// Election keywords for ELECTION detection
+const ELECTION_KEYWORDS = ['win', 'wins', 'winner', 'elected', 'election', 'president', 'presidential', 'governor', 'senate', 'congress'];
+
+// Metric keywords for METRIC_DATE detection
+const METRIC_KEYWORDS = ['cpi', 'gdp', 'inflation', 'rate', 'unemployment', 'jobs', 'nonfarm'];
+
+/**
+ * Classify market intent based on title analysis
+ * Used to determine matching strictness
+ */
+export function classifyIntent(
+  title: string,
+  entities: string[],
+  numbers: number[],
+  dates: ExtractedDate[],
+  comparator: Comparator
+): MarketIntent {
+  const lower = title.toLowerCase();
+
+  // PRICE_DATE: crypto/asset + price number + specific date
+  // Examples: "ETH above $3700 by Jan 26", "BTC hits 100k by Dec 31"
+  const hasPriceTicker = entities.some(e => PRICE_TICKERS.includes(e.toUpperCase()));
+  const hasSignificantNumber = numbers.some(n => n >= 1000); // Price targets usually > 1000
+  const hasDayDate = dates.some(d => d.precision === DatePrecision.DAY);
+
+  if (hasPriceTicker && hasSignificantNumber && hasDayDate && (comparator === Comparator.GE || comparator === Comparator.LE)) {
+    return MarketIntent.PRICE_DATE;
+  }
+
+  // ELECTION: election-related keywords
+  if (ELECTION_KEYWORDS.some(kw => lower.includes(kw))) {
+    return MarketIntent.ELECTION;
+  }
+
+  // METRIC_DATE: economic metrics with date
+  if (METRIC_KEYWORDS.some(kw => lower.includes(kw)) && dates.length > 0) {
+    return MarketIntent.METRIC_DATE;
+  }
+
+  return MarketIntent.GENERAL;
+}
+
 /**
  * Build a fingerprint string for a market
  * Format: ENTITIES|NUMBER|DATE|COMPARATOR
@@ -308,6 +401,7 @@ export function buildFingerprint(title: string, closeTime?: Date | null): Market
   const numbers = extractNumbers(title);
   const dates = extractDates(title);
   const comparator = extractComparator(title);
+  const intent = classifyIntent(title, entities, numbers, dates, comparator);
 
   // Build fingerprint string
   const parts: string[] = [];
@@ -352,6 +446,7 @@ export function buildFingerprint(title: string, closeTime?: Date | null): Market
     numbers,
     dates,
     comparator,
+    intent,
     fingerprint: parts.join('|') || 'UNKNOWN',
   };
 }
@@ -405,6 +500,59 @@ export function dateScore(dateA: ExtractedDate | undefined, dateB: ExtractedDate
   }
 
   return 0;
+}
+
+/**
+ * Strict date gating for PRICE_DATE markets
+ * Returns false if dates don't match within tolerance for the given intent
+ *
+ * Rules:
+ * - PRICE_DATE: dates must match within 2 days
+ * - METRIC_DATE: dates must match within same month
+ * - ELECTION: dates must match within same year
+ * - GENERAL: no strict gating (always returns true)
+ */
+export function passesDateGate(
+  dateA: ExtractedDate | undefined,
+  dateB: ExtractedDate | undefined,
+  intentA: MarketIntent,
+  intentB: MarketIntent
+): boolean {
+  // If neither is a date-sensitive intent, no gating
+  const strictIntents = [MarketIntent.PRICE_DATE, MarketIntent.METRIC_DATE];
+  const hasStrict = strictIntents.includes(intentA) || strictIntents.includes(intentB);
+
+  if (!hasStrict) return true;
+
+  // If either lacks a date, can't verify - fail strict matching
+  if (!dateA || !dateB) return false;
+
+  // PRICE_DATE requires day-level match within 2 days
+  if (intentA === MarketIntent.PRICE_DATE || intentB === MarketIntent.PRICE_DATE) {
+    // Both must have day precision
+    if (dateA.precision !== DatePrecision.DAY || dateB.precision !== DatePrecision.DAY) {
+      return false;
+    }
+    if (!dateA.year || !dateA.month || !dateA.day || !dateB.year || !dateB.month || !dateB.day) {
+      return false;
+    }
+
+    const a = new Date(dateA.year, dateA.month - 1, dateA.day);
+    const b = new Date(dateB.year, dateB.month - 1, dateB.day);
+    const diffDays = Math.abs(a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24);
+
+    return diffDays <= 2;
+  }
+
+  // METRIC_DATE requires month-level match
+  if (intentA === MarketIntent.METRIC_DATE || intentB === MarketIntent.METRIC_DATE) {
+    if (!dateA.year || !dateA.month || !dateB.year || !dateB.month) {
+      return false;
+    }
+    return dateA.year === dateB.year && dateA.month === dateB.month;
+  }
+
+  return true;
 }
 
 /**
