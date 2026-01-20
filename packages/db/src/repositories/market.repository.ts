@@ -159,6 +159,57 @@ export class MarketRepository {
   }
 
   /**
+   * Get markets for quotes sync with pagination (for large datasets)
+   * Uses cursor-based pagination for round-robin access
+   */
+  async getMarketsForQuotesSyncPaginated(
+    venue: Venue,
+    options: {
+      closedLookbackHours?: number;
+      limit?: number;
+      afterId?: number;
+    } = {}
+  ): Promise<{ markets: MarketWithOutcomes[]; nextCursor: number | null; totalEligible: number }> {
+    const { closedLookbackHours = 24, limit = 2000, afterId } = options;
+    const lookbackCutoff = new Date(Date.now() - closedLookbackHours * 60 * 60 * 1000);
+
+    const whereClause = {
+      venue,
+      OR: [
+        { status: 'active' as const },
+        {
+          status: 'closed' as const,
+          closeTime: { gte: lookbackCutoff },
+        },
+      ],
+    };
+
+    // Get total count of eligible markets
+    const totalEligible = await this.prisma.market.count({ where: whereClause });
+
+    // Fetch paginated markets
+    const markets = await this.prisma.market.findMany({
+      where: {
+        ...whereClause,
+        ...(afterId ? { id: { gt: afterId } } : {}),
+      },
+      include: {
+        outcomes: true,
+      },
+      orderBy: { id: 'asc' },
+      take: limit,
+    });
+
+    // Determine next cursor
+    let nextCursor: number | null = null;
+    if (markets.length === limit) {
+      nextCursor = markets[markets.length - 1].id;
+    }
+
+    return { markets, nextCursor, totalEligible };
+  }
+
+  /**
    * Get market by venue and external ID
    */
   async getByExternalId(

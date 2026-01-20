@@ -90,6 +90,7 @@ async function syncMarkets(
 
 /**
  * Sync quotes only (for existing markets)
+ * Uses pagination to handle large market counts with round-robin cursor
  */
 async function syncQuotes(
   adapter: VenueAdapter,
@@ -97,15 +98,37 @@ async function syncQuotes(
   quoteRepo: QuoteRepository,
   ingestionRepo: IngestionRepository,
   venue: DbVenue,
-  closedLookbackHours: number
+  closedLookbackHours: number,
+  maxMarketsPerCycle: number
 ): Promise<SyncResult> {
   const startTime = Date.now();
 
   try {
-    const markets = await marketRepo.getMarketsForQuotesSync(venue, closedLookbackHours);
-    console.log(`[${venue}:quotes] Syncing quotes for ${markets.length} markets...`);
+    // Get current cursor from ingestion state for round-robin
+    const state = await ingestionRepo.getOrCreateState(venue, 'quotes');
+    const afterId = state.cursor ? parseInt(state.cursor, 10) : undefined;
+
+    // Fetch paginated markets
+    const { markets, nextCursor, totalEligible } = await marketRepo.getMarketsForQuotesSyncPaginated(
+      venue,
+      {
+        closedLookbackHours,
+        limit: maxMarketsPerCycle,
+        afterId: afterId && !isNaN(afterId) ? afterId : undefined,
+      }
+    );
+
+    console.log(
+      `[${venue}:quotes] Selected ${markets.length}/${totalEligible} eligible markets` +
+        (afterId ? ` (after ID ${afterId})` : '')
+    );
 
     if (markets.length === 0) {
+      // Reset cursor if we've reached the end or no markets
+      if (afterId) {
+        console.log(`[${venue}:quotes] Reached end of market list, resetting cursor`);
+        await ingestionRepo.updateCursor(venue, 'quotes', null);
+      }
       return { ok: true, durationMs: Date.now() - startTime };
     }
 
@@ -126,7 +149,7 @@ async function syncQuotes(
     }));
 
     const quotes = await adapter.fetchQuotes(marketDTOs);
-    console.log(`[${venue}:quotes] Fetched ${quotes.length} quotes`);
+    console.log(`[${venue}:quotes] Fetched ${quotes.length} quotes for ${markets.length} markets`);
 
     // Build outcome lookup
     const outcomeMap = new Map<string, number>();
@@ -167,6 +190,9 @@ async function syncQuotes(
       `[${venue}:quotes] Written: ${insertResult.inserted}, Skipped: ${insertResult.skipped}, InCycle: ${insertResult.skippedInCycle}`
     );
 
+    // Update cursor for round-robin (null if we've processed all, nextCursor for continuation)
+    await ingestionRepo.updateCursor(venue, 'quotes', nextCursor ? String(nextCursor) : null);
+
     await ingestionRepo.updateWatermark(venue, 'quotes', new Date());
     await ingestionRepo.markSuccess(venue, 'quotes', {
       marketsFetched: 0,
@@ -199,6 +225,7 @@ export async function runSplitIngestionLoop(config: SplitRunnerConfig): Promise<
     marketsRefreshSeconds,
     quotesRefreshSeconds,
     quotesClosedLookbackHours,
+    quotesMaxMarketsPerCycle = 2000,
   } = config;
   const dedupConfig = config.dedupConfig ?? DEFAULT_DEDUP_CONFIG;
 
@@ -214,7 +241,7 @@ export async function runSplitIngestionLoop(config: SplitRunnerConfig): Promise<
 
   console.log(`[${venue}] Starting split ingestion loop`);
   console.log(`[${venue}] Markets refresh: ${marketsRefreshSeconds}s, Quotes refresh: ${quotesRefreshSeconds}s`);
-  console.log(`[${venue}] Quotes closed lookback: ${quotesClosedLookbackHours}h`);
+  console.log(`[${venue}] Quotes closed lookback: ${quotesClosedLookbackHours}h, Max markets/cycle: ${quotesMaxMarketsPerCycle}`);
 
   let lastMarketsSync = 0;
   let lastQuotesSync = 0;
@@ -246,7 +273,8 @@ export async function runSplitIngestionLoop(config: SplitRunnerConfig): Promise<
         quoteRepo,
         ingestionRepo,
         venue as DbVenue,
-        quotesClosedLookbackHours
+        quotesClosedLookbackHours,
+        quotesMaxMarketsPerCycle
       );
       console.log(`[${venue}:quotes] Completed in ${formatDuration(result.durationMs)}`);
       lastQuotesSync = Date.now();
