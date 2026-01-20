@@ -7,7 +7,8 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch } from './commands/index.js';
+import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
 const program = new Command();
@@ -311,6 +312,76 @@ program
       }
     } catch (error) {
       console.error('Suggest matches error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// List suggestions command
+program
+  .command('list-suggestions')
+  .description('List market link suggestions')
+  .option('--min-score <number>', 'Minimum score filter', '0')
+  .option('--status <status>', 'Filter by status (suggested, confirmed, rejected)')
+  .option('--limit <number>', 'Maximum results to show', '50')
+  .action(async (opts) => {
+    try {
+      await runListSuggestions({
+        minScore: parseFloat(opts.minScore),
+        status: opts.status as LinkStatus | undefined,
+        limit: parseInt(opts.limit, 10),
+      });
+    } catch (error) {
+      console.error('List suggestions error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Show link command
+program
+  .command('show-link')
+  .description('Show details of a market link')
+  .requiredOption('--id <id>', 'Link ID to show')
+  .action(async (opts) => {
+    try {
+      await runShowLink(parseInt(opts.id, 10));
+    } catch (error) {
+      console.error('Show link error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Confirm match command
+program
+  .command('confirm-match')
+  .description('Confirm a market link suggestion')
+  .requiredOption('--id <id>', 'Link ID to confirm')
+  .action(async (opts) => {
+    try {
+      await runConfirmMatch(parseInt(opts.id, 10));
+    } catch (error) {
+      console.error('Confirm match error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Reject match command
+program
+  .command('reject-match')
+  .description('Reject a market link suggestion')
+  .requiredOption('--id <id>', 'Link ID to reject')
+  .action(async (opts) => {
+    try {
+      await runRejectMatch(parseInt(opts.id, 10));
+    } catch (error) {
+      console.error('Reject match error:', error);
       process.exit(1);
     } finally {
       await disconnect();

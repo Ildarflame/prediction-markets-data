@@ -4,3 +4,4 @@ export { runSanityCheck, type SanityOptions, type SanityResult } from './sanity.
 export { runHealthCheck, type HealthOptions, type HealthResult } from './health.js';
 export { runReconcile, type ReconcileOptions, type ReconcileResult } from './reconcile.js';
 export { runSuggestMatches, type SuggestMatchesOptions, type SuggestMatchesResult } from './suggest-matches.js';
+export { runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, type ListSuggestionsOptions } from './matching-review.js';
