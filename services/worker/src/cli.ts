@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -397,15 +397,78 @@ program
 program
   .command('kalshi-report')
   .description('Show Kalshi market coverage report (series, categories, statuses)')
-  .action(async () => {
-    // Load Kalshi auth if available
+  .option('--skip-markets', 'Skip fetching markets, only show series catalog')
+  .action(async (opts) => {
     const kalshiAuth = loadKalshiAuth();
 
     try {
-      await runKalshiReport({ kalshiAuth });
+      await runKalshiReport({ kalshiAuth, skipMarkets: opts.skipMarkets });
     } catch (error) {
       console.error('Kalshi report error:', error);
       process.exit(1);
+    }
+  });
+
+// Kalshi smoke test command
+program
+  .command('kalshi-smoke')
+  .description('Test Kalshi API access for specific market tickers')
+  .option('--tickers <tickers>', 'Comma-separated list of tickers to test')
+  .option('--known', 'Use known political/economic tickers')
+  .action(async (opts) => {
+    let tickers: string[];
+
+    if (opts.tickers) {
+      tickers = opts.tickers.split(',').map((t: string) => t.trim()).filter((t: string) => t.length > 0);
+    } else if (opts.known) {
+      tickers = KNOWN_POLITICAL_TICKERS;
+    } else {
+      console.error('Specify --tickers or --known');
+      process.exit(1);
+    }
+
+    try {
+      await runKalshiSmoke({ tickers });
+    } catch (error) {
+      console.error('Kalshi smoke test error:', error);
+      process.exit(1);
+    }
+  });
+
+// Kalshi discover series command
+program
+  .command('kalshi-discover')
+  .description('Discover all Kalshi series and their categories')
+  .action(async () => {
+    try {
+      await runKalshiDiscoverSeries();
+    } catch (error) {
+      console.error('Kalshi discover error:', error);
+      process.exit(1);
+    }
+  });
+
+// Overlap report command
+program
+  .command('overlap-report')
+  .description('Check keyword overlap between venues in database')
+  .option('--keywords <keywords>', 'Comma-separated list of keywords to check')
+  .action(async (opts) => {
+    let keywords: string[] = [];
+
+    if (opts.keywords) {
+      keywords = opts.keywords.split(',').map((k: string) => k.trim().toLowerCase()).filter((k: string) => k.length > 0);
+    } else {
+      keywords = DEFAULT_OVERLAP_KEYWORDS;
+    }
+
+    try {
+      await runOverlapReport({ keywords });
+    } catch (error) {
+      console.error('Overlap report error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
     }
   });
 

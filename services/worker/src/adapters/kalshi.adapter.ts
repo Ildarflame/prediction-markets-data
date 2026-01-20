@@ -11,9 +11,7 @@ import {
   parseRetryAfter,
 } from '@data-module/core';
 import { type VenueAdapter, type AdapterConfig, DEFAULT_ADAPTER_CONFIG } from './types.js';
-import { type KalshiConfig, loadKalshiConfig, formatKalshiConfig } from './kalshi.config.js';
-
-const KALSHI_API_BASE = 'https://api.elections.kalshi.com/trade-api/v2';
+import { type KalshiConfig, loadKalshiConfig, formatKalshiConfig, KALSHI_PROD_URL } from './kalshi.config.js';
 
 interface KalshiMarket {
   ticker: string;
@@ -99,12 +97,12 @@ export class KalshiAdapter implements VenueAdapter {
   private readonly auth?: KalshiAuthConfig;
 
   constructor(config: AdapterConfig = {}, auth?: KalshiAuthConfig, kalshiConfig?: KalshiConfig) {
+    this.kalshiConfig = kalshiConfig || loadKalshiConfig();
     this.config = {
       ...DEFAULT_ADAPTER_CONFIG,
       ...config,
-      baseUrl: config.baseUrl || KALSHI_API_BASE,
+      baseUrl: config.baseUrl || this.kalshiConfig.baseUrl || KALSHI_PROD_URL,
     };
-    this.kalshiConfig = kalshiConfig || loadKalshiConfig();
     this.auth = auth;
 
     console.log(formatKalshiConfig(this.kalshiConfig));
@@ -112,6 +110,13 @@ export class KalshiAdapter implements VenueAdapter {
     if (auth) {
       console.log('[kalshi] API authentication enabled');
     }
+  }
+
+  /**
+   * Get the base URL being used
+   */
+  getBaseUrl(): string {
+    return this.config.baseUrl;
   }
 
   /**
@@ -188,7 +193,7 @@ export class KalshiAdapter implements VenueAdapter {
    */
   private async fetchMarketsCatalogMode(onProgress?: (stats: KalshiFetchStats) => void): Promise<MarketDTO[]> {
     const allMarkets: MarketDTO[] = [];
-    const { seriesTickers, eventsStatus, withNestedMarkets, globalCapMarkets } = this.kalshiConfig;
+    const { seriesTickers, seriesCategories, eventsStatus, withNestedMarkets, globalCapMarkets } = this.kalshiConfig;
     const seenTickers = new Set<string>();
 
     console.log(`[kalshi] Starting catalog fetch mode`);
@@ -197,12 +202,22 @@ export class KalshiAdapter implements VenueAdapter {
     const series = await this.fetchAllSeries();
     console.log(`[kalshi] Found ${series.length} series`);
 
-    // Filter series if specific tickers requested
+    // Filter series by tickers if specified
     let targetSeries = series;
     if (seriesTickers.length > 0) {
       const tickerSet = new Set(seriesTickers.map(t => t.toUpperCase()));
       targetSeries = series.filter(s => tickerSet.has(s.ticker.toUpperCase()));
       console.log(`[kalshi] Filtered to ${targetSeries.length} series by tickers`);
+    }
+
+    // Filter series by categories if specified
+    if (seriesCategories.length > 0) {
+      const categorySet = new Set(seriesCategories.map(c => c.toLowerCase()));
+      targetSeries = targetSeries.filter(s => {
+        const cat = (s.category || '').toLowerCase();
+        return categorySet.has(cat) || seriesCategories.some(c => cat.includes(c));
+      });
+      console.log(`[kalshi] Filtered to ${targetSeries.length} series by categories: ${seriesCategories.join(', ')}`);
     }
 
     let eventsFetched = 0;
@@ -579,5 +594,63 @@ export class KalshiAdapter implements VenueAdapter {
 
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Smoke test: fetch a single market by ticker
+   * Returns status code and market info if successful
+   */
+  async smokeTestTicker(ticker: string): Promise<{
+    ticker: string;
+    status: number;
+    title?: string;
+    category?: string;
+    error?: string;
+  }> {
+    const url = `${this.config.baseUrl}/markets/${ticker}`;
+
+    try {
+      const response = await this.fetchWithTimeout(url);
+
+      if (response.ok) {
+        const data = await response.json() as { market: KalshiMarket };
+        return {
+          ticker,
+          status: response.status,
+          title: data.market?.title,
+          category: data.market?.category || data.market?.event_ticker,
+        };
+      }
+
+      return {
+        ticker,
+        status: response.status,
+        error: response.statusText,
+      };
+    } catch (err) {
+      return {
+        ticker,
+        status: 0,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  /**
+   * Get all series with categories (for discovery)
+   */
+  async getAllSeriesWithCategories(): Promise<Array<{
+    ticker: string;
+    title: string;
+    category: string;
+    tags: string[];
+  }>> {
+    const series = await this.fetchAllSeries();
+    return series.map(s => ({
+      ticker: s.ticker,
+      title: s.title,
+      category: s.category || 'unknown',
+      tags: s.tags || [],
+    }));
   }
 }

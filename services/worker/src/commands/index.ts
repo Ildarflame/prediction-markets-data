@@ -6,3 +6,5 @@ export { runReconcile, type ReconcileOptions, type ReconcileResult } from './rec
 export { runSuggestMatches, type SuggestMatchesOptions, type SuggestMatchesResult } from './suggest-matches.js';
 export { runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, type ListSuggestionsOptions } from './matching-review.js';
 export { runKalshiReport, type KalshiReportOptions } from './kalshi-report.js';
+export { runKalshiSmoke, runKalshiDiscoverSeries, type KalshiSmokeOptions, type KalshiSmokeResult, KNOWN_POLITICAL_TICKERS } from './kalshi-smoke.js';
+export { runOverlapReport, type OverlapReportOptions, type OverlapReportResult, DEFAULT_OVERLAP_KEYWORDS } from './overlap-report.js';

@@ -18,6 +18,9 @@
     "archive": "tsx src/cli.ts archive",
     "sanity": "tsx src/cli.ts sanity",
     "kalshi:report": "tsx src/cli.ts kalshi-report",
+    "kalshi:smoke": "tsx src/cli.ts kalshi-smoke",
+    "kalshi:discover": "tsx src/cli.ts kalshi-discover",
+    "overlap:report": "tsx src/cli.ts overlap-report",
     "db:migrate": "pnpm --filter @data-module/db db:migrate",
     "db:migrate:deploy": "pnpm --filter @data-module/db db:migrate:deploy",
     "db:generate": "pnpm --filter @data-module/db db:generate"
