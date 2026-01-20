@@ -2,7 +2,6 @@ import {
   getClient,
   MarketLinkRepository,
   type LinkStatus,
-  type MarketLinkWithMarkets,
 } from '@data-module/db';
 
 /**
@@ -176,7 +175,7 @@ export async function runRejectMatch(id: number): Promise<void> {
     console.log(`Warning: Link #${id} was confirmed, now rejecting`);
   }
 
-  const updated = await linkRepo.reject(id);
+  await linkRepo.reject(id);
   console.log(`Link #${id} rejected`);
   console.log(`  Left: ${truncate(link.leftMarket.title, 50)} (${link.leftVenue})`);
   console.log(`  Right: ${truncate(link.rightMarket.title, 50)} (${link.rightVenue})`);
