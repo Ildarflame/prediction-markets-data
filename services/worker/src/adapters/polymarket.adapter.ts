@@ -8,6 +8,8 @@ import {
   type OutcomeSide,
   withRetry,
   batch,
+  HttpError,
+  parseRetryAfter,
 } from '@data-module/core';
 import { type VenueAdapter, type AdapterConfig, DEFAULT_ADAPTER_CONFIG } from './types.js';
 
@@ -82,22 +84,27 @@ export class PolymarketAdapter implements VenueAdapter {
     url.searchParams.set('active', 'true');
     url.searchParams.set('closed', 'false');
 
-    const response = await withRetry(
-      () => this.fetchWithTimeout(url.toString()),
+    const data = await withRetry(
+      async () => {
+        const response = await this.fetchWithTimeout(url.toString());
+        if (!response.ok) {
+          const retryAfterMs = parseRetryAfter(response.headers.get('Retry-After'));
+          throw new HttpError(
+            `Gamma API error: ${response.status} ${response.statusText}`,
+            response.status,
+            retryAfterMs ? retryAfterMs / 1000 : undefined
+          );
+        }
+        return response.json() as Promise<GammaMarket[]>;
+      },
       {
-        maxAttempts: 3,
+        maxAttempts: 5,
         baseDelayMs: 1000,
-        onRetry: (err, attempt) => {
-          console.warn(`[polymarket] fetchMarkets retry ${attempt}: ${err.message}`);
+        onRetry: (err, attempt, delayMs) => {
+          console.warn(`[polymarket] fetchMarkets retry ${attempt} in ${delayMs}ms: ${err.message}`);
         },
       }
     );
-
-    if (!response.ok) {
-      throw new Error(`Gamma API error: ${response.status} ${response.statusText}`);
-    }
-
-    const data = (await response.json()) as GammaMarket[];
 
     const items: MarketDTO[] = data.map((m) => this.mapMarket(m));
 
@@ -179,24 +186,30 @@ export class PolymarketAdapter implements VenueAdapter {
   private async fetchBooks(tokenIds: string[]): Promise<ClobBook[]> {
     const url = `${CLOB_API_BASE}/books`;
 
-    const response = await withRetry(
-      () =>
-        this.fetchWithTimeout(url, {
+    return withRetry(
+      async () => {
+        const response = await this.fetchWithTimeout(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(tokenIds.map((id) => ({ token_id: id }))),
-        }),
+        });
+
+        if (!response.ok) {
+          const retryAfterMs = parseRetryAfter(response.headers.get('Retry-After'));
+          throw new HttpError(
+            `CLOB API error: ${response.status}`,
+            response.status,
+            retryAfterMs ? retryAfterMs / 1000 : undefined
+          );
+        }
+
+        return response.json() as Promise<ClobBook[]>;
+      },
       {
-        maxAttempts: 3,
+        maxAttempts: 5,
         baseDelayMs: 1000,
       }
     );
-
-    if (!response.ok) {
-      throw new Error(`CLOB API error: ${response.status}`);
-    }
-
-    return (await response.json()) as ClobBook[];
   }
 
   private mapMarket(m: GammaMarket): MarketDTO {

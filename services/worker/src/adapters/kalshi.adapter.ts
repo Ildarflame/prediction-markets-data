@@ -7,6 +7,8 @@ import {
   type MarketStatus,
   type OutcomeSide,
   withRetry,
+  HttpError,
+  parseRetryAfter,
 } from '@data-module/core';
 import { type VenueAdapter, type AdapterConfig, DEFAULT_ADAPTER_CONFIG } from './types.js';
 
@@ -85,22 +87,27 @@ export class KalshiAdapter implements VenueAdapter {
     }
 
     // Markets endpoint is public - no auth needed
-    const response = await withRetry(
-      () => this.fetchWithTimeout(url.toString()),
+    const data = await withRetry(
+      async () => {
+        const response = await this.fetchWithTimeout(url.toString());
+        if (!response.ok) {
+          const retryAfterMs = parseRetryAfter(response.headers.get('Retry-After'));
+          throw new HttpError(
+            `Kalshi API error: ${response.status} ${response.statusText}`,
+            response.status,
+            retryAfterMs ? retryAfterMs / 1000 : undefined
+          );
+        }
+        return response.json() as Promise<KalshiMarketsResponse>;
+      },
       {
-        maxAttempts: 3,
+        maxAttempts: 5,
         baseDelayMs: 1000,
-        onRetry: (err, attempt) => {
-          console.warn(`[kalshi] fetchMarkets retry ${attempt}: ${err.message}`);
+        onRetry: (err, attempt, delayMs) => {
+          console.warn(`[kalshi] fetchMarkets retry ${attempt} in ${delayMs}ms: ${err.message}`);
         },
       }
     );
-
-    if (!response.ok) {
-      throw new Error(`Kalshi API error: ${response.status} ${response.statusText}`);
-    }
-
-    const data = (await response.json()) as KalshiMarketsResponse;
 
     const items: MarketDTO[] = data.markets.map((m) => this.mapMarket(m));
 
@@ -187,19 +194,24 @@ export class KalshiAdapter implements VenueAdapter {
   private async fetchOrderbook(ticker: string): Promise<KalshiOrderbook> {
     const url = `${this.config.baseUrl}/markets/${ticker}/orderbook`;
 
-    const response = await withRetry(
-      () => this.fetchWithTimeout(url),
+    return withRetry(
+      async () => {
+        const response = await this.fetchWithTimeout(url);
+        if (!response.ok) {
+          const retryAfterMs = parseRetryAfter(response.headers.get('Retry-After'));
+          throw new HttpError(
+            `Kalshi orderbook API error: ${response.status}`,
+            response.status,
+            retryAfterMs ? retryAfterMs / 1000 : undefined
+          );
+        }
+        return response.json() as Promise<KalshiOrderbook>;
+      },
       {
-        maxAttempts: 3,
+        maxAttempts: 5,
         baseDelayMs: 1000,
       }
     );
-
-    if (!response.ok) {
-      throw new Error(`Kalshi orderbook API error: ${response.status}`);
-    }
-
-    return (await response.json()) as KalshiOrderbook;
   }
 
   /**

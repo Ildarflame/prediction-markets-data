@@ -128,22 +128,112 @@ export function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Retry a function with exponential backoff
+ * HTTP error with status code and optional Retry-After
+ */
+export class HttpError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode: number,
+    public readonly retryAfter?: number // seconds
+  ) {
+    super(message);
+    this.name = 'HttpError';
+  }
+}
+
+/**
+ * Check if an error is retriable
+ * Retriable: 429, 408, 5xx, network errors, timeouts
+ */
+export function isRetriableError(error: unknown): boolean {
+  if (error instanceof HttpError) {
+    const { statusCode } = error;
+    // 429 Too Many Requests, 408 Request Timeout, 5xx Server Errors
+    return statusCode === 429 || statusCode === 408 || statusCode >= 500;
+  }
+
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    // Network errors
+    if (
+      msg.includes('network') ||
+      msg.includes('econnreset') ||
+      msg.includes('econnrefused') ||
+      msg.includes('etimedout') ||
+      msg.includes('socket hang up') ||
+      msg.includes('timeout') ||
+      msg.includes('abort')
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Parse Retry-After header value
+ * Can be seconds (integer) or HTTP-date
+ * Returns delay in milliseconds, or undefined if invalid
+ */
+export function parseRetryAfter(value: string | null | undefined): number | undefined {
+  if (!value) return undefined;
+
+  // Try parsing as integer (seconds)
+  const seconds = parseInt(value, 10);
+  if (!isNaN(seconds) && seconds > 0) {
+    return seconds * 1000;
+  }
+
+  // Try parsing as HTTP-date
+  const date = Date.parse(value);
+  if (!isNaN(date)) {
+    const delayMs = date - Date.now();
+    return delayMs > 0 ? delayMs : undefined;
+  }
+
+  return undefined;
+}
+
+/**
+ * Calculate delay with exponential backoff + jitter
+ */
+export function calculateBackoffDelay(
+  attempt: number,
+  baseDelayMs: number,
+  maxDelayMs: number
+): number {
+  // Exponential backoff: base * 2^(attempt-1)
+  const exponentialDelay = baseDelayMs * Math.pow(2, attempt - 1);
+  // Cap at max
+  const cappedDelay = Math.min(exponentialDelay, maxDelayMs);
+  // Add jitter: random 0-25% of delay
+  const jitter = cappedDelay * Math.random() * 0.25;
+  return Math.floor(cappedDelay + jitter);
+}
+
+export interface RetryOptions {
+  maxAttempts?: number;
+  baseDelayMs?: number;
+  maxDelayMs?: number;
+  onRetry?: (error: Error, attempt: number, delayMs: number) => void;
+  shouldRetry?: (error: unknown) => boolean;
+}
+
+/**
+ * Retry a function with exponential backoff + jitter
+ * Respects Retry-After header if present
  */
 export async function withRetry<T>(
   fn: () => Promise<T>,
-  options: {
-    maxAttempts?: number;
-    baseDelayMs?: number;
-    maxDelayMs?: number;
-    onRetry?: (error: Error, attempt: number) => void;
-  } = {}
+  options: RetryOptions = {}
 ): Promise<T> {
   const {
-    maxAttempts = 3,
+    maxAttempts = 5,
     baseDelayMs = 1000,
-    maxDelayMs = 30000,
+    maxDelayMs = 60000,
     onRetry,
+    shouldRetry = isRetriableError,
   } = options;
 
   let lastError: Error | undefined;
@@ -154,17 +244,26 @@ export async function withRetry<T>(
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
 
-      if (attempt === maxAttempts) {
+      // Check if we should retry
+      if (attempt === maxAttempts || !shouldRetry(error)) {
         break;
       }
 
-      const delay = Math.min(baseDelayMs * Math.pow(2, attempt - 1), maxDelayMs);
+      // Calculate delay
+      let delayMs: number;
 
-      if (onRetry) {
-        onRetry(lastError, attempt);
+      // Respect Retry-After if present
+      if (error instanceof HttpError && error.retryAfter) {
+        delayMs = Math.min(error.retryAfter * 1000, maxDelayMs);
+      } else {
+        delayMs = calculateBackoffDelay(attempt, baseDelayMs, maxDelayMs);
       }
 
-      await sleep(delay);
+      if (onRetry) {
+        onRetry(lastError, attempt, delayMs);
+      }
+
+      await sleep(delayMs);
     }
   }
 
