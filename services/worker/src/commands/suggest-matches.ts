@@ -26,6 +26,7 @@ import {
   buildPeriodKey,
   isPeriodCompatible,
   periodCompatibilityScore,
+  PERIOD_COMPATIBILITY_SCORES,
   RARE_MACRO_ENTITIES,
   RARE_ENTITY_DEFAULT_LOOKBACK_HOURS,
   type PeriodCompatibilityKind,
@@ -1682,6 +1683,8 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       rightByEntity: new Map<string, number>(),
       matchedByEntity: new Map<string, number>(),
       unmatchedMarkets: [] as { id: number; title: string; macroEntities: string[]; period: string }[],
+      // Period compatibility stats (v2.4.3)
+      periodKindCounts: new Map<PeriodCompatibilityKind, number>(),
     };
 
     // Build right-side macro entity counts (from index)
@@ -1860,6 +1863,11 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
           for (const entity of leftFingerprint.macroEntities) {
             macroStats.matchedByEntity.set(entity, (macroStats.matchedByEntity.get(entity) || 0) + 1);
           }
+          // Track period compatibility kinds for the matches (v2.4.3)
+          for (const candidate of topCandidates) {
+            const kind = candidate.periodKind || 'exact';
+            macroStats.periodKindCounts.set(kind, (macroStats.periodKindCounts.get(kind) || 0) + 1);
+          }
         } else {
           // Market is unmatched - add to unmatched list
           const periodStr = leftFingerprint.period?.type === 'month'
@@ -1936,6 +1944,22 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       console.log('-'.repeat(50));
       const totalRate = totalLeft > 0 ? ((totalMatched / totalLeft) * 100).toFixed(1) + '%' : 'N/A';
       console.log(`${'TOTAL'.padEnd(15)} | ${String(totalLeft).padStart(6)} | ${String('').padStart(6)} | ${String(totalMatched).padStart(8)} | ${totalRate.padStart(6)}`);
+
+      // Period compatibility breakdown (v2.4.3)
+      if (macroStats.periodKindCounts.size > 0) {
+        console.log(`\n[macro-coverage] Period Compatibility Breakdown (v2.4.3):`);
+        const totalMatches = Array.from(macroStats.periodKindCounts.values()).reduce((a, b) => a + b, 0);
+        const kindOrder: PeriodCompatibilityKind[] = ['exact', 'month_in_quarter', 'quarter_in_year', 'month_in_year', 'none'];
+        for (const kind of kindOrder) {
+          const count = macroStats.periodKindCounts.get(kind) || 0;
+          if (count > 0) {
+            const pct = ((count / totalMatches) * 100).toFixed(1);
+            const score = PERIOD_COMPATIBILITY_SCORES[kind];
+            console.log(`  ${kind.padEnd(18)} : ${String(count).padStart(4)} matches (${pct.padStart(5)}%) [score=${(score * 0.4).toFixed(2)}]`);
+          }
+        }
+        console.log(`  ${'TOTAL'.padEnd(18)} : ${String(totalMatches).padStart(4)} matches`);
+      }
 
       // Show unmatched markets (up to 10)
       if (macroStats.unmatchedMarkets.length > 0) {
