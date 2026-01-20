@@ -77,16 +77,21 @@ export class KalshiAdapter implements VenueAdapter {
     const limit = params?.limit ?? this.config.pageSize;
     const cursor = params?.cursor;
 
-    const url = new URL('/markets', this.config.baseUrl);
-    url.searchParams.set('limit', String(limit));
-    url.searchParams.set('status', 'open');
+    const queryParams = new URLSearchParams();
+    queryParams.set('limit', String(limit));
+    queryParams.set('status', 'open');
 
     if (cursor) {
-      url.searchParams.set('cursor', cursor);
+      queryParams.set('cursor', cursor);
     }
 
+    const path = `/trade-api/v2/markets?${queryParams.toString()}`;
+    const url = `${this.config.baseUrl.replace('/trade-api/v2', '')}${path}`;
+
     const response = await withRetry(
-      () => this.fetchWithTimeout(url.toString()),
+      () => this.auth
+        ? this.fetchWithAuth(url, 'GET', path)
+        : this.fetchWithTimeout(url),
       {
         maxAttempts: 3,
         baseDelayMs: 1000,
@@ -185,8 +190,8 @@ export class KalshiAdapter implements VenueAdapter {
    * Fetch orderbook for a specific market (authenticated)
    */
   private async fetchOrderbook(ticker: string): Promise<KalshiOrderbook> {
-    const path = `/markets/${ticker}/orderbook`;
-    const url = `${this.config.baseUrl}${path}`;
+    const path = `/trade-api/v2/markets/${ticker}/orderbook`;
+    const url = `${this.config.baseUrl.replace('/trade-api/v2', '')}${path}`;
 
     const response = await withRetry(
       () => this.fetchWithAuth(url, 'GET', path),
