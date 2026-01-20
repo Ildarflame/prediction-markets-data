@@ -3,7 +3,7 @@
 import 'dotenv/config';
 import * as fs from 'node:fs';
 import { Command } from 'commander';
-import { type Venue, DEFAULT_DEDUP_CONFIG } from '@data-module/core';
+import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } from '@data-module/core';
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
@@ -73,10 +73,21 @@ program
       process.exit(1);
     }
 
+    // Load venue config from env (can be overridden by CLI args)
+    const venueConfig = loadVenueConfig(venue);
+
+    // CLI args override env config
     const dedupConfig = {
-      epsilon: parseFloat(opts.epsilon),
-      minIntervalSeconds: parseInt(opts.minInterval, 10),
+      epsilon: opts.epsilon !== String(DEFAULT_DEDUP_CONFIG.epsilon)
+        ? parseFloat(opts.epsilon)
+        : venueConfig.dedup.epsilon,
+      minIntervalSeconds: opts.minInterval !== String(DEFAULT_DEDUP_CONFIG.minIntervalSeconds)
+        ? parseInt(opts.minInterval, 10)
+        : venueConfig.dedup.minIntervalSeconds,
     };
+
+    // Log config at startup
+    console.log(formatVenueConfig(venue, { ...venueConfig, dedup: dedupConfig }));
 
     // Load Kalshi auth if available
     const kalshiAuth = venue === 'kalshi' ? loadKalshiAuth() : undefined;
@@ -90,9 +101,10 @@ program
           pageSize: parseInt(opts.pageSize, 10),
           dedupConfig,
           kalshiAuth,
-          marketsRefreshSeconds: parseInt(opts.marketsRefresh, 10),
-          quotesRefreshSeconds: parseInt(opts.quotesRefresh, 10),
-          quotesClosedLookbackHours: parseInt(opts.quotesLookback, 10),
+          marketsRefreshSeconds: parseInt(opts.marketsRefresh, 10) || venueConfig.marketsRefreshSeconds,
+          quotesRefreshSeconds: parseInt(opts.quotesRefresh, 10) || venueConfig.quotesRefreshSeconds,
+          quotesClosedLookbackHours: parseInt(opts.quotesLookback, 10) || venueConfig.quotesClosedLookbackHours,
+          quotesMaxMarketsPerCycle: venueConfig.quotesMaxMarketsPerCycle,
         });
       } else if (opts.mode === 'loop') {
         await runIngestionLoop({

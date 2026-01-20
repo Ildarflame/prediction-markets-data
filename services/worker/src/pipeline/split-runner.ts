@@ -18,6 +18,7 @@ export interface SplitRunnerConfig {
   marketsRefreshSeconds: number;
   quotesRefreshSeconds: number;
   quotesClosedLookbackHours: number;
+  quotesMaxMarketsPerCycle?: number;
 }
 
 interface SyncResult {
