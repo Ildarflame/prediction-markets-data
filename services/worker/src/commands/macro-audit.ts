@@ -47,6 +47,66 @@ export const VERDICT_DESCRIPTIONS: Record<AuditVerdict, string> = {
 };
 
 // ============================================================
+// v2.4.9: Word-boundary regex matchers for safe keyword detection
+// ============================================================
+
+/**
+ * Check if a word appears with word boundaries in text
+ * Handles punctuation: "PMI?", "(PMI)", "PMI.", "PMI:" etc.
+ */
+function hasWordBoundary(text: string, word: string): boolean {
+  const regex = new RegExp(`\\b${word}\\b`, 'i');
+  return regex.test(text);
+}
+
+/**
+ * PMI-specific validation using word boundaries
+ * Returns true only if:
+ * - \bpmi\b appears in text, OR
+ * - "purchasing managers index" phrase appears, OR
+ * - \bism\b appears AND (\bpmi\b is within 3 tokens OR "purchasing managers index" exists)
+ */
+function validatePMIMatch(title: string): boolean {
+  const lower = title.toLowerCase();
+
+  // Check for explicit PMI with word boundary
+  if (hasWordBoundary(lower, 'pmi')) {
+    return true;
+  }
+
+  // Check for full phrase
+  if (lower.includes('purchasing managers index')) {
+    return true;
+  }
+
+  // Check ISM + context: ISM must be present AND either PMI nearby or full phrase
+  if (hasWordBoundary(lower, 'ism')) {
+    // ISM is present, check for PMI within reasonable distance or full phrase
+    // We already checked full phrase above, so just check if PMI appears at all with boundary
+    if (hasWordBoundary(lower, 'pmi')) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Entity-specific post-filter for DB scan results
+ * Filters out false positives that pass substring match but fail word-boundary check
+ */
+function postFilterDBResults(
+  entity: string,
+  markets: Array<{ id: number; title: string; status: string; closeTime: Date | null; createdAt: Date; metadata: unknown }>,
+): typeof markets {
+  if (entity === 'PMI') {
+    return markets.filter(m => validatePMIMatch(m.title));
+  }
+  // Other entities can have their own filters added here
+  return markets;
+}
+
+// ============================================================
 // Keyword patterns for DB scan
 // ============================================================
 
@@ -65,11 +125,11 @@ const ENTITY_KEYWORDS: Record<string, string[]> = {
     'weekly claims', 'continuing claims', 'initial jobless',
   ],
   PMI: [
-    // v2.4.8: Removed plain 'pmi' - substring match causes false positives (e.g., "DeepMind")
-    // Use phrases that require context to avoid false positives
-    ' pmi', 'pmi ', // space-bounded to avoid "DeepMind" matching
-    'purchasing managers index', // full phrase only (not "purchasing manager")
-    'ism manufacturing', 'ism services', 'ism pmi',
+    // v2.4.9: Use broad keywords for DB scan, filter with regex word-boundary post-processing
+    // This catches all potential PMI markets, then postFilterDBResults removes false positives
+    'pmi', // will be filtered by validatePMIMatch() to exclude "DeepMind" etc.
+    'purchasing managers index', // full phrase (not "purchasing manager" singular)
+    'ism manufacturing', 'ism services',
   ],
   PCE: [
     'pce', 'personal consumption', 'core pce',
@@ -161,9 +221,11 @@ export interface MacroAuditResult {
 
 /**
  * Phase A: DB Fact Scan - raw keyword search without eligibility filters
+ * v2.4.9: Added entity parameter for post-filtering (e.g., PMI word-boundary check)
  */
 async function runDBFactScan(
   venue: Venue,
+  entity: string,
   keywords: string[],
   dbLimit: number,
 ): Promise<DBFactResult> {
@@ -175,7 +237,8 @@ async function runDBFactScan(
   }));
 
   // Query: all markets matching keywords (no status/time filter)
-  const markets = await prisma.market.findMany({
+  // Fetch more than dbLimit to account for post-filtering
+  const rawMarkets = await prisma.market.findMany({
     where: {
       venue,
       OR: titleConditions,
@@ -189,8 +252,11 @@ async function runDBFactScan(
       metadata: true,
     },
     orderBy: { closeTime: 'desc' },
-    take: dbLimit,
+    take: dbLimit * 2, // Fetch extra for post-filtering
   });
+
+  // v2.4.9: Apply entity-specific post-filtering (e.g., PMI word-boundary)
+  const markets = postFilterDBResults(entity, rawMarkets).slice(0, dbLimit);
 
   // Also check metadata (separate query for count only)
   const metaCount = await prisma.market.count({
@@ -478,7 +544,7 @@ export async function runMacroAudit(options: MacroAuditOptions): Promise<MacroAu
   console.log(`Keywords: ${keywords.slice(0, 4).join(', ')}${keywords.length > 4 ? '...' : ''}`);
   console.log(`DB limit: ${dbLimit}\n`);
 
-  const dbFact = await runDBFactScan(venue, keywords, dbLimit);
+  const dbFact = await runDBFactScan(venue, entityUpper, keywords, dbLimit);
 
   console.log(`>>> found_in_title: ${dbFact.foundTitleCount}`);
   console.log(`>>> found_in_meta:  ${dbFact.foundMetaCount}`);

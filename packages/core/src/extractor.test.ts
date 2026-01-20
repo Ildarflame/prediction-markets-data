@@ -364,6 +364,27 @@ describe('extractMacroEntities', () => {
     assert.ok(!entities.includes('PMI'), `"purchasing manager" without "index" should NOT match PMI, got ${JSON.stringify(entities)}`);
   });
 
+  // v2.4.9: PMI word-boundary tests with punctuation
+  it('should extract PMI from "PMI?" with question mark', () => {
+    const entities = extract('What will PMI? be in January 2026');
+    assert.ok(entities.includes('PMI'), `Expected PMI from "PMI?" in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract PMI from "(PMI)" with parentheses', () => {
+    const entities = extract('Manufacturing (PMI) release tomorrow');
+    assert.ok(entities.includes('PMI'), `Expected PMI from "(PMI)" in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract PMI from "ISM PMI comes in at 49.2"', () => {
+    const entities = extract('ISM PMI comes in at 49.2, below expectations');
+    assert.ok(entities.includes('PMI'), `Expected PMI from "ISM PMI" in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract PMI from "PMI:" with colon', () => {
+    const entities = extract('December PMI: 50.3 vs 49.8 expected');
+    assert.ok(entities.includes('PMI'), `Expected PMI from "PMI:" in ${JSON.stringify(entities)}`);
+  });
+
   // v2.4.6: Test Polymarket "add X jobs in Month" pattern (non-consecutive tokens)
   it('should extract NFP from Polymarket "add X jobs in January" pattern', () => {
     const entities = extract('Will the US add between 0 and 25k jobs in January?');
