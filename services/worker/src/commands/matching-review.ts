@@ -1,4 +1,9 @@
 import {
+  buildFingerprint,
+  extractPeriod,
+  type MacroPeriod,
+} from '@data-module/core';
+import {
   getClient,
   MarketLinkRepository,
   type LinkStatus,
@@ -24,6 +29,41 @@ function formatTimeDiff(a: Date | null, b: Date | null): string {
 function truncate(str: string, maxLen: number): string {
   if (str.length <= maxLen) return str;
   return str.slice(0, maxLen - 3) + '...';
+}
+
+/**
+ * Build period key string from MacroPeriod
+ */
+function buildPeriodKey(period: MacroPeriod): string {
+  if (!period.type || !period.year) return '-';
+
+  if (period.type === 'month' && period.month) {
+    return `${period.year}-${String(period.month).padStart(2, '0')}`;
+  } else if (period.type === 'quarter' && period.quarter) {
+    return `${period.year}-Q${period.quarter}`;
+  } else if (period.type === 'year') {
+    return `${period.year}`;
+  }
+  return '-';
+}
+
+/**
+ * Extract entity from market title
+ */
+function extractEntity(title: string, closeTime: Date | null): string {
+  const fingerprint = buildFingerprint(title, closeTime, {});
+  if (fingerprint.macroEntities?.size) {
+    return Array.from(fingerprint.macroEntities).join(',');
+  }
+  return '-';
+}
+
+/**
+ * Extract period from market title
+ */
+function extractPeriodKey(title: string, closeTime: Date | null): string {
+  const period = extractPeriod(title, closeTime);
+  return buildPeriodKey(period);
 }
 
 export interface ListSuggestionsOptions {
@@ -54,21 +94,24 @@ export async function runListSuggestions(options: ListSuggestionsOptions = {}): 
     return;
   }
 
-  // Print header
-  console.log('ID    | Score | Status     | Left Title                    | Right Title                   | Reason');
-  console.log('-'.repeat(130));
+  // Print header: id | score | entity | periodLeft | periodRight | leftTitle | rightTitle | reason
+  console.log('ID    | Score | Entity     | PeriodL  | PeriodR  | Left Title              | Right Title             | Reason');
+  console.log('-'.repeat(140));
 
   for (const link of links) {
-    const leftTitle = truncate(link.leftMarket.title, 28);
-    const rightTitle = truncate(link.rightMarket.title, 28);
-    const reason = link.reason ? truncate(link.reason, 40) : 'N/A';
+    const entity = truncate(extractEntity(link.leftMarket.title, link.leftMarket.closeTime), 10);
+    const periodLeft = extractPeriodKey(link.leftMarket.title, link.leftMarket.closeTime);
+    const periodRight = extractPeriodKey(link.rightMarket.title, link.rightMarket.closeTime);
+    const leftTitle = truncate(link.leftMarket.title, 23);
+    const rightTitle = truncate(link.rightMarket.title, 23);
+    const reason = link.reason ? truncate(link.reason, 30) : 'N/A';
 
     console.log(
-      `${String(link.id).padStart(5)} | ${link.score.toFixed(2).padStart(5)} | ${link.status.padEnd(10)} | ${leftTitle.padEnd(29)} | ${rightTitle.padEnd(29)} | ${reason}`
+      `${String(link.id).padStart(5)} | ${link.score.toFixed(2).padStart(5)} | ${entity.padEnd(10)} | ${periodLeft.padEnd(8)} | ${periodRight.padEnd(8)} | ${leftTitle.padEnd(23)} | ${rightTitle.padEnd(23)} | ${reason}`
     );
   }
 
-  console.log('-'.repeat(130));
+  console.log('-'.repeat(140));
   console.log(`Total: ${links.length} suggestions`);
 
   // Show counts by status
@@ -90,11 +133,40 @@ export async function runShowLink(id: number): Promise<void> {
     return;
   }
 
+  // Extract fingerprints for both markets
+  const leftFingerprint = buildFingerprint(link.leftMarket.title, link.leftMarket.closeTime, {});
+  const rightFingerprint = buildFingerprint(link.rightMarket.title, link.rightMarket.closeTime, {});
+  const leftPeriod = extractPeriod(link.leftMarket.title, link.leftMarket.closeTime);
+  const rightPeriod = extractPeriod(link.rightMarket.title, link.rightMarket.closeTime);
+
   console.log(`\n=== Market Link #${link.id} ===\n`);
-  console.log(`Status: ${link.status}`);
-  console.log(`Score: ${link.score.toFixed(4)}`);
+
+  // Show key matching info at top
   console.log(`Reason: ${link.reason || 'N/A'}`);
-  console.log(`Created: ${link.createdAt.toISOString()}`);
+  console.log(`Score: ${link.score.toFixed(4)}`);
+  console.log(`Status: ${link.status}`);
+
+  // Show entities
+  const leftEntities = leftFingerprint.macroEntities?.size
+    ? Array.from(leftFingerprint.macroEntities).join(', ')
+    : 'none';
+  const rightEntities = rightFingerprint.macroEntities?.size
+    ? Array.from(rightFingerprint.macroEntities).join(', ')
+    : 'none';
+  console.log(`\nEntities:`);
+  console.log(`  Left:  ${leftEntities}`);
+  console.log(`  Right: ${rightEntities}`);
+
+  // Show periods
+  console.log(`\nPeriods:`);
+  console.log(`  Left:  ${buildPeriodKey(leftPeriod)}`);
+  console.log(`  Right: ${buildPeriodKey(rightPeriod)}`);
+
+  // Time difference
+  const timeDiff = formatTimeDiff(link.leftMarket.closeTime, link.rightMarket.closeTime);
+  console.log(`  Close Time Diff: ${timeDiff}`);
+
+  console.log(`\nCreated: ${link.createdAt.toISOString()}`);
   console.log(`Updated: ${link.updatedAt.toISOString()}`);
 
   console.log(`\n--- Left Market (${link.leftVenue}) ---`);
@@ -120,10 +192,6 @@ export async function runShowLink(id: number): Promise<void> {
   for (const o of link.rightMarket.outcomes) {
     console.log(`  - ${o.name} (${o.side})`);
   }
-
-  // Time difference
-  const timeDiff = formatTimeDiff(link.leftMarket.closeTime, link.rightMarket.closeTime);
-  console.log(`\nClose Time Difference: ${timeDiff}`);
 }
 
 /**
