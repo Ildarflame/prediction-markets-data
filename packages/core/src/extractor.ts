@@ -2,7 +2,7 @@
  * Fingerprint-based entity extraction for market matching
  */
 
-import { ENTITY_ALIASES, TICKER_PATTERNS, normalizeEntity, isKnownEntity, extractEntityFromKalshiTicker } from './aliases.js';
+import { ENTITY_ALIASES, TICKER_PATTERNS, normalizeEntity, isKnownEntity, extractEntityFromKalshiTicker, MACRO_ENTITIES, type MacroEntityKey } from './aliases.js';
 
 /**
  * Tokenize text for entity matching
@@ -52,6 +52,79 @@ function matchesMultiWordAlias(titleTokens: string[], aliasTokens: string[]): bo
     }
   }
   return false;
+}
+
+/**
+ * Extract macro economic entities from text using token and phrase matching
+ * Must be called BEFORE general entity extraction for priority
+ *
+ * Rules (all token-based, no substring matching):
+ * - "cpi" or "consumer price index" => CPI
+ * - "inflation" => CPI (mapped for MVP)
+ * - "gdp" or "gross domestic product" => GDP
+ * - "unemployment" or "jobless rate" => UNEMPLOYMENT
+ * - "nfp" or "payrolls" or "nonfarm" phrases => NFP
+ * - "fed" + ("rate" or "interest") or phrases => FED_RATE
+ * - "fomc" or "federal reserve" => FOMC
+ * - "pce" => PCE
+ * - "pmi" => PMI
+ */
+export function extractMacroEntities(tokens: string[], normalizedTitle: string): Set<string> {
+  const macroEntities = new Set<string>();
+
+  // Helper to check if phrase exists in title (token-based)
+  const hasPhrase = (phrase: string): boolean => {
+    const phraseTokens = phrase.toLowerCase().split(/\s+/);
+    if (phraseTokens.length === 1) {
+      return tokens.includes(phraseTokens[0]);
+    }
+    // Multi-word phrase: check consecutive tokens
+    const first = phraseTokens[0];
+    for (let i = 0; i <= tokens.length - phraseTokens.length; i++) {
+      if (tokens[i] === first) {
+        let matches = true;
+        for (let j = 1; j < phraseTokens.length; j++) {
+          if (tokens[i + j] !== phraseTokens[j]) {
+            matches = false;
+            break;
+          }
+        }
+        if (matches) return true;
+      }
+    }
+    return false;
+  };
+
+  // Check each macro entity
+  for (const key of Object.keys(MACRO_ENTITIES) as MacroEntityKey[]) {
+    const entityDef = MACRO_ENTITIES[key];
+
+    // Check single tokens
+    for (const token of entityDef.tokens) {
+      if (tokens.includes(token)) {
+        macroEntities.add(entityDef.canonical);
+        break;
+      }
+    }
+
+    // Check phrases
+    for (const phrase of entityDef.phrases) {
+      if (hasPhrase(phrase)) {
+        macroEntities.add(entityDef.canonical);
+        break;
+      }
+    }
+  }
+
+  // Special case: "fed" + "rate" or "fed" + "interest" => FED_RATE
+  // This handles cases like "Fed rate decision" where tokens aren't consecutive
+  const hasFed = tokens.includes('fed') || tokens.includes('federal');
+  const hasRateWord = tokens.includes('rate') || tokens.includes('rates') || tokens.includes('interest');
+  if (hasFed && hasRateWord && !macroEntities.has('FED_RATE')) {
+    macroEntities.add('FED_RATE');
+  }
+
+  return macroEntities;
 }
 
 /**

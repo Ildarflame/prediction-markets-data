@@ -3,6 +3,60 @@
  * Maps common variations to canonical forms
  */
 
+/**
+ * Macro economic entity whitelist
+ * Used for precise macro entity extraction with phrase matching
+ */
+export const MACRO_ENTITIES = {
+  CPI: {
+    canonical: 'CPI',
+    tokens: ['cpi'],
+    phrases: ['consumer price index'],
+  },
+  INFLATION: {
+    canonical: 'CPI', // Map INFLATION to CPI for MVP
+    tokens: ['inflation'],
+    phrases: [],
+  },
+  GDP: {
+    canonical: 'GDP',
+    tokens: ['gdp'],
+    phrases: ['gross domestic product'],
+  },
+  UNEMPLOYMENT: {
+    canonical: 'UNEMPLOYMENT',
+    tokens: ['unemployment'],
+    phrases: ['jobless rate', 'unemployment rate'],
+  },
+  NFP: {
+    canonical: 'NFP',
+    tokens: ['nfp', 'payrolls'],
+    phrases: ['nonfarm payrolls', 'non-farm payrolls', 'nonfarm', 'non farm payrolls'],
+  },
+  FED_RATE: {
+    canonical: 'FED_RATE',
+    tokens: [], // Requires phrase matching
+    phrases: ['fed rate', 'fed funds', 'federal funds', 'interest rate', 'rate decision', 'rate cut', 'rate hike'],
+  },
+  FOMC: {
+    canonical: 'FOMC',
+    tokens: ['fomc'],
+    phrases: ['federal reserve', 'fed meeting'],
+  },
+  PCE: {
+    canonical: 'PCE',
+    tokens: ['pce'],
+    phrases: ['personal consumption expenditures'],
+  },
+  PMI: {
+    canonical: 'PMI',
+    tokens: ['pmi'],
+    phrases: ['purchasing managers index'],
+  },
+} as const;
+
+export type MacroEntityKey = keyof typeof MACRO_ENTITIES;
+
 export const ENTITY_ALIASES: Record<string, string> = {
   // Cryptocurrencies
   'btc': 'BITCOIN',

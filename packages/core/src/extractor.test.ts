@@ -4,7 +4,7 @@
  */
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
-import { extractNumbers, extractEntities, extractDates, extractComparator, Comparator } from './extractor.js';
+import { extractNumbers, extractEntities, extractDates, extractComparator, Comparator, extractMacroEntities, tokenizeForEntities } from './extractor.js';
 
 describe('extractNumbers', () => {
   it('should extract plain numbers', () => {
@@ -144,5 +144,95 @@ describe('extractDates', () => {
     assert.strictEqual(dates.length, 1);
     assert.strictEqual(dates[0].year, 2024);
     assert.strictEqual(dates[0].month, 12);
+  });
+});
+
+describe('extractMacroEntities', () => {
+  // Helper to run extraction
+  const extract = (title: string): string[] => {
+    const tokens = tokenizeForEntities(title);
+    const normalized = title.toLowerCase();
+    return Array.from(extractMacroEntities(tokens, normalized)).sort();
+  };
+
+  it('should extract CPI from "cpi" token', () => {
+    const entities = extract('CPI inflation YoY in January 2026?');
+    assert.ok(entities.includes('CPI'), `Expected CPI in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract CPI from "inflation" token', () => {
+    const entities = extract('Inflation rate above 3%');
+    assert.ok(entities.includes('CPI'), `Expected CPI from inflation in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract CPI from "consumer price index" phrase', () => {
+    const entities = extract('Consumer price index rises');
+    assert.ok(entities.includes('CPI'), `Expected CPI from phrase in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract GDP', () => {
+    const entities = extract('Will GDP growth exceed 3% in Q1 2026?');
+    assert.ok(entities.includes('GDP'), `Expected GDP in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract GDP from "gross domestic product" phrase', () => {
+    const entities = extract('Gross domestic product forecast');
+    assert.ok(entities.includes('GDP'), `Expected GDP from phrase in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract FED_RATE from "fed rate" pattern', () => {
+    const entities = extract('Fed rate decision March 2026');
+    assert.ok(entities.includes('FED_RATE'), `Expected FED_RATE in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract FED_RATE from "interest rate"', () => {
+    const entities = extract('Interest rate hike expected');
+    assert.ok(entities.includes('FED_RATE'), `Expected FED_RATE from interest rate in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract FOMC', () => {
+    const entities = extract('FOMC meeting in March');
+    assert.ok(entities.includes('FOMC'), `Expected FOMC in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract UNEMPLOYMENT', () => {
+    const entities = extract('US unemployment rate above 4% in Feb 2026');
+    assert.ok(entities.includes('UNEMPLOYMENT'), `Expected UNEMPLOYMENT in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract UNEMPLOYMENT from "jobless rate"', () => {
+    const entities = extract('Jobless rate falls below 4%');
+    assert.ok(entities.includes('UNEMPLOYMENT'), `Expected UNEMPLOYMENT from jobless rate in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract NFP', () => {
+    const entities = extract('Nonfarm payrolls above 200k in Jan 2026');
+    assert.ok(entities.includes('NFP'), `Expected NFP in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract NFP from "nfp" token', () => {
+    const entities = extract('NFP report January');
+    assert.ok(entities.includes('NFP'), `Expected NFP from token in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract PCE', () => {
+    const entities = extract('PCE inflation above 2.5%');
+    assert.ok(entities.includes('PCE'), `Expected PCE in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract PMI', () => {
+    const entities = extract('PMI above 50 in January');
+    assert.ok(entities.includes('PMI'), `Expected PMI in ${JSON.stringify(entities)}`);
+  });
+
+  it('should NOT extract macro entities from unrelated text', () => {
+    const entities = extract('Bitcoin price prediction');
+    assert.strictEqual(entities.length, 0, `Expected no macro entities in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract multiple macro entities from complex title', () => {
+    const entities = extract('CPI and GDP forecasts for Q1');
+    assert.ok(entities.includes('CPI'), `Expected CPI in ${JSON.stringify(entities)}`);
+    assert.ok(entities.includes('GDP'), `Expected GDP in ${JSON.stringify(entities)}`);
   });
 });
