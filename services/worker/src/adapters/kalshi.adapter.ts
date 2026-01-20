@@ -11,7 +11,7 @@ import {
 } from '@data-module/core';
 import { type VenueAdapter, type AdapterConfig, DEFAULT_ADAPTER_CONFIG } from './types.js';
 
-const KALSHI_API_BASE = 'https://api.elections.kalshi.com/trade-api/v2';
+const KALSHI_API_BASE = 'https://trading-api.kalshi.com/trade-api/v2';
 
 interface KalshiMarket {
   ticker: string;
