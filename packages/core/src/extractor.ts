@@ -181,6 +181,21 @@ export interface MarketFingerprint {
   fingerprint: string;
 }
 
+/**
+ * Macro period type for matching
+ */
+export type MacroPeriodType = 'month' | 'quarter' | 'year' | null;
+
+/**
+ * Extracted macro period for matching
+ */
+export interface MacroPeriod {
+  type: MacroPeriodType;
+  year?: number;
+  month?: number;      // 1-12 for month type
+  quarter?: 1 | 2 | 3 | 4;  // Q1-Q4 for quarter type
+}
+
 // Month name to number mapping
 const MONTH_MAP: Record<string, number> = {
   'jan': 1, 'january': 1,
@@ -531,6 +546,146 @@ export function extractDates(title: string): ExtractedDate[] {
     seen.add(key);
     return true;
   });
+}
+
+/**
+ * Extract macro period (month/quarter/year) from market title
+ * Used for macro market matching where day-level precision is not needed
+ *
+ * Rules:
+ * - If explicit month + year found => type=month
+ * - If Qn + year found => type=quarter
+ * - If only year found => type=year
+ * - If month without year but closeTime provided => use year from closeTime
+ */
+export function extractPeriod(title: string, closeTime?: Date | null): MacroPeriod {
+  const lower = title.toLowerCase();
+
+  // Pattern 1: Month + Year (e.g., "January 2026", "Jan 2026", "in January 2026")
+  const monthYearPattern = /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s*(?:,?\s*)?(20\d{2})\b/gi;
+  let match = monthYearPattern.exec(lower);
+  if (match) {
+    const monthName = match[1].toLowerCase();
+    const month = MONTH_MAP[monthName] || MONTH_MAP[monthName.slice(0, 3)];
+    const year = parseInt(match[2], 10);
+    if (month && year >= 2020 && year <= 2030) {
+      return { type: 'month', year, month };
+    }
+  }
+
+  // Pattern 2: "in <Month>" without year (e.g., "in January", "in Jan")
+  const monthOnlyPattern = /\b(?:in|for|of)\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/gi;
+  match = monthOnlyPattern.exec(lower);
+  if (match) {
+    const monthName = match[1].toLowerCase();
+    const month = MONTH_MAP[monthName] || MONTH_MAP[monthName.slice(0, 3)];
+    if (month) {
+      // Try to infer year from closeTime or current year
+      let year: number | undefined;
+      if (closeTime) {
+        year = closeTime.getFullYear();
+      } else {
+        // Use current year, or next year if month is in the past
+        const now = new Date();
+        year = now.getFullYear();
+        if (month < now.getMonth() + 1) {
+          year++;
+        }
+      }
+      return { type: 'month', year, month };
+    }
+  }
+
+  // Pattern 3: Quarter + Year (e.g., "Q1 2026", "Q4 2025")
+  const quarterYearPattern = /\bq([1-4])\s*(20\d{2})\b/gi;
+  match = quarterYearPattern.exec(lower);
+  if (match) {
+    const quarter = parseInt(match[1], 10) as 1 | 2 | 3 | 4;
+    const year = parseInt(match[2], 10);
+    if (year >= 2020 && year <= 2030) {
+      return { type: 'quarter', year, quarter };
+    }
+  }
+
+  // Pattern 4: Year only in deadline context (e.g., "in 2026", "by 2026", "for 2026")
+  const yearOnlyPattern = /\b(?:in|by|for|during)\s+(20\d{2})\b/gi;
+  match = yearOnlyPattern.exec(lower);
+  if (match) {
+    const year = parseInt(match[1], 10);
+    if (year >= 2020 && year <= 2030) {
+      return { type: 'year', year };
+    }
+  }
+
+  // Pattern 5: Standalone year at end or near indicator (fallback)
+  const standaloneYearPattern = /\b(20\d{2})\b/g;
+  let lastYear: number | undefined;
+  while ((match = standaloneYearPattern.exec(lower)) !== null) {
+    const year = parseInt(match[1], 10);
+    if (year >= 2020 && year <= 2030) {
+      lastYear = year;
+    }
+  }
+  if (lastYear) {
+    return { type: 'year', year: lastYear };
+  }
+
+  // No period found - try closeTime as fallback
+  if (closeTime) {
+    return {
+      type: 'month',
+      year: closeTime.getFullYear(),
+      month: closeTime.getMonth() + 1,
+    };
+  }
+
+  return { type: null };
+}
+
+/**
+ * Check if two macro periods are compatible for matching
+ * Returns true if periods overlap or are equivalent
+ *
+ * Rules:
+ * - Same month+year => PASS
+ * - Month in quarter (e.g., Jan 2026 in Q1 2026) => PASS
+ * - Same quarter+year => PASS
+ * - Same year (if one or both are year-type) => PASS
+ * - Different periods => FAIL
+ */
+export function periodsCompatible(periodA: MacroPeriod, periodB: MacroPeriod): boolean {
+  // If either has no type, fail
+  if (!periodA.type || !periodB.type) return false;
+
+  // If years differ, fail
+  if (periodA.year !== periodB.year) return false;
+
+  // Both are month type
+  if (periodA.type === 'month' && periodB.type === 'month') {
+    return periodA.month === periodB.month;
+  }
+
+  // Both are quarter type
+  if (periodA.type === 'quarter' && periodB.type === 'quarter') {
+    return periodA.quarter === periodB.quarter;
+  }
+
+  // Month vs Quarter - check if month falls in quarter
+  const monthToQuarter = (month: number): number => Math.ceil(month / 3);
+
+  if (periodA.type === 'month' && periodB.type === 'quarter') {
+    return periodA.month !== undefined && monthToQuarter(periodA.month) === periodB.quarter;
+  }
+  if (periodA.type === 'quarter' && periodB.type === 'month') {
+    return periodB.month !== undefined && monthToQuarter(periodB.month) === periodA.quarter;
+  }
+
+  // Year type is compatible with anything in the same year
+  if (periodA.type === 'year' || periodB.type === 'year') {
+    return true;
+  }
+
+  return false;
 }
 
 /**

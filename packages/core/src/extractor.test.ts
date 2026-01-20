@@ -4,7 +4,7 @@
  */
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
-import { extractNumbers, extractEntities, extractDates, extractComparator, Comparator, extractMacroEntities, tokenizeForEntities } from './extractor.js';
+import { extractNumbers, extractEntities, extractDates, extractComparator, Comparator, extractMacroEntities, tokenizeForEntities, extractPeriod, periodsCompatible, type MacroPeriod } from './extractor.js';
 
 describe('extractNumbers', () => {
   it('should extract plain numbers', () => {
@@ -234,5 +234,130 @@ describe('extractMacroEntities', () => {
     const entities = extract('CPI and GDP forecasts for Q1');
     assert.ok(entities.includes('CPI'), `Expected CPI in ${JSON.stringify(entities)}`);
     assert.ok(entities.includes('GDP'), `Expected GDP in ${JSON.stringify(entities)}`);
+  });
+});
+
+describe('extractPeriod', () => {
+  it('should extract month+year from "CPI inflation in January 2026"', () => {
+    const period = extractPeriod('CPI inflation in January 2026');
+    assert.strictEqual(period.type, 'month');
+    assert.strictEqual(period.year, 2026);
+    assert.strictEqual(period.month, 1);
+  });
+
+  it('should extract month+year from "GDP growth Feb 2026"', () => {
+    const period = extractPeriod('GDP growth Feb 2026');
+    assert.strictEqual(period.type, 'month');
+    assert.strictEqual(period.year, 2026);
+    assert.strictEqual(period.month, 2);
+  });
+
+  it('should extract quarter from "GDP growth in Q1 2026"', () => {
+    const period = extractPeriod('GDP growth in Q1 2026');
+    assert.strictEqual(period.type, 'quarter');
+    assert.strictEqual(period.year, 2026);
+    assert.strictEqual(period.quarter, 1);
+  });
+
+  it('should extract quarter from "Q4 2025 results"', () => {
+    const period = extractPeriod('Q4 2025 results');
+    assert.strictEqual(period.type, 'quarter');
+    assert.strictEqual(period.year, 2025);
+    assert.strictEqual(period.quarter, 4);
+  });
+
+  it('should extract year from "Unemployment rate in 2026"', () => {
+    const period = extractPeriod('Unemployment rate in 2026');
+    assert.strictEqual(period.type, 'year');
+    assert.strictEqual(period.year, 2026);
+  });
+
+  it('should extract year from "by 2025"', () => {
+    const period = extractPeriod('Something happens by 2025');
+    assert.strictEqual(period.type, 'year');
+    assert.strictEqual(period.year, 2025);
+  });
+
+  it('should use closeTime year when month is specified without year', () => {
+    const closeTime = new Date('2026-03-15');
+    const period = extractPeriod('CPI report in January', closeTime);
+    assert.strictEqual(period.type, 'month');
+    assert.strictEqual(period.year, 2026);
+    assert.strictEqual(period.month, 1);
+  });
+
+  it('should fallback to closeTime when no period in title', () => {
+    const closeTime = new Date('2026-02-28');
+    const period = extractPeriod('Some market without date', closeTime);
+    assert.strictEqual(period.type, 'month');
+    assert.strictEqual(period.year, 2026);
+    assert.strictEqual(period.month, 2);
+  });
+
+  it('should return null type when no period found and no closeTime', () => {
+    const period = extractPeriod('No date information here');
+    assert.strictEqual(period.type, null);
+  });
+});
+
+describe('periodsCompatible', () => {
+  it('should match same month+year', () => {
+    const a: MacroPeriod = { type: 'month', year: 2026, month: 1 };
+    const b: MacroPeriod = { type: 'month', year: 2026, month: 1 };
+    assert.strictEqual(periodsCompatible(a, b), true);
+  });
+
+  it('should NOT match different months', () => {
+    const a: MacroPeriod = { type: 'month', year: 2026, month: 1 };
+    const b: MacroPeriod = { type: 'month', year: 2026, month: 2 };
+    assert.strictEqual(periodsCompatible(a, b), false);
+  });
+
+  it('should match Jan 2026 with Q1 2026', () => {
+    const a: MacroPeriod = { type: 'month', year: 2026, month: 1 };
+    const b: MacroPeriod = { type: 'quarter', year: 2026, quarter: 1 };
+    assert.strictEqual(periodsCompatible(a, b), true);
+  });
+
+  it('should match Feb 2026 with Q1 2026', () => {
+    const a: MacroPeriod = { type: 'month', year: 2026, month: 2 };
+    const b: MacroPeriod = { type: 'quarter', year: 2026, quarter: 1 };
+    assert.strictEqual(periodsCompatible(a, b), true);
+  });
+
+  it('should match Mar 2026 with Q1 2026', () => {
+    const a: MacroPeriod = { type: 'month', year: 2026, month: 3 };
+    const b: MacroPeriod = { type: 'quarter', year: 2026, quarter: 1 };
+    assert.strictEqual(periodsCompatible(a, b), true);
+  });
+
+  it('should NOT match Apr 2026 with Q1 2026', () => {
+    const a: MacroPeriod = { type: 'month', year: 2026, month: 4 };
+    const b: MacroPeriod = { type: 'quarter', year: 2026, quarter: 1 };
+    assert.strictEqual(periodsCompatible(a, b), false);
+  });
+
+  it('should match same quarter', () => {
+    const a: MacroPeriod = { type: 'quarter', year: 2026, quarter: 2 };
+    const b: MacroPeriod = { type: 'quarter', year: 2026, quarter: 2 };
+    assert.strictEqual(periodsCompatible(a, b), true);
+  });
+
+  it('should match year type with any period in same year', () => {
+    const yearPeriod: MacroPeriod = { type: 'year', year: 2026 };
+    const monthPeriod: MacroPeriod = { type: 'month', year: 2026, month: 6 };
+    assert.strictEqual(periodsCompatible(yearPeriod, monthPeriod), true);
+  });
+
+  it('should NOT match different years', () => {
+    const a: MacroPeriod = { type: 'month', year: 2025, month: 1 };
+    const b: MacroPeriod = { type: 'month', year: 2026, month: 1 };
+    assert.strictEqual(periodsCompatible(a, b), false);
+  });
+
+  it('should NOT match when either has null type', () => {
+    const a: MacroPeriod = { type: null };
+    const b: MacroPeriod = { type: 'month', year: 2026, month: 1 };
+    assert.strictEqual(periodsCompatible(a, b), false);
   });
 });
