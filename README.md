@@ -1,4 +1,4 @@
-# Data Module v1.1.1
+# Data Module v1.2.0
 
 Data ingestion module for prediction markets (Polymarket, Kalshi). Collects markets, outcomes, and price quotes with deduplication, checkpointing, and archival support.
 
@@ -28,6 +28,14 @@ Data ingestion module for prediction markets (Polymarket, Kalshi). Collects mark
 - **Reconcile dry-run**: Preview missing markets without writing to DB
 - **Docker healthcheck**: Worker containers report health via CLI health command
 - **Quotes-sync pagination**: Round-robin cursor for large market counts (QUOTES_MAX_MARKETS_PER_CYCLE)
+
+### v1.2.0 Matching Module
+
+- **Cross-venue matching**: Find identical markets between Polymarket and Kalshi
+- **Rule-based scoring**: Text similarity (Jaccard) + time proximity + category match
+- **Inverted token index**: Efficient O(n) candidate filtering
+- **Review workflow**: Suggest, confirm, or reject market links
+- **Binary markets only**: Matches markets with exactly 2 outcomes (Yes/No)
 
 ## Project Structure
 
@@ -189,6 +197,62 @@ Example dry-run:
 pnpm --filter @data-module/worker reconcile -v polymarket --dry-run
 ```
 
+### Suggest Matches (v1.2)
+
+Find potential market matches between two venues.
+
+```bash
+pnpm --filter @data-module/worker suggest-matches [options]
+
+Options:
+  --from <venue>           Source venue (required)
+  --to <venue>             Target venue (required)
+  --min-score <number>     Minimum match score 0-1 (default: 0.75)
+  --top-k <number>         Top K matches per source market (default: 10)
+  --lookback-hours <hours> Include closed markets within N hours (default: 24)
+  --limit-left <number>    Max source markets to process (default: 2000)
+```
+
+Example:
+```bash
+pnpm --filter @data-module/worker suggest-matches --from polymarket --to kalshi --min-score 0.8
+```
+
+### List Suggestions (v1.2)
+
+List market link suggestions.
+
+```bash
+pnpm --filter @data-module/worker list-suggestions [options]
+
+Options:
+  --min-score <number>  Minimum score filter (default: 0)
+  --status <status>     Filter by status: suggested, confirmed, rejected
+  --limit <number>      Maximum results (default: 50)
+```
+
+Example:
+```bash
+pnpm --filter @data-module/worker list-suggestions --min-score 0.85 --status suggested
+```
+
+### Show Link (v1.2)
+
+Show details of a market link.
+
+```bash
+pnpm --filter @data-module/worker show-link --id <link_id>
+```
+
+### Confirm/Reject Match (v1.2)
+
+Confirm or reject a market link suggestion.
+
+```bash
+pnpm --filter @data-module/worker confirm-match --id <link_id>
+pnpm --filter @data-module/worker reject-match --id <link_id>
+```
+
 ## Database Schema
 
 ### Tables
@@ -201,6 +265,7 @@ pnpm --filter @data-module/worker reconcile -v polymarket --dry-run
 | `latest_quotes` | Most recent quote per outcome |
 | `ingestion_state` | Checkpoint data for resumable ingestion |
 | `ingestion_runs` | Audit log of ingestion executions |
+| `market_links` | Cross-venue market matches (v1.2) |
 
 ### Market Lifecycle
 
@@ -216,6 +281,29 @@ active → closed → resolved → archived
 - `markets(venue, external_id) UNIQUE` - Dedup market inserts
 - `markets(status, close_time)` - Archive queries
 - `latest_quotes(outcome_id) UNIQUE` - One latest per outcome
+- `market_links(left_venue, left_market_id, right_venue, right_market_id) UNIQUE` - Dedup links
+- `market_links(status, score DESC)` - Filter/sort suggestions
+
+### Market Links (v1.2)
+
+The `market_links` table tracks cross-venue market matches:
+
+| Column | Description |
+|--------|-------------|
+| `left_venue` | Source venue (e.g., polymarket) |
+| `left_market_id` | Source market FK |
+| `right_venue` | Target venue (e.g., kalshi) |
+| `right_market_id` | Target market FK |
+| `status` | suggested, confirmed, or rejected |
+| `score` | Match confidence 0-1 |
+| `reason` | Score breakdown (words=0.85 time=0.90 cat=1.00) |
+
+**Matching algorithm** (weighted score):
+- 70% Jaccard text similarity (normalized title tokens)
+- 20% Time proximity (close time difference)
+- 10% Category match
+
+**Eligible markets**: Only binary markets (exactly 2 outcomes with yes/no sides) are matched.
 
 ## Quote Deduplication
 
