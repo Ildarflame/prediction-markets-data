@@ -229,10 +229,13 @@ export const TOPIC_KEYWORDS: Record<Exclude<TopicFilter, 'all'>, string[]> = {
     'xrp', 'ripple', 'doge', 'dogecoin', 'cardano', 'ada',
   ],
   // Macro keywords - token-based only, specific to economic indicators
+  // v2.4.6: expanded to include "jobs" (Polymarket uses "jobs" instead of NFP)
   macro: [
     'cpi', 'gdp', 'inflation', 'unemployment', 'jobless',
     'payrolls', 'nonfarm', 'nfp', 'fed', 'fomc',
     'rates', 'interest', 'pce', 'pmi',
+    // v2.4.6 additions
+    'jobs', 'employment', 'claims', 'ism', 'purchasing',
   ],
   politics: [
     'trump', 'biden', 'harris', 'election', 'president', 'presidential',

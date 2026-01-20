@@ -46,7 +46,12 @@ export const MACRO_ENTITIES = {
   NFP: {
     canonical: 'NFP',
     tokens: ['nfp', 'payrolls'],
-    phrases: ['nonfarm payrolls', 'non-farm payrolls', 'nonfarm', 'non farm payrolls'],
+    // v2.4.6: expanded phrases to match Polymarket "jobs" terminology
+    phrases: [
+      'nonfarm payrolls', 'non-farm payrolls', 'nonfarm', 'non farm payrolls',
+      'non-farm payroll', 'non farm payroll',  // singular variants
+      'jobs report', 'jobs added', 'add jobs', 'lose jobs', 'employment situation',
+    ],
   },
   FED_RATE: {
     canonical: 'FED_RATE',
@@ -61,12 +66,14 @@ export const MACRO_ENTITIES = {
   PCE: {
     canonical: 'PCE',
     tokens: ['pce'],
-    phrases: ['personal consumption expenditures'],
+    // v2.4.6: added "core pce" explicitly
+    phrases: ['personal consumption expenditures', 'core pce', 'pce inflation'],
   },
   PMI: {
     canonical: 'PMI',
     tokens: ['pmi'],
-    phrases: ['purchasing managers index'],
+    // v2.4.6: expanded ISM variants
+    phrases: ['purchasing managers index', 'ism manufacturing', 'ism services', 'ism pmi'],
   },
 } as const;
 

@@ -195,14 +195,14 @@ describe('extractMacroEntities', () => {
     assert.ok(entities.includes('FOMC'), `Expected FOMC in ${JSON.stringify(entities)}`);
   });
 
-  it('should extract UNEMPLOYMENT', () => {
+  it('should extract UNEMPLOYMENT_RATE', () => {
     const entities = extract('US unemployment rate above 4% in Feb 2026');
-    assert.ok(entities.includes('UNEMPLOYMENT'), `Expected UNEMPLOYMENT in ${JSON.stringify(entities)}`);
+    assert.ok(entities.includes('UNEMPLOYMENT_RATE'), `Expected UNEMPLOYMENT_RATE in ${JSON.stringify(entities)}`);
   });
 
-  it('should extract UNEMPLOYMENT from "jobless rate"', () => {
+  it('should extract UNEMPLOYMENT_RATE from "jobless rate"', () => {
     const entities = extract('Jobless rate falls below 4%');
-    assert.ok(entities.includes('UNEMPLOYMENT'), `Expected UNEMPLOYMENT from jobless rate in ${JSON.stringify(entities)}`);
+    assert.ok(entities.includes('UNEMPLOYMENT_RATE'), `Expected UNEMPLOYMENT_RATE from jobless rate in ${JSON.stringify(entities)}`);
   });
 
   it('should extract NFP', () => {
@@ -234,6 +234,55 @@ describe('extractMacroEntities', () => {
     const entities = extract('CPI and GDP forecasts for Q1');
     assert.ok(entities.includes('CPI'), `Expected CPI in ${JSON.stringify(entities)}`);
     assert.ok(entities.includes('GDP'), `Expected GDP in ${JSON.stringify(entities)}`);
+  });
+
+  // v2.4.6: Test new NFP patterns (Polymarket uses "jobs" terminology)
+  it('should extract NFP from "jobs added" phrase', () => {
+    const entities = extract('How many jobs added in January?');
+    assert.ok(entities.includes('NFP'), `Expected NFP from "jobs added" in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract NFP from "add jobs" phrase', () => {
+    const entities = extract('Will the US add jobs in January?');
+    assert.ok(entities.includes('NFP'), `Expected NFP from "add jobs" in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract NFP from "lose jobs" phrase', () => {
+    const entities = extract('Will the US lose jobs in January?');
+    assert.ok(entities.includes('NFP'), `Expected NFP from "lose jobs" in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract NFP from "jobs report" phrase', () => {
+    const entities = extract('December jobs report release');
+    assert.ok(entities.includes('NFP'), `Expected NFP from "jobs report" in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract NFP from "non-farm payroll" phrase', () => {
+    const entities = extract('Non-farm payroll growth exceeds 100k');
+    assert.ok(entities.includes('NFP'), `Expected NFP from "non-farm payroll" in ${JSON.stringify(entities)}`);
+  });
+
+  // v2.4.6: Test JOBLESS_CLAIMS patterns
+  it('should extract JOBLESS_CLAIMS from "initial claims"', () => {
+    const entities = extract('Weekly initial claims exceed 190k');
+    assert.ok(entities.includes('JOBLESS_CLAIMS'), `Expected JOBLESS_CLAIMS from "initial claims" in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract JOBLESS_CLAIMS from "jobless claims"', () => {
+    const entities = extract('Initial jobless claims report');
+    assert.ok(entities.includes('JOBLESS_CLAIMS'), `Expected JOBLESS_CLAIMS from "jobless claims" in ${JSON.stringify(entities)}`);
+  });
+
+  // v2.4.6: Test PCE patterns
+  it('should extract PCE from "core pce" phrase', () => {
+    const entities = extract('Core PCE above 0.3%');
+    assert.ok(entities.includes('PCE'), `Expected PCE from "core pce" in ${JSON.stringify(entities)}`);
+  });
+
+  // v2.4.6: Test PMI patterns
+  it('should extract PMI from "ism manufacturing" phrase', () => {
+    const entities = extract('ISM Manufacturing PMI above 50');
+    assert.ok(entities.includes('PMI'), `Expected PMI from "ism manufacturing" in ${JSON.stringify(entities)}`);
   });
 });
 
