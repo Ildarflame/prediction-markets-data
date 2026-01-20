@@ -260,6 +260,9 @@ export interface SuggestMatchesOptions {
   macroMaxYear?: number;
   // Cap suggestions per left market (v2.4.2 - reduce bracket duplicates)
   maxSuggestionsPerLeft?: number;
+  // Guardrail for cross-granularity period matches (v2.4.3)
+  // Limits year↔month, quarter↔month matches to prevent explosion
+  maxCrossGranularityPerLeft?: number;
 }
 
 export interface SuggestMatchesResult {
@@ -277,6 +280,8 @@ export interface SuggestMatchesResult {
   generatedPairsTotal: number;
   savedTopKTotal: number;
   droppedByCapTotal: number;
+  // Cross-granularity guardrail stats (v2.4.3)
+  droppedByCrossGranularityCap: number;
   errors: string[];
 }
 
@@ -715,7 +720,7 @@ const RELAXED_MIN_JACCARD = 0.05;
 function calculateMatchScore(
   left: IndexedMarket,
   right: IndexedMarket
-): { score: number; reason: string; breakdown: Record<string, number>; dateGateFailed: boolean; textGateFailed: boolean; periodGateFailed: boolean } {
+): { score: number; reason: string; breakdown: Record<string, number>; dateGateFailed: boolean; textGateFailed: boolean; periodGateFailed: boolean; periodKind?: PeriodCompatibilityKind } {
   const isMacroPeriodIntent =
     left.fingerprint.intent === MarketIntent.MACRO_PERIOD ||
     right.fingerprint.intent === MarketIntent.MACRO_PERIOD;
@@ -811,6 +816,7 @@ function calculateMatchScore(
       dateGateFailed: false,
       textGateFailed: false,
       periodGateFailed: false,
+      periodKind,
     };
   }
 
@@ -1418,6 +1424,8 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     macroMaxYear = defaultMacroMaxYear,
     // Cap suggestions per left market (v2.4.2) - ENV overridable
     maxSuggestionsPerLeft = parseInt(process.env.MAX_SUGGESTIONS_PER_LEFT || '5', 10),
+    // Guardrail for cross-granularity period matches (v2.4.3) - limits year↔month explosion
+    maxCrossGranularityPerLeft = parseInt(process.env.MAX_CROSS_GRANULARITY_PER_LEFT || '2', 10),
   } = options;
 
   // Handle debug mode - uses the same unified pipeline as full run
@@ -1446,6 +1454,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       generatedPairsTotal: 0,
       savedTopKTotal: 0,
       droppedByCapTotal: 0,
+      droppedByCrossGranularityCap: 0,
       errors: [],
     };
   }
@@ -1468,10 +1477,11 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     generatedPairsTotal: 0,
     savedTopKTotal: 0,
     droppedByCapTotal: 0,
+    droppedByCrossGranularityCap: 0,
     errors: [],
   };
 
-  console.log(`[matching] Starting suggest-matches v2.4.2: ${fromVenue} -> ${toVenue}`);
+  console.log(`[matching] Starting suggest-matches v2.4.3: ${fromVenue} -> ${toVenue}`);
   console.log(`[matching] minScore=${minScore}, topK=${topK}, lookbackHours=${lookbackHours}, limitLeft=${limitLeft}, limitRight=${limitRight}, requireOverlap=${requireOverlapKeywords}`);
   console.log(`[matching] Topic filter: ${topic}`);
   if (topic === 'macro') {
@@ -1480,6 +1490,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
   console.log(`[matching] Target keywords: ${targetKeywords.slice(0, 10).join(', ')}${targetKeywords.length > 10 ? '...' : ''}`);
   console.log(`[matching] Sports exclusion: ${excludeSports ? 'enabled' : 'disabled'} (prefixes: ${excludeKalshiPrefixes.length}, keywords: ${excludeTitleKeywords.length})`);
   console.log(`[matching] Max suggestions per left market: ${maxSuggestionsPerLeft}`);
+  console.log(`[matching] Max cross-granularity per left (v2.4.3): ${maxCrossGranularityPerLeft}`);
 
   try {
     // Fetch eligible markets from both venues using unified pipeline
@@ -1618,7 +1629,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       result.candidatesConsidered += candidateIds.size;
 
       // Score candidates and find top-k
-      const scores: Array<{ rightId: number; score: number; reason: string }> = [];
+      const scores: Array<{ rightId: number; score: number; reason: string; periodKind?: PeriodCompatibilityKind }> = [];
 
       for (const rightId of candidateIds) {
         const rightIndexed = index.markets.get(rightId);
@@ -1657,19 +1668,61 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
             rightId,
             score: matchResult.score,
             reason: matchResult.reason,
+            periodKind: matchResult.periodKind,
           });
         }
       }
 
       // Sort by score and take top-k (capped by maxSuggestionsPerLeft)
       scores.sort((a, b) => b.score - a.score);
-      const effectiveCap = Math.min(topK, maxSuggestionsPerLeft);
-      const topCandidates = scores.slice(0, effectiveCap);
+
+      // v2.4.3: Apply cross-granularity guardrail for MACRO_PERIOD markets
+      // This prevents year↔month matches from exploding (e.g., 1 year market matching 12 months)
+      let topCandidates: typeof scores;
+      let crossGranularityDropped = 0;
+
+      if (isMacroTopic && maxCrossGranularityPerLeft > 0) {
+        const exactMatches: typeof scores = [];
+        const crossGranularityMatches: typeof scores = [];
+
+        for (const entry of scores) {
+          // 'exact' means same period type and values (e.g., 2026-01 vs 2026-01)
+          if (entry.periodKind === 'exact' || !entry.periodKind) {
+            exactMatches.push(entry);
+          } else {
+            // month_in_quarter, quarter_in_year, month_in_year are cross-granularity
+            crossGranularityMatches.push(entry);
+          }
+        }
+
+        // Take all exact matches up to cap, plus limited cross-granularity matches
+        const effectiveCap = Math.min(topK, maxSuggestionsPerLeft);
+        const exactToTake = Math.min(exactMatches.length, effectiveCap);
+        const remainingCap = effectiveCap - exactToTake;
+        const crossGranularityToTake = Math.min(
+          crossGranularityMatches.length,
+          remainingCap,
+          maxCrossGranularityPerLeft
+        );
+
+        topCandidates = [
+          ...exactMatches.slice(0, exactToTake),
+          ...crossGranularityMatches.slice(0, crossGranularityToTake),
+        ];
+
+        // Track how many cross-granularity were dropped due to the guardrail
+        crossGranularityDropped = Math.max(0, crossGranularityMatches.length - crossGranularityToTake);
+      } else {
+        const effectiveCap = Math.min(topK, maxSuggestionsPerLeft);
+        topCandidates = scores.slice(0, effectiveCap);
+      }
 
       // Track cap statistics
       result.generatedPairsTotal += scores.length;
       result.savedTopKTotal += topCandidates.length;
+      const effectiveCap = Math.min(topK, maxSuggestionsPerLeft);
       result.droppedByCapTotal += Math.max(0, scores.length - effectiveCap);
+      result.droppedByCrossGranularityCap += crossGranularityDropped;
 
       // Save suggestions
       for (const candidate of topCandidates) {
@@ -1728,7 +1781,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       }
     }
 
-    console.log(`\n[matching] Suggest-matches v2.4.2 complete:`);
+    console.log(`\n[matching] Suggest-matches v2.4.3 complete:`);
     console.log(`  Left markets (${fromVenue}): ${result.leftCount}`);
     console.log(`  Right markets (${toVenue}): ${result.rightCount}`);
     console.log(`  Skipped (already confirmed): ${result.skippedConfirmed}`);
@@ -1740,6 +1793,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     console.log(`  Generated pairs (score >= ${minScore}): ${result.generatedPairsTotal}`);
     console.log(`  Saved (top-${Math.min(topK, maxSuggestionsPerLeft)} cap): ${result.savedTopKTotal}`);
     console.log(`  Dropped by cap: ${result.droppedByCapTotal}`);
+    console.log(`  Dropped by cross-granularity guardrail (v2.4.3): ${result.droppedByCrossGranularityCap}`);
     console.log(`  Suggestions created: ${result.suggestionsCreated}`);
     console.log(`  Suggestions updated: ${result.suggestionsUpdated}`);
     console.log(`  Markets with no entities: ${noEntityCount}`);
