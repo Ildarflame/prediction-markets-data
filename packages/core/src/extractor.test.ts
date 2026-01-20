@@ -160,14 +160,43 @@ describe('extractMacroEntities', () => {
     assert.ok(entities.includes('CPI'), `Expected CPI in ${JSON.stringify(entities)}`);
   });
 
-  it('should extract CPI from "inflation" token', () => {
+  // v2.4.8: "inflation" alone should NOT match CPI (too generic - could be PCE inflation, GDP deflator, etc.)
+  it('should NOT extract CPI from generic "inflation" without CPI context', () => {
     const entities = extract('Inflation rate above 3%');
-    assert.ok(entities.includes('CPI'), `Expected CPI from inflation in ${JSON.stringify(entities)}`);
+    assert.ok(!entities.includes('CPI'), `Generic "inflation" should NOT match CPI, got ${JSON.stringify(entities)}`);
   });
 
   it('should extract CPI from "consumer price index" phrase', () => {
     const entities = extract('Consumer price index rises');
     assert.ok(entities.includes('CPI'), `Expected CPI from phrase in ${JSON.stringify(entities)}`);
+  });
+
+  // v2.4.8: CPI hardening tests - require CPI context
+  it('should extract CPI from "Inflation (CPI)" with explicit CPI mention', () => {
+    const entities = extract('Inflation (CPI) above 3% in Jan 2026');
+    assert.ok(entities.includes('CPI'), `Expected CPI from explicit "(CPI)" in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract CPI from "core cpi" phrase', () => {
+    const entities = extract('Core CPI above 0.3% month-over-month');
+    assert.ok(entities.includes('CPI'), `Expected CPI from "core cpi" in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract CPI from "headline cpi" phrase', () => {
+    const entities = extract('Headline CPI rises 2.9% year-over-year');
+    assert.ok(entities.includes('CPI'), `Expected CPI from "headline cpi" in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract CPI from "cpi inflation" phrase', () => {
+    const entities = extract('CPI inflation rate forecasts for 2026');
+    assert.ok(entities.includes('CPI'), `Expected CPI from "cpi inflation" in ${JSON.stringify(entities)}`);
+  });
+
+  it('should NOT extract CPI from "PCE inflation" (different indicator)', () => {
+    const entities = extract('PCE inflation above 2.5%');
+    assert.ok(entities.includes('PCE'), `Expected PCE in ${JSON.stringify(entities)}`);
+    // CPI should not be extracted just because "inflation" is present
+    assert.ok(!entities.includes('CPI'), `"PCE inflation" should NOT also match CPI, got ${JSON.stringify(entities)}`);
   });
 
   it('should extract GDP', () => {
@@ -185,9 +214,36 @@ describe('extractMacroEntities', () => {
     assert.ok(entities.includes('FED_RATE'), `Expected FED_RATE in ${JSON.stringify(entities)}`);
   });
 
-  it('should extract FED_RATE from "interest rate"', () => {
+  // v2.4.8: "interest rate" alone should NOT match FED_RATE (too generic - could be mortgage, credit card, etc.)
+  it('should NOT extract FED_RATE from generic "interest rate" without Fed context', () => {
     const entities = extract('Interest rate hike expected');
-    assert.ok(entities.includes('FED_RATE'), `Expected FED_RATE from interest rate in ${JSON.stringify(entities)}`);
+    assert.ok(!entities.includes('FED_RATE'), `Generic "interest rate" without Fed context should NOT match FED_RATE, got ${JSON.stringify(entities)}`);
+  });
+
+  // v2.4.8: FED_RATE hardening tests - require Fed context
+  it('should extract FED_RATE from "Fed interest rate"', () => {
+    const entities = extract('Fed interest rate decision in March');
+    assert.ok(entities.includes('FED_RATE'), `Expected FED_RATE from "Fed interest rate" in ${JSON.stringify(entities)}`);
+  });
+
+  it('should NOT extract FED_RATE from "ECB rate cut" (wrong central bank)', () => {
+    const entities = extract('ECB rate cut in 2026?');
+    assert.ok(!entities.includes('FED_RATE'), `ECB rate cut should NOT match FED_RATE, got ${JSON.stringify(entities)}`);
+  });
+
+  it('should NOT extract FED_RATE from "Bank of Japan interest rates"', () => {
+    const entities = extract('Bank of Japan increases interest rates by 25 bps after January meeting');
+    assert.ok(!entities.includes('FED_RATE'), `BOJ should NOT match FED_RATE, got ${JSON.stringify(entities)}`);
+  });
+
+  it('should NOT extract FED_RATE from "credit card interest rates"', () => {
+    const entities = extract('Will Trump cap credit card interest rates by January 2026?');
+    assert.ok(!entities.includes('FED_RATE'), `Credit card rates should NOT match FED_RATE, got ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract FED_RATE from "Fed decreases interest rates"', () => {
+    const entities = extract('Fed decreases interest rates by 50+ bps after January 2026 meeting');
+    assert.ok(entities.includes('FED_RATE'), `Expected FED_RATE from "Fed decreases" in ${JSON.stringify(entities)}`);
   });
 
   it('should extract FOMC', () => {
@@ -283,6 +339,29 @@ describe('extractMacroEntities', () => {
   it('should extract PMI from "ism manufacturing" phrase', () => {
     const entities = extract('ISM Manufacturing PMI above 50');
     assert.ok(entities.includes('PMI'), `Expected PMI from "ism manufacturing" in ${JSON.stringify(entities)}`);
+  });
+
+  // v2.4.8: PMI hardening tests - prevent false positives
+  it('should NOT extract PMI from "DeepMind" (false positive prevention)', () => {
+    const entities = extract('Will Google say "DeepMind" or "Deep Mind" during earnings call?');
+    assert.ok(!entities.includes('PMI'), `DeepMind should NOT match PMI, got ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract PMI from "PMI above 50" with word boundary', () => {
+    const entities = extract('ISM PMI above 50 in January 2026');
+    assert.ok(entities.includes('PMI'), `Expected PMI from "PMI" token in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract PMI from "Purchasing Managers Index" full phrase', () => {
+    const entities = extract('Purchasing Managers Index (PMI) rises in December');
+    assert.ok(entities.includes('PMI'), `Expected PMI from full phrase in ${JSON.stringify(entities)}`);
+  });
+
+  it('should NOT extract PMI from "purchasing manager survey" without index', () => {
+    // "purchasing manager" alone (without "index") should NOT trigger PMI
+    // Note: extractor uses token 'pmi' or phrase 'purchasing managers index'
+    const entities = extract('Survey of purchasing manager opinions');
+    assert.ok(!entities.includes('PMI'), `"purchasing manager" without "index" should NOT match PMI, got ${JSON.stringify(entities)}`);
   });
 
   // v2.4.6: Test Polymarket "add X jobs in Month" pattern (non-consecutive tokens)

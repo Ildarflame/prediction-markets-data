@@ -65,7 +65,11 @@ const ENTITY_KEYWORDS: Record<string, string[]> = {
     'weekly claims', 'continuing claims', 'initial jobless',
   ],
   PMI: [
-    'pmi', 'purchasing manager', 'ism manufacturing', 'ism services',
+    // v2.4.8: Removed plain 'pmi' - substring match causes false positives (e.g., "DeepMind")
+    // Use phrases that require context to avoid false positives
+    ' pmi', 'pmi ', // space-bounded to avoid "DeepMind" matching
+    'purchasing managers index', // full phrase only (not "purchasing manager")
+    'ism manufacturing', 'ism services', 'ism pmi',
   ],
   PCE: [
     'pce', 'personal consumption', 'core pce',
@@ -80,8 +84,12 @@ const ENTITY_KEYWORDS: Record<string, string[]> = {
     'unemployment rate', 'jobless rate',
   ],
   FED_RATE: [
-    'fed rate', 'fed fund', 'federal fund',
-    'rate cut', 'rate hike', 'interest rate',
+    // v2.4.8: Require Fed/FOMC context to avoid BOE/BOJ/credit card false positives
+    'fed rate', 'fed fund', 'federal fund', 'fed funds',
+    'fed cut', 'fed hike', 'fed increases', 'fed decreases',
+    'fomc rate', 'fomc cut', 'fomc hike',
+    // Generic rate cut/hike only with Fed context (handled by OR in query)
+    'fed emergency rate', 'federal reserve rate',
   ],
   FOMC: [
     'fomc', 'federal reserve', 'fed meeting',

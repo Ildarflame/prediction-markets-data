@@ -11,13 +11,16 @@ export const MACRO_ENTITIES = {
   CPI: {
     canonical: 'CPI',
     tokens: ['cpi'],
-    phrases: ['consumer price index'],
+    // v2.4.8: CPI-specific phrases only. "inflation" alone is too generic
+    phrases: ['consumer price index', 'core cpi', 'headline cpi', 'cpi inflation'],
   },
-  INFLATION: {
-    canonical: 'CPI', // Map INFLATION to CPI for MVP
-    tokens: ['inflation'],
-    phrases: [],
-  },
+  // v2.4.8: INFLATION no longer maps to CPI - too generic (could be PCE inflation, GDP deflator, etc.)
+  // Markets with just "inflation" won't get a macro entity assigned unless they also have CPI/PCE context
+  // INFLATION: {
+  //   canonical: 'CPI', // REMOVED - was causing overcounting
+  //   tokens: ['inflation'],
+  //   phrases: [],
+  // },
   GDP: {
     canonical: 'GDP',
     tokens: ['gdp'],
@@ -55,8 +58,11 @@ export const MACRO_ENTITIES = {
   },
   FED_RATE: {
     canonical: 'FED_RATE',
-    tokens: [], // Requires phrase matching
-    phrases: ['fed rate', 'fed funds', 'federal funds', 'interest rate', 'rate decision', 'rate cut', 'rate hike'],
+    tokens: [], // Requires phrase matching or special case logic (fed + rate)
+    // v2.4.8: Removed generic 'rate cut', 'rate hike', 'interest rate' - too broad (catches ECB/BOE/BOJ)
+    // Fed-specific phrases only; special case logic handles "fed" + "rate" combinations
+    phrases: ['fed rate', 'fed funds', 'federal funds', 'fed fund', 'federal fund rate',
+              'fed rate cut', 'fed rate hike', 'fomc rate'],
   },
   FOMC: {
     canonical: 'FOMC',
