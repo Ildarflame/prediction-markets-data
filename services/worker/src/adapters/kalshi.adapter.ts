@@ -225,6 +225,10 @@ export class KalshiAdapter implements VenueAdapter {
     const pathWithoutQuery = path.split('?')[0];
     const message = timestamp + method + pathWithoutQuery;
 
+    console.log(`[kalshi] DEBUG: url=${url}`);
+    console.log(`[kalshi] DEBUG: message=${message}`);
+    console.log(`[kalshi] DEBUG: apiKeyId=${this.auth.apiKeyId}`);
+
     // Sign with RSA-PSS SHA256
     const signature = crypto.sign('sha256', Buffer.from(message), {
       key: this.auth.privateKeyPem,
