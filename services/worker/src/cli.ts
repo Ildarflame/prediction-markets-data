@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -542,6 +542,63 @@ program
       });
     } catch (error) {
       console.error('Audit pack error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Macro truth-audit command (v2.4.10)
+program
+  .command('macro:truth-audit')
+  .description('Ground-truth verification for macro entity presence (v2.4.10)')
+  .requiredOption('--venue <venue>', `Venue to audit (${getSupportedVenues().join(', ')})`)
+  .option('--entity <entity>', `Entity to audit (${getSupportedTruthAuditEntities().join(', ')})`)
+  .option('--all', 'Audit all supported entities', false)
+  .option('--include-resolved', 'Include resolved/archived markets (default: true)', true)
+  .option('--no-include-resolved', 'Exclude resolved/archived markets')
+  .option('--db-limit <number>', 'Limit for DB all-time scan', '5000')
+  .option('--sample <number>', 'Sample size for display', '20')
+  .option('--lookback-hours <number>', 'Lookback hours for eligible window', '720')
+  .action(async (opts) => {
+    const supportedVenues = getSupportedVenues();
+
+    if (!supportedVenues.includes(opts.venue)) {
+      console.error(`Invalid --venue: ${opts.venue}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    if (!opts.entity && !opts.all) {
+      console.error('Must specify --entity <name> or --all');
+      process.exit(1);
+    }
+
+    try {
+      if (opts.all) {
+        // Batch audit all entities
+        await runTruthAuditBatch(
+          opts.venue as Venue,
+          getSupportedTruthAuditEntities(),
+          {
+            includeResolved: opts.includeResolved,
+            dbLimit: parseInt(opts.dbLimit, 10),
+            sampleSize: parseInt(opts.sample, 10),
+            lookbackHours: parseInt(opts.lookbackHours, 10),
+          }
+        );
+      } else {
+        // Single entity audit
+        await runTruthAudit({
+          venue: opts.venue as Venue,
+          entity: opts.entity,
+          includeResolved: opts.includeResolved,
+          dbLimit: parseInt(opts.dbLimit, 10),
+          sampleSize: parseInt(opts.sample, 10),
+          lookbackHours: parseInt(opts.lookbackHours, 10),
+        });
+      }
+    } catch (error) {
+      console.error('Truth audit error:', error);
       process.exit(1);
     } finally {
       await disconnect();

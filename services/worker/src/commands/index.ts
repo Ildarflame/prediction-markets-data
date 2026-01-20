@@ -25,3 +25,12 @@ export {
   type AuditPackOptions,
   type AuditPackRow,
 } from './macro-audit.js';
+export {
+  runTruthAudit,
+  runTruthAuditBatch,
+  getSupportedTruthAuditEntities,
+  TruthVerdict,
+  VERDICT_DESCRIPTIONS as TRUTH_VERDICT_DESCRIPTIONS,
+  type TruthAuditOptions,
+  type TruthAuditResult,
+} from './macro-truth-audit.js';
