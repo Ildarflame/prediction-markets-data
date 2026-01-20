@@ -284,6 +284,17 @@ describe('extractMacroEntities', () => {
     const entities = extract('ISM Manufacturing PMI above 50');
     assert.ok(entities.includes('PMI'), `Expected PMI from "ism manufacturing" in ${JSON.stringify(entities)}`);
   });
+
+  // v2.4.6: Test Polymarket "add X jobs in Month" pattern (non-consecutive tokens)
+  it('should extract NFP from Polymarket "add X jobs in January" pattern', () => {
+    const entities = extract('Will the US add between 0 and 25k jobs in January?');
+    assert.ok(entities.includes('NFP'), `Expected NFP from Polymarket pattern in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract NFP from Polymarket "lose X jobs in February" pattern', () => {
+    const entities = extract('Will the US economy lose 100k jobs in February 2026?');
+    assert.ok(entities.includes('NFP'), `Expected NFP from Polymarket lose pattern in ${JSON.stringify(entities)}`);
+  });
 });
 
 describe('extractPeriod', () => {

@@ -134,6 +134,18 @@ export function extractMacroEntities(tokens: string[], _normalizedTitle?: string
     macroEntities.add('FED_RATE');
   }
 
+  // v2.4.6: Special case: "jobs" + month context => NFP
+  // Handles Polymarket patterns like "Will the US add X jobs in January?"
+  const hasJobs = tokens.includes('jobs');
+  const hasJobsVerb = tokens.includes('add') || tokens.includes('lose') || tokens.includes('added') || tokens.includes('lost');
+  const monthTokens = ['january', 'february', 'march', 'april', 'may', 'june',
+                       'july', 'august', 'september', 'october', 'november', 'december',
+                       'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  const hasMonth = monthTokens.some(m => tokens.includes(m));
+  if (hasJobs && hasJobsVerb && hasMonth && !macroEntities.has('NFP')) {
+    macroEntities.add('NFP');
+  }
+
   return macroEntities;
 }
 
