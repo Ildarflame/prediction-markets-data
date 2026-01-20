@@ -299,4 +299,75 @@ export class MarketRepository {
 
     return result;
   }
+
+  /**
+   * Eligible market data for matching
+   */
+  /**
+   * Get markets eligible for matching:
+   * - status: active or closed within lookback
+   * - binary markets: exactly 2 outcomes with sides yes/no
+   */
+  async listEligibleMarkets(
+    venue: Venue,
+    options: {
+      lookbackHours?: number;
+      limit?: number;
+    } = {}
+  ): Promise<EligibleMarket[]> {
+    const { lookbackHours = 24, limit = 5000 } = options;
+    const lookbackCutoff = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
+
+    // Get markets with outcomes
+    const markets = await this.prisma.market.findMany({
+      where: {
+        venue,
+        OR: [
+          { status: 'active' },
+          {
+            status: 'closed',
+            closeTime: { gte: lookbackCutoff },
+          },
+        ],
+      },
+      include: {
+        outcomes: true,
+      },
+      take: limit,
+    });
+
+    // Filter to binary markets (2 outcomes, yes/no sides)
+    const eligible: EligibleMarket[] = [];
+
+    for (const market of markets) {
+      if (market.outcomes.length !== 2) continue;
+
+      const sides = market.outcomes.map((o) => o.side);
+      const hasYes = sides.includes('yes');
+      const hasNo = sides.includes('no');
+
+      if (!hasYes || !hasNo) continue;
+
+      eligible.push({
+        id: market.id,
+        title: market.title,
+        category: market.category,
+        closeTime: market.closeTime,
+        venue: market.venue,
+      });
+    }
+
+    return eligible;
+  }
+}
+
+/**
+ * Simplified market data for matching
+ */
+export interface EligibleMarket {
+  id: number;
+  title: string;
+  category: string | null;
+  closeTime: Date | null;
+  venue: Venue;
 }

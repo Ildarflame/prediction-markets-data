@@ -9,7 +9,9 @@ export type {
   LatestQuote,
   IngestionState,
   IngestionRun,
+  MarketLink,
   Venue,
   MarketStatus,
   OutcomeSide,
+  LinkStatus,
 } from '@prisma/client';
