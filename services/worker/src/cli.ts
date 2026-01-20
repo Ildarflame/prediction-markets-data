@@ -1,14 +1,48 @@
 #!/usr/bin/env node
 
 import 'dotenv/config';
+import * as fs from 'node:fs';
 import { Command } from 'commander';
 import { type Venue, DEFAULT_DEDUP_CONFIG } from '@data-module/core';
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSeed, runArchive, runSanityCheck } from './commands/index.js';
-import { getSupportedVenues } from './adapters/index.js';
+import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
 const program = new Command();
+
+/**
+ * Load Kalshi auth from environment variables
+ */
+function loadKalshiAuth(): KalshiAuthConfig | undefined {
+  const apiKeyId = process.env.KALSHI_API_KEY_ID;
+  const privateKeyPath = process.env.KALSHI_PRIVATE_KEY_PATH;
+  const privateKeyPem = process.env.KALSHI_PRIVATE_KEY_PEM;
+
+  if (!apiKeyId) {
+    return undefined;
+  }
+
+  let keyPem: string;
+
+  if (privateKeyPem) {
+    // Key provided directly as env var (useful for Docker secrets)
+    keyPem = privateKeyPem.replace(/\\n/g, '\n');
+  } else if (privateKeyPath) {
+    // Key provided as file path
+    try {
+      keyPem = fs.readFileSync(privateKeyPath, 'utf-8');
+    } catch (err) {
+      console.warn(`[kalshi] Failed to read private key from ${privateKeyPath}: ${err}`);
+      return undefined;
+    }
+  } else {
+    console.warn('[kalshi] KALSHI_API_KEY_ID set but no private key provided');
+    return undefined;
+  }
+
+  return { apiKeyId, privateKeyPem: keyPem };
+}
 
 program
   .name('worker')
@@ -40,6 +74,9 @@ program
       minIntervalSeconds: parseInt(opts.minInterval, 10),
     };
 
+    // Load Kalshi auth if available
+    const kalshiAuth = venue === 'kalshi' ? loadKalshiAuth() : undefined;
+
     try {
       if (opts.mode === 'loop') {
         await runIngestionLoop({
@@ -47,6 +84,7 @@ program
           maxMarkets: parseInt(opts.maxMarkets, 10),
           pageSize: parseInt(opts.pageSize, 10),
           dedupConfig,
+          kalshiAuth,
           intervalSeconds: parseInt(opts.interval, 10),
         });
       } else {
@@ -55,6 +93,7 @@ program
           maxMarkets: parseInt(opts.maxMarkets, 10),
           pageSize: parseInt(opts.pageSize, 10),
           dedupConfig,
+          kalshiAuth,
         });
 
         if (!result.ok) {

@@ -7,13 +7,14 @@ import {
   IngestionRepository,
   type Venue as DbVenue,
 } from '@data-module/db';
-import { createAdapter, type VenueAdapter } from '../adapters/index.js';
+import { createAdapter, type VenueAdapter, type KalshiAuthConfig } from '../adapters/index.js';
 
 export interface IngestOptions {
   venue: Venue;
   maxMarkets?: number;
   pageSize?: number;
   dedupConfig?: DedupConfig;
+  kalshiAuth?: KalshiAuthConfig;
 }
 
 export interface IngestResult {
@@ -53,7 +54,10 @@ export async function runIngestion(options: IngestOptions): Promise<IngestResult
     console.log(`[${venue}] Starting ingestion...`);
 
     // Create adapter
-    const adapter: VenueAdapter = createAdapter(venue, { pageSize });
+    const adapter: VenueAdapter = createAdapter(venue, {
+      config: { pageSize },
+      kalshiAuth: options.kalshiAuth,
+    });
 
     // Load checkpoint
     const state = await ingestionRepo.getOrCreateState(venue as DbVenue, 'markets');

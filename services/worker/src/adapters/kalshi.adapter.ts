@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import {
   type Venue,
   type MarketDTO,
@@ -37,20 +38,39 @@ interface KalshiMarketsResponse {
   cursor: string;
 }
 
+interface KalshiOrderbook {
+  orderbook: {
+    yes: Array<[number, number]>; // [price, quantity]
+    no: Array<[number, number]>;
+  };
+}
+
+export interface KalshiAuthConfig {
+  apiKeyId: string;
+  privateKeyPem: string;
+}
+
 /**
- * Kalshi adapter using public API endpoints
- * Note: Orderbook endpoint requires authentication, using market bid/ask instead
+ * Kalshi adapter with optional API authentication for orderbook access
  */
 export class KalshiAdapter implements VenueAdapter {
   readonly venue: Venue = 'kalshi';
   private readonly config: Required<AdapterConfig>;
+  private readonly auth?: KalshiAuthConfig;
 
-  constructor(config: AdapterConfig = {}) {
+  constructor(config: AdapterConfig = {}, auth?: KalshiAuthConfig) {
     this.config = {
       ...DEFAULT_ADAPTER_CONFIG,
       ...config,
       baseUrl: config.baseUrl || KALSHI_API_BASE,
     };
+    this.auth = auth;
+
+    if (auth) {
+      console.log('[kalshi] API authentication enabled - full orderbook access available');
+    } else {
+      console.log('[kalshi] No API auth - using public bid/ask from markets endpoint');
+    }
   }
 
   async fetchMarkets(params?: FetchMarketsParams): Promise<FetchMarketsResult> {
@@ -91,60 +111,202 @@ export class KalshiAdapter implements VenueAdapter {
   }
 
   async fetchQuotes(markets: MarketDTO[]): Promise<QuoteDTO[]> {
+    // If we have auth, fetch full orderbook for each market
+    if (this.auth) {
+      return this.fetchQuotesWithOrderbook(markets);
+    }
+
+    // Otherwise use bid/ask from markets metadata
+    return this.fetchQuotesFromMetadata(markets);
+  }
+
+  /**
+   * Fetch quotes using full orderbook (requires auth)
+   */
+  private async fetchQuotesWithOrderbook(markets: MarketDTO[]): Promise<QuoteDTO[]> {
     const quotes: QuoteDTO[] = [];
     const now = new Date();
 
-    // For Kalshi, we already have bid/ask prices from the markets endpoint
-    // No need for separate API calls
     for (const market of markets) {
-      const meta = market.metadata as {
-        yesBid?: number;
-        yesAsk?: number;
-        noBid?: number;
-        noAsk?: number;
-        lastPrice?: number;
-        volume?: number;
-        openInterest?: number;
-      } | undefined;
+      try {
+        const orderbook = await this.fetchOrderbook(market.externalId);
 
-      if (!meta) continue;
+        // Process Yes side
+        if (orderbook.orderbook.yes.length > 0) {
+          const bestBid = orderbook.orderbook.yes[0];
+          const totalLiquidity = orderbook.orderbook.yes.reduce((sum, [, qty]) => sum + qty, 0);
+          const yesPrice = bestBid[0] / 100; // Convert cents to dollars
 
-      // Yes outcome quote
-      if (meta.yesBid !== undefined && meta.yesAsk !== undefined) {
-        const yesPrice = (meta.yesBid + meta.yesAsk) / 2 / 100; // Convert cents to dollars
+          quotes.push({
+            marketExternalId: market.externalId,
+            outcomeName: 'Yes',
+            ts: now,
+            price: yesPrice,
+            impliedProb: yesPrice,
+            liquidity: totalLiquidity,
+            raw: {
+              orderbookDepth: orderbook.orderbook.yes.length,
+              levels: orderbook.orderbook.yes.slice(0, 5), // Top 5 levels
+            },
+          });
+        }
 
-        quotes.push({
-          marketExternalId: market.externalId,
-          outcomeName: 'Yes',
-          ts: now,
-          price: yesPrice,
-          impliedProb: yesPrice,
-          volume: meta.volume,
-          raw: { bid: meta.yesBid, ask: meta.yesAsk, lastPrice: meta.lastPrice },
-        });
-      }
+        // Process No side
+        if (orderbook.orderbook.no.length > 0) {
+          const bestBid = orderbook.orderbook.no[0];
+          const totalLiquidity = orderbook.orderbook.no.reduce((sum, [, qty]) => sum + qty, 0);
+          const noPrice = bestBid[0] / 100;
 
-      // No outcome quote
-      if (meta.noBid !== undefined && meta.noAsk !== undefined) {
-        const noPrice = (meta.noBid + meta.noAsk) / 2 / 100;
-
-        quotes.push({
-          marketExternalId: market.externalId,
-          outcomeName: 'No',
-          ts: now,
-          price: noPrice,
-          impliedProb: noPrice,
-          volume: meta.volume,
-          raw: { bid: meta.noBid, ask: meta.noAsk },
-        });
+          quotes.push({
+            marketExternalId: market.externalId,
+            outcomeName: 'No',
+            ts: now,
+            price: noPrice,
+            impliedProb: noPrice,
+            liquidity: totalLiquidity,
+            raw: {
+              orderbookDepth: orderbook.orderbook.no.length,
+              levels: orderbook.orderbook.no.slice(0, 5),
+            },
+          });
+        }
+      } catch (err) {
+        console.warn(`[kalshi] Failed to fetch orderbook for ${market.externalId}: ${err}`);
+        // Fallback to metadata
+        const metaQuotes = this.quotesFromMetadata(market, now);
+        quotes.push(...metaQuotes);
       }
     }
 
     return quotes;
   }
 
+  /**
+   * Fetch orderbook for a specific market (authenticated)
+   */
+  private async fetchOrderbook(ticker: string): Promise<KalshiOrderbook> {
+    const path = `/markets/${ticker}/orderbook`;
+    const url = `${this.config.baseUrl}${path}`;
+
+    const response = await withRetry(
+      () => this.fetchWithAuth(url, 'GET', path),
+      {
+        maxAttempts: 3,
+        baseDelayMs: 1000,
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Kalshi orderbook API error: ${response.status}`);
+    }
+
+    return (await response.json()) as KalshiOrderbook;
+  }
+
+  /**
+   * Fetch with Kalshi API authentication (RSA-PSS signature)
+   */
+  private async fetchWithAuth(
+    url: string,
+    method: string,
+    path: string
+  ): Promise<Response> {
+    if (!this.auth) {
+      throw new Error('Auth required but not configured');
+    }
+
+    const timestamp = Date.now().toString();
+    const message = timestamp + method + path;
+
+    // Sign with RSA-PSS SHA256
+    const signature = crypto.sign('sha256', Buffer.from(message), {
+      key: this.auth.privateKeyPem,
+      padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
+      saltLength: crypto.constants.RSA_PSS_SALTLEN_DIGEST,
+    });
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
+
+    try {
+      return await fetch(url, {
+        method,
+        signal: controller.signal,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'KALSHI-ACCESS-KEY': this.auth.apiKeyId,
+          'KALSHI-ACCESS-TIMESTAMP': timestamp,
+          'KALSHI-ACCESS-SIGNATURE': signature.toString('base64'),
+        },
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /**
+   * Fetch quotes from market metadata (no auth needed)
+   */
+  private fetchQuotesFromMetadata(markets: MarketDTO[]): QuoteDTO[] {
+    const quotes: QuoteDTO[] = [];
+    const now = new Date();
+
+    for (const market of markets) {
+      quotes.push(...this.quotesFromMetadata(market, now));
+    }
+
+    return quotes;
+  }
+
+  private quotesFromMetadata(market: MarketDTO, now: Date): QuoteDTO[] {
+    const quotes: QuoteDTO[] = [];
+    const meta = market.metadata as {
+      yesBid?: number;
+      yesAsk?: number;
+      noBid?: number;
+      noAsk?: number;
+      lastPrice?: number;
+      volume?: number;
+      openInterest?: number;
+    } | undefined;
+
+    if (!meta) return quotes;
+
+    // Yes outcome quote
+    if (meta.yesBid !== undefined && meta.yesAsk !== undefined) {
+      const yesPrice = (meta.yesBid + meta.yesAsk) / 2 / 100;
+
+      quotes.push({
+        marketExternalId: market.externalId,
+        outcomeName: 'Yes',
+        ts: now,
+        price: yesPrice,
+        impliedProb: yesPrice,
+        volume: meta.volume,
+        raw: { bid: meta.yesBid, ask: meta.yesAsk, lastPrice: meta.lastPrice },
+      });
+    }
+
+    // No outcome quote
+    if (meta.noBid !== undefined && meta.noAsk !== undefined) {
+      const noPrice = (meta.noBid + meta.noAsk) / 2 / 100;
+
+      quotes.push({
+        marketExternalId: market.externalId,
+        outcomeName: 'No',
+        ts: now,
+        price: noPrice,
+        impliedProb: noPrice,
+        volume: meta.volume,
+        raw: { bid: meta.noBid, ask: meta.noAsk },
+      });
+    }
+
+    return quotes;
+  }
+
   private mapMarket(m: KalshiMarket): MarketDTO {
-    // Map status
     let status: MarketStatus;
     switch (m.status) {
       case 'open':
@@ -162,7 +324,6 @@ export class KalshiAdapter implements VenueAdapter {
         status = 'active';
     }
 
-    // Binary market with Yes/No outcomes
     const outcomes: Array<{ name: string; side: OutcomeSide; metadata?: Record<string, unknown> }> = [
       {
         name: 'Yes',
