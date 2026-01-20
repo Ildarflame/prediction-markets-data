@@ -272,11 +272,12 @@ program
 // Suggest matches command
 program
   .command('suggest-matches')
-  .description('Find potential market matches between venues (v2.4.1: macro-first with year filter)')
+  .description('Find potential market matches between venues (v2.4.2: macro-first with cap)')
   .requiredOption('--from <venue>', `Source venue (${getSupportedVenues().join(', ')})`)
   .option('--to <venue>', `Target venue (${getSupportedVenues().join(', ')})`)
   .option('--min-score <number>', 'Minimum match score (0-1)', '0.6')
   .option('--top-k <number>', 'Top K matches per source market', '10')
+  .option('--max-per-left <number>', 'Max suggestions per left market (reduces bracket duplicates, env: MAX_SUGGESTIONS_PER_LEFT)', '5')
   .option('--lookback-hours <hours>', 'Include closed markets within N hours', '24')
   .option('--limit-left <number>', 'Max source markets to process', '2000')
   .option('--limit-right <number>', 'Max target markets to fetch', '20000')
@@ -321,6 +322,7 @@ program
         toVenue: toVenue as Venue,
         minScore: parseFloat(opts.minScore),
         topK: parseInt(opts.topK, 10),
+        maxSuggestionsPerLeft: parseInt(opts.maxPerLeft, 10),
         lookbackHours: parseInt(opts.lookbackHours, 10),
         limitLeft: parseInt(opts.limitLeft, 10),
         limitRight: parseInt(opts.limitRight, 10),

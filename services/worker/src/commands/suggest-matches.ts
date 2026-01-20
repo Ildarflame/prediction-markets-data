@@ -252,6 +252,8 @@ export interface SuggestMatchesOptions {
   // Macro year window (v2.4.1)
   macroMinYear?: number;
   macroMaxYear?: number;
+  // Cap suggestions per left market (v2.4.2 - reduce bracket duplicates)
+  maxSuggestionsPerLeft?: number;
 }
 
 export interface SuggestMatchesResult {
@@ -265,6 +267,10 @@ export interface SuggestMatchesResult {
   skippedDateGate: number;
   skippedTextGate: number;
   skippedPeriodGate: number;
+  // Cap statistics (v2.4.2)
+  generatedPairsTotal: number;
+  savedTopKTotal: number;
+  droppedByCapTotal: number;
   errors: string[];
 }
 
@@ -1411,6 +1417,8 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     // Macro year window (v2.4.1) - only applied when topic=macro
     macroMinYear = defaultMacroMinYear,
     macroMaxYear = defaultMacroMaxYear,
+    // Cap suggestions per left market (v2.4.2) - ENV overridable
+    maxSuggestionsPerLeft = parseInt(process.env.MAX_SUGGESTIONS_PER_LEFT || '5', 10),
   } = options;
 
   // Handle debug mode - uses the same unified pipeline as full run
@@ -1436,6 +1444,9 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       skippedDateGate: 0,
       skippedTextGate: 0,
       skippedPeriodGate: 0,
+      generatedPairsTotal: 0,
+      savedTopKTotal: 0,
+      droppedByCapTotal: 0,
       errors: [],
     };
   }
@@ -1455,10 +1466,13 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     skippedDateGate: 0,
     skippedTextGate: 0,
     skippedPeriodGate: 0,
+    generatedPairsTotal: 0,
+    savedTopKTotal: 0,
+    droppedByCapTotal: 0,
     errors: [],
   };
 
-  console.log(`[matching] Starting suggest-matches v2.4.1: ${fromVenue} -> ${toVenue}`);
+  console.log(`[matching] Starting suggest-matches v2.4.2: ${fromVenue} -> ${toVenue}`);
   console.log(`[matching] minScore=${minScore}, topK=${topK}, lookbackHours=${lookbackHours}, limitLeft=${limitLeft}, limitRight=${limitRight}, requireOverlap=${requireOverlapKeywords}`);
   console.log(`[matching] Topic filter: ${topic}`);
   if (topic === 'macro') {
@@ -1466,6 +1480,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
   }
   console.log(`[matching] Target keywords: ${targetKeywords.slice(0, 10).join(', ')}${targetKeywords.length > 10 ? '...' : ''}`);
   console.log(`[matching] Sports exclusion: ${excludeSports ? 'enabled' : 'disabled'} (prefixes: ${excludeKalshiPrefixes.length}, keywords: ${excludeTitleKeywords.length})`);
+  console.log(`[matching] Max suggestions per left market: ${maxSuggestionsPerLeft}`);
 
   try {
     // Fetch eligible markets from both venues using unified pipeline
@@ -1647,9 +1662,15 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
         }
       }
 
-      // Sort by score and take top-k
+      // Sort by score and take top-k (capped by maxSuggestionsPerLeft)
       scores.sort((a, b) => b.score - a.score);
-      const topCandidates = scores.slice(0, topK);
+      const effectiveCap = Math.min(topK, maxSuggestionsPerLeft);
+      const topCandidates = scores.slice(0, effectiveCap);
+
+      // Track cap statistics
+      result.generatedPairsTotal += scores.length;
+      result.savedTopKTotal += topCandidates.length;
+      result.droppedByCapTotal += Math.max(0, scores.length - effectiveCap);
 
       // Save suggestions
       for (const candidate of topCandidates) {
@@ -1708,7 +1729,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       }
     }
 
-    console.log(`\n[matching] Suggest-matches v2.4 complete:`);
+    console.log(`\n[matching] Suggest-matches v2.4.2 complete:`);
     console.log(`  Left markets (${fromVenue}): ${result.leftCount}`);
     console.log(`  Right markets (${toVenue}): ${result.rightCount}`);
     console.log(`  Skipped (already confirmed): ${result.skippedConfirmed}`);
@@ -1717,6 +1738,9 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     console.log(`  Skipped (text gate): ${result.skippedTextGate}`);
     console.log(`  Skipped (period gate): ${result.skippedPeriodGate}`);
     console.log(`  Candidates considered: ${result.candidatesConsidered}`);
+    console.log(`  Generated pairs (score >= ${minScore}): ${result.generatedPairsTotal}`);
+    console.log(`  Saved (top-${Math.min(topK, maxSuggestionsPerLeft)} cap): ${result.savedTopKTotal}`);
+    console.log(`  Dropped by cap: ${result.droppedByCapTotal}`);
     console.log(`  Suggestions created: ${result.suggestionsCreated}`);
     console.log(`  Suggestions updated: ${result.suggestionsUpdated}`);
     console.log(`  Markets with no entities: ${noEntityCount}`);
