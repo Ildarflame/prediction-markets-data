@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -383,6 +383,41 @@ program
       });
     } catch (error) {
       console.error('Macro overlap report error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Macro probe command (v2.4.2)
+program
+  .command('macro:probe')
+  .description('Diagnose macro entity detection (data vs extractor issue)')
+  .requiredOption('--venue <venue>', `Venue to probe (${getSupportedVenues().join(', ')})`)
+  .requiredOption('--entity <entity>', 'Entity to probe (e.g., GDP, CPI, UNEMPLOYMENT)')
+  .option('--lookback-hours <hours>', 'Search window in hours', '720')
+  .option('--limit <number>', 'Max markets to analyze', '100')
+  .option('--macro-min-year <year>', 'Min year filter')
+  .option('--macro-max-year <year>', 'Max year filter')
+  .action(async (opts) => {
+    const supportedVenues = getSupportedVenues();
+
+    if (!supportedVenues.includes(opts.venue)) {
+      console.error(`Invalid --venue: ${opts.venue}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    try {
+      await runMacroProbe({
+        venue: opts.venue as Venue,
+        entity: opts.entity,
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+        limit: parseInt(opts.limit, 10),
+        macroMinYear: opts.macroMinYear ? parseInt(opts.macroMinYear, 10) : undefined,
+        macroMaxYear: opts.macroMaxYear ? parseInt(opts.macroMaxYear, 10) : undefined,
+      });
+    } catch (error) {
+      console.error('Macro probe error:', error);
       process.exit(1);
     } finally {
       await disconnect();

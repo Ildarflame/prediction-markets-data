@@ -10,3 +10,4 @@ export { runKalshiSmoke, runKalshiDiscoverSeries, type KalshiSmokeOptions, type 
 export { runOverlapReport, type OverlapReportOptions, type OverlapReportResult, DEFAULT_OVERLAP_KEYWORDS } from './overlap-report.js';
 export { runMetaSample, type MetaSampleOptions } from './meta-sample.js';
 export { runMacroOverlap, type MacroOverlapOptions } from './macro-overlap.js';
+export { runMacroProbe, type MacroProbeOptions } from './macro-probe.js';
