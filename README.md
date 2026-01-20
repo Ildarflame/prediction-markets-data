@@ -1,4 +1,4 @@
-# Data Module v1.1
+# Data Module v1.1.1
 
 Data ingestion module for prediction markets (Polymarket, Kalshi). Collects markets, outcomes, and price quotes with deduplication, checkpointing, and archival support.
 
@@ -20,6 +20,14 @@ Data ingestion module for prediction markets (Polymarket, Kalshi). Collects mark
 - **Raw JSON storage**: Debug data saved with quotes
 - **Health check**: Monitor database and job health
 - **Reconcile**: Find and add missing markets from source
+
+### v1.1.1 Improvements
+
+- **Per-venue dedup config**: Separate epsilon/interval settings per venue via env
+- **Retry-After support**: Respects API rate limit headers, exponential backoff with jitter
+- **Reconcile dry-run**: Preview missing markets without writing to DB
+- **Docker healthcheck**: Worker containers report health via CLI health command
+- **Quotes-sync pagination**: Round-robin cursor for large market counts (QUOTES_MAX_MARKETS_PER_CYCLE)
 
 ## Project Structure
 
@@ -173,6 +181,12 @@ Options:
   -v, --venue <venue>       Venue to reconcile (required)
   --page-size <number>      API page size (default: 100)
   --max-markets <number>    Max markets to fetch (default: 50000)
+  --dry-run                 Preview without making changes (v1.1.1)
+```
+
+Example dry-run:
+```bash
+pnpm --filter @data-module/worker reconcile -v polymarket --dry-run
 ```
 
 ## Database Schema
@@ -222,8 +236,21 @@ Environment variables:
 | `INGEST_PAGE_SIZE` | 100 | Markets per API request |
 | `INGEST_MAX_MARKETS` | 10000 | Max markets per run |
 | `INGEST_INTERVAL_SECONDS` | 60 | Loop mode interval |
-| `DEDUP_EPSILON` | 0.001 | Price change threshold |
-| `DEDUP_MIN_INTERVAL_SECONDS` | 60 | Min seconds between quotes |
+| `DEDUP_EPSILON` | 0.001 | Price change threshold (global default) |
+| `DEDUP_MIN_INTERVAL_SECONDS` | 60 | Min seconds between quotes (global default) |
+| `MARKETS_REFRESH_SECONDS` | 1800 | Markets sync interval (split mode) |
+| `QUOTES_REFRESH_SECONDS` | 60 | Quotes sync interval (split mode) |
+| `QUOTES_CLOSED_LOOKBACK_HOURS` | 24 | Include closed markets within N hours |
+| `QUOTES_MAX_MARKETS_PER_CYCLE` | 2000 | Max markets per quotes-sync cycle |
+
+### Per-venue dedup settings (v1.1.1)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEDUP_EPSILON_POLYMARKET` | 0.001 | Polymarket price threshold |
+| `DEDUP_MIN_INTERVAL_SECONDS_POLYMARKET` | 60 | Polymarket min interval |
+| `DEDUP_EPSILON_KALSHI` | 0.001 | Kalshi price threshold |
+| `DEDUP_MIN_INTERVAL_SECONDS_KALSHI` | 60 | Kalshi min interval |
 
 ## Development
 
