@@ -19,12 +19,12 @@ interface GammaMarket {
   question: string;
   conditionId: string;
   slug: string;
-  outcomes: string[];
-  outcomePrices: string[];
-  clobTokenIds: string[];
+  outcomes: string[] | string; // Can be JSON string or array
+  outcomePrices: string[] | string;
+  clobTokenIds: string[] | string;
   active: boolean;
   closed: boolean;
-  enableOrderBook: boolean;
+  enableOrderBook?: boolean;
   liquidity: string;
   volume: string;
   bestBid?: string;
@@ -33,6 +33,20 @@ interface GammaMarket {
   endDate?: string;
   groupItemTitle?: string;
   category?: string;
+}
+
+/**
+ * Parse JSON string or return array as-is
+ */
+function parseJsonArray<T>(value: T[] | string): T[] {
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return [];
+    }
+  }
+  return value || [];
 }
 
 interface ClobBook {
@@ -198,17 +212,22 @@ export class PolymarketAdapter implements VenueAdapter {
       status = 'closed';
     }
 
+    // Parse JSON strings if needed
+    const outcomeNames = parseJsonArray<string>(m.outcomes);
+    const outcomePrices = parseJsonArray<string>(m.outcomePrices);
+    const clobTokenIds = parseJsonArray<string>(m.clobTokenIds);
+
     // Map outcomes
-    const outcomes = m.outcomes.map((name, i): { externalId?: string; name: string; side: OutcomeSide; metadata?: Record<string, unknown> } => {
+    const outcomes = outcomeNames.map((name, i): { externalId?: string; name: string; side: OutcomeSide; metadata?: Record<string, unknown> } => {
       const side: OutcomeSide =
         name.toLowerCase() === 'yes' ? 'yes' : name.toLowerCase() === 'no' ? 'no' : 'other';
 
       return {
-        externalId: m.clobTokenIds[i],
+        externalId: clobTokenIds[i],
         name,
         side,
         metadata: {
-          price: m.outcomePrices[i],
+          price: outcomePrices[i],
         },
       };
     });
@@ -223,7 +242,7 @@ export class PolymarketAdapter implements VenueAdapter {
       metadata: {
         conditionId: m.conditionId,
         slug: m.slug,
-        clobTokenIds: m.clobTokenIds,
+        clobTokenIds: clobTokenIds,
         liquidity: m.liquidity,
         volume: m.volume,
       },
