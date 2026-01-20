@@ -213,9 +213,14 @@ export function extractEntities(title: string): string[] {
  * Extract numbers from market title
  * Handles: 100k -> 100000, 3% -> 3, 175+ -> 175, $50,000 -> 50000
  * Excludes numbers that are part of dates (e.g., "Feb 1" should not extract "1")
+ *
+ * IMPORTANT: Single-letter multipliers (k/m/b/t) must IMMEDIATELY follow the number
+ * (no whitespace), e.g., "79k", "1.2m". Word multipliers can have optional space.
+ * This prevents "$79,000 to" from capturing "t" as trillion.
  */
 export function extractNumbers(title: string): number[] {
   const numbers: number[] = [];
+  const seen = new Set<number>();
 
   const multipliers: Record<string, number> = {
     'k': 1_000,
@@ -239,56 +244,91 @@ export function extractNumbers(title: string): number[] {
     dateContexts.add(numStartInDate);
   }
 
-  // Extract with main pattern
-  const mainPattern = /\$?([\d,]+(?:\.\d+)?)\s*([kmbt](?:illion|housand)?)?/gi;
-  let match;
+  // Helper to add a number with validation
+  const addNumber = (num: number, index: number, hasDollar: boolean, hasMultiplier: boolean) => {
+    if (isNaN(num) || num < 1) return;
 
-  while ((match = mainPattern.exec(title)) !== null) {
     // Skip if this number is part of a date context
-    if (dateContexts.has(match.index) || dateContexts.has(match.index + 1)) {
-      continue;
-    }
-
-    let numStr = match[1].replace(/,/g, '');
-    let num = parseFloat(numStr);
-
-    if (isNaN(num)) continue;
-
-    // Apply multiplier if present
-    if (match[2]) {
-      const suffix = match[2].toLowerCase();
-      const mult = multipliers[suffix] || multipliers[suffix[0]] || 1;
-      num *= mult;
+    if (dateContexts.has(index) || dateContexts.has(index + 1)) {
+      return;
     }
 
     // Skip very small numbers (1-31) that are likely date days, unless they have $ or multiplier
-    const hasDollar = title[match.index] === '$';
-    const hasMultiplier = !!match[2];
     if (num >= 1 && num <= 31 && !hasDollar && !hasMultiplier) {
-      continue;  // Skip likely date day numbers
+      return;
     }
 
     // Skip years (handled separately in date extraction)
     if (num >= 1900 && num <= 2100) {
-      continue;
+      return;
     }
 
-    if (num >= 1) {
+    if (!seen.has(num)) {
+      seen.add(num);
       numbers.push(num);
     }
+  };
+
+  // Pattern 1: Numbers with IMMEDIATE single-letter suffix (k/m/b/t) - NO whitespace allowed
+  // Examples: "79k", "1.2m", "$100k", "5b"
+  const immediateMultPattern = /\$?([\d,]+(?:\.\d+)?)([kmbt])\b/gi;
+  let match;
+
+  while ((match = immediateMultPattern.exec(title)) !== null) {
+    const numStr = match[1].replace(/,/g, '');
+    let num = parseFloat(numStr);
+    const suffix = match[2].toLowerCase();
+    const mult = multipliers[suffix] || 1;
+    num *= mult;
+
+    const hasDollar = title[match.index] === '$';
+    addNumber(num, match.index, hasDollar, true);
+  }
+
+  // Pattern 2: Numbers with word multipliers (can have optional whitespace)
+  // Examples: "100 thousand", "1.2 million", "$5 billion"
+  const wordMultPattern = /\$?([\d,]+(?:\.\d+)?)\s*(thousand|million|billion|trillion)\b/gi;
+
+  while ((match = wordMultPattern.exec(title)) !== null) {
+    const numStr = match[1].replace(/,/g, '');
+    let num = parseFloat(numStr);
+    const suffix = match[2].toLowerCase();
+    const mult = multipliers[suffix] || 1;
+    num *= mult;
+
+    const hasDollar = title[match.index] === '$';
+    addNumber(num, match.index, hasDollar, true);
+  }
+
+  // Pattern 3: Plain numbers (with optional $ prefix, no multiplier)
+  // Examples: "$79,000", "3700", "79249.99"
+  const plainPattern = /\$?([\d,]+(?:\.\d+)?)\b/gi;
+
+  while ((match = plainPattern.exec(title)) !== null) {
+    // Skip if this was already captured by multiplier patterns
+    // Check by looking at what follows the number
+    const afterMatch = title.slice(match.index + match[0].length);
+    const followedByMult = /^[kmbt]\b/i.test(afterMatch) || /^\s*(thousand|million|billion|trillion)\b/i.test(afterMatch);
+    if (followedByMult) continue;
+
+    const numStr = match[1].replace(/,/g, '');
+    const num = parseFloat(numStr);
+    const hasDollar = title[match.index] === '$';
+    addNumber(num, match.index, hasDollar, false);
   }
 
   // Extract percentages separately
   const pctPattern = /([\d.]+)\s*%/g;
   while ((match = pctPattern.exec(title)) !== null) {
     const num = parseFloat(match[1]);
-    if (!isNaN(num)) {
+    if (!isNaN(num) && !seen.has(num)) {
+      seen.add(num);
       numbers.push(num);
     }
   }
 
-  // Deduplicate and sort
-  return [...new Set(numbers)].sort((a, b) => a - b);
+  // Sort
+  return numbers.sort((a, b) => a - b);
 }
 
 /**

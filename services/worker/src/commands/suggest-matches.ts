@@ -9,6 +9,7 @@ import {
   tokenize,
   jaccard,
   tokenizeForEntities,
+  MarketIntent,
   type MarketFingerprint,
 } from '@data-module/core';
 import {
@@ -178,6 +179,55 @@ function filterSportsMarkets(
   return { filtered, stats: { prefixExcluded, keywordExcluded } };
 }
 
+/**
+ * Topic filter types for market matching
+ */
+export type TopicFilter = 'crypto' | 'macro' | 'politics' | 'all';
+
+/**
+ * Topic-specific entities for filtering
+ * Markets must have at least one entity from the topic set to match
+ */
+export const TOPIC_ENTITIES: Record<Exclude<TopicFilter, 'all'>, string[]> = {
+  crypto: [
+    'BITCOIN', 'ETHEREUM', 'SOLANA', 'XRP', 'DOGECOIN', 'CARDANO', 'BNB',
+    'AVALANCHE', 'POLYGON', 'POLKADOT', 'CHAINLINK', 'LITECOIN',
+  ],
+  macro: [
+    'CPI', 'GDP', 'NFP', 'FOMC', 'FED_RATE', 'UNEMPLOYMENT', 'INFLATION',
+    'INTEREST_RATE', 'PPI', 'PCE',
+  ],
+  politics: [
+    'DONALD_TRUMP', 'DONALD_TRUMP_JR', 'JOE_BIDEN', 'HUNTER_BIDEN',
+    'KAMALA_HARRIS', 'RON_DESANTIS', 'GAVIN_NEWSOM', 'NIKKI_HALEY',
+    'VIVEK_RAMASWAMY', 'MIKE_PENCE', 'RFK_JR', 'BARACK_OBAMA', 'MICHELLE_OBAMA',
+    'ELON_MUSK', 'JEFF_BEZOS', 'NANCY_PELOSI', 'KEVIN_MCCARTHY',
+    'CHUCK_SCHUMER', 'MITCH_MCCONNELL', 'AOC', 'BERNIE_SANDERS', 'ELIZABETH_WARREN',
+    'VLADIMIR_PUTIN', 'VOLODYMYR_ZELENSKY', 'XI_JINPING', 'BENJAMIN_NETANYAHU',
+    'US_PRESIDENTIAL_ELECTION', 'US_SENATE', 'US_HOUSE', 'US_MIDTERMS',
+  ],
+};
+
+/**
+ * Topic-specific keywords for filtering
+ * Markets must have at least one keyword from the topic set (fallback if no entity)
+ */
+export const TOPIC_KEYWORDS: Record<Exclude<TopicFilter, 'all'>, string[]> = {
+  crypto: [
+    'bitcoin', 'btc', 'ethereum', 'eth', 'solana', 'sol', 'crypto',
+    'xrp', 'ripple', 'doge', 'dogecoin', 'cardano', 'ada',
+  ],
+  macro: [
+    'cpi', 'gdp', 'inflation', 'fed', 'fomc', 'interest rate', 'unemployment',
+    'nonfarm', 'payrolls', 'pce', 'ppi', 'jobs report',
+  ],
+  politics: [
+    'trump', 'biden', 'harris', 'election', 'president', 'presidential',
+    'congress', 'senate', 'house', 'governor', 'democrats', 'republicans',
+    'putin', 'zelensky', 'ukraine', 'russia', 'china', 'xi jinping',
+  ],
+};
+
 export interface SuggestMatchesOptions {
   fromVenue: CoreVenue;
   toVenue: CoreVenue;
@@ -189,6 +239,8 @@ export interface SuggestMatchesOptions {
   debugMarketId?: number;
   requireOverlapKeywords?: boolean;
   targetKeywords?: string[];
+  // Topic filter - defines entity and keyword requirements
+  topic?: TopicFilter;
   // Sports exclusion options
   excludeSports?: boolean;
   excludeKalshiPrefixes?: string[];
@@ -360,10 +412,17 @@ function fuzzyTitleScore(titleA: string, titleB: string): number {
   return Math.max(0, similarity);
 }
 
-// Minimum text similarity thresholds to prevent false positives
-// when entities match but titles are completely different (e.g., "Trump Greenland" vs "Trump pardon")
-const MIN_TEXT_SIMILARITY = 0.20;  // (jaccard + fuzzy) / 2 must exceed this
-const MIN_JACCARD = 0.10;          // jaccard alone must exceed this
+// Intent-based text similarity thresholds to prevent false positives
+// PRICE_DATE markets require stricter thresholds (price+date must be precise)
+// Other intents can use relaxed thresholds to increase match coverage
+
+// Strict thresholds for PRICE_DATE intent
+const PRICE_DATE_MIN_TEXT_SIMILARITY = 0.20;  // (jaccard + fuzzy) / 2 must exceed this
+const PRICE_DATE_MIN_JACCARD = 0.10;          // jaccard alone must exceed this
+
+// Relaxed thresholds for other intents (ELECTION, METRIC_DATE, GENERAL)
+const RELAXED_MIN_TEXT_SIMILARITY = 0.12;
+const RELAXED_MIN_JACCARD = 0.05;
 
 /**
  * Calculate weighted match score using multiple signals
@@ -411,11 +470,22 @@ function calculateMatchScore(
   // HARD GATE: Require minimum text similarity
   // This prevents matches like "Trump Greenland Tariffs" vs "Trump pardon" where
   // entity matches but titles are semantically different
+  //
+  // Intent-based thresholds:
+  // - PRICE_DATE requires stricter thresholds (price+date precision matters)
+  // - Other intents use relaxed thresholds to increase match coverage
+  const isPriceDateIntent =
+    left.fingerprint.intent === MarketIntent.PRICE_DATE ||
+    right.fingerprint.intent === MarketIntent.PRICE_DATE;
+
+  const minTextSimilarity = isPriceDateIntent ? PRICE_DATE_MIN_TEXT_SIMILARITY : RELAXED_MIN_TEXT_SIMILARITY;
+  const minJaccard = isPriceDateIntent ? PRICE_DATE_MIN_JACCARD : RELAXED_MIN_JACCARD;
+
   const textSimilarity = (jcScore + fzScore) / 2;
-  if (textSimilarity < MIN_TEXT_SIMILARITY || jcScore < MIN_JACCARD) {
-    const reason = jcScore < MIN_JACCARD
-      ? `TEXT_GATE_FAIL (jc=${jcScore.toFixed(3)} < ${MIN_JACCARD})`
-      : `TEXT_GATE_FAIL (sim=${textSimilarity.toFixed(3)} < ${MIN_TEXT_SIMILARITY})`;
+  if (textSimilarity < minTextSimilarity || jcScore < minJaccard) {
+    const reason = jcScore < minJaccard
+      ? `TEXT_GATE_FAIL (jc=${jcScore.toFixed(3)} < ${minJaccard})`
+      : `TEXT_GATE_FAIL (sim=${textSimilarity.toFixed(3)} < ${minTextSimilarity})`;
     return {
       score: 0,
       reason,
@@ -447,32 +517,210 @@ function calculateMatchScore(
 }
 
 /**
+ * Check if a market matches a topic based on entities or keywords
+ * @param market - Market to check
+ * @param fingerprint - Pre-computed fingerprint (if available)
+ * @param topic - Topic to match against
+ * @returns true if market matches the topic
+ */
+function matchesTopic(
+  market: EligibleMarket,
+  fingerprint: MarketFingerprint | null,
+  topic: Exclude<TopicFilter, 'all'>
+): boolean {
+  const topicEntities = new Set(TOPIC_ENTITIES[topic]);
+  const topicKeywords = TOPIC_KEYWORDS[topic];
+
+  // Check entities first (most reliable)
+  if (fingerprint) {
+    for (const entity of fingerprint.entities) {
+      if (topicEntities.has(entity)) {
+        return true;
+      }
+    }
+  }
+
+  // Fallback to keyword matching in title
+  return hasKeywordToken(market.title, topicKeywords);
+}
+
+/**
+ * Filter markets by topic
+ * @param markets - Markets to filter
+ * @param topic - Topic filter ('all' returns all markets)
+ * @returns Filtered markets and count of removed
+ */
+function filterByTopic(
+  markets: EligibleMarket[],
+  topic: TopicFilter
+): { filtered: EligibleMarket[]; removed: number } {
+  if (topic === 'all') {
+    return { filtered: markets, removed: 0 };
+  }
+
+  const filtered: EligibleMarket[] = [];
+  let removed = 0;
+
+  for (const market of markets) {
+    // Compute fingerprint for entity extraction
+    const fingerprint = buildFingerprint(market.title, market.closeTime, { metadata: market.metadata });
+    if (matchesTopic(market, fingerprint, topic)) {
+      filtered.push(market);
+    } else {
+      removed++;
+    }
+  }
+
+  return { filtered, removed };
+}
+
+/**
+ * Common options for fetching eligible markets
+ */
+interface FetchMarketsOptions {
+  venue: CoreVenue;
+  lookbackHours: number;
+  limit: number;
+  targetKeywords: string[];
+  topic: TopicFilter;
+  excludeSports: boolean;
+  excludeKalshiPrefixes: string[];
+  excludeTitleKeywords: string[];
+}
+
+/**
+ * Pipeline stats for market fetching
+ */
+interface FetchMarketsStats {
+  total: number;
+  afterKeywordFilter: number;
+  afterSportsFilter: number;
+  afterTopicFilter: number;
+}
+
+/**
+ * Fetch eligible markets with all filters applied
+ * This is the unified pipeline used by both debug and full run modes
+ */
+async function fetchEligibleMarkets(
+  marketRepo: MarketRepository,
+  options: FetchMarketsOptions
+): Promise<{ markets: EligibleMarket[]; stats: FetchMarketsStats }> {
+  const {
+    venue,
+    lookbackHours,
+    limit,
+    targetKeywords,
+    topic,
+    excludeSports,
+    excludeKalshiPrefixes,
+    excludeTitleKeywords,
+  } = options;
+
+  // Step 1: Fetch from DB with keyword filter
+  let markets = await marketRepo.listEligibleMarkets(venue as Venue, {
+    lookbackHours,
+    limit,
+    titleKeywords: targetKeywords.length > 0 ? targetKeywords : undefined,
+  });
+  const total = markets.length;
+
+  // Step 2: Apply token-based keyword post-filter (DB uses substring matching)
+  if (targetKeywords.length > 0) {
+    const { filtered } = filterByKeywordTokens(markets, targetKeywords);
+    markets = filtered;
+  }
+  const afterKeywordFilter = markets.length;
+
+  // Step 3: Apply sports filtering
+  if (excludeSports) {
+    const polyKeywords = venue === 'polymarket' ? [...excludeTitleKeywords, ...POLYMARKET_ESPORTS_KEYWORDS] : excludeTitleKeywords;
+    const { filtered } = filterSportsMarkets(markets, venue, {
+      excludeKalshiPrefixes: venue === 'kalshi' ? excludeKalshiPrefixes : [],
+      excludeTitleKeywords: polyKeywords,
+    });
+    markets = filtered;
+  }
+  const afterSportsFilter = markets.length;
+
+  // Step 4: Apply topic filtering
+  if (topic !== 'all') {
+    const { filtered } = filterByTopic(markets, topic);
+    markets = filtered;
+  }
+  const afterTopicFilter = markets.length;
+
+  return {
+    markets,
+    stats: { total, afterKeywordFilter, afterSportsFilter, afterTopicFilter },
+  };
+}
+
+/**
  * Debug a single market - show top candidates with breakdown
+ * Uses the SAME pipeline as runSuggestMatches for market fetching
  */
 async function debugMarket(
   marketId: number,
   fromVenue: CoreVenue,
   toVenue: CoreVenue,
-  lookbackHours: number
+  options: {
+    lookbackHours: number;
+    limitLeft: number;
+    limitRight: number;
+    targetKeywords: string[];
+    topic: TopicFilter;
+    excludeSports: boolean;
+    excludeKalshiPrefixes: string[];
+    excludeTitleKeywords: string[];
+  }
 ): Promise<void> {
   const prisma = getClient();
   const marketRepo = new MarketRepository(prisma);
 
-  console.log(`\n[debug v2.2] Analyzing market ID ${marketId} from ${fromVenue}...\n`);
+  console.log(`\n[debug v2.3] Analyzing market ID ${marketId} from ${fromVenue}...\n`);
+  console.log(`[debug] Using unified pipeline with full run settings:`);
+  console.log(`[debug] lookbackHours=${options.lookbackHours}, limitLeft=${options.limitLeft}, limitRight=${options.limitRight}`);
+  console.log(`[debug] topic=${options.topic}, excludeSports=${options.excludeSports}, keywords=${options.targetKeywords.length}`);
 
-  // Get the source market
-  const leftMarkets = await marketRepo.listEligibleMarkets(fromVenue as Venue, {
-    lookbackHours,
-    limit: 10000,
+  // Fetch source markets using unified pipeline
+  const { markets: leftMarkets, stats: leftStats } = await fetchEligibleMarkets(marketRepo, {
+    venue: fromVenue,
+    lookbackHours: options.lookbackHours,
+    limit: options.limitLeft,
+    targetKeywords: options.targetKeywords,
+    topic: options.topic,
+    excludeSports: options.excludeSports,
+    excludeKalshiPrefixes: options.excludeKalshiPrefixes,
+    excludeTitleKeywords: options.excludeTitleKeywords,
   });
+
+  console.log(`\n[debug] ${fromVenue} markets: ${leftStats.total} -> ${leftStats.afterKeywordFilter} (kw) -> ${leftStats.afterSportsFilter} (sports) -> ${leftStats.afterTopicFilter} (topic)`);
 
   const leftMarket = leftMarkets.find(m => m.id === marketId);
   if (!leftMarket) {
-    console.error(`Market ${marketId} not found in ${fromVenue}`);
+    // Market not found in filtered set - try to find why
+    const allMarkets = await marketRepo.listEligibleMarkets(fromVenue as Venue, {
+      lookbackHours: options.lookbackHours,
+      limit: 50000,
+    });
+    const rawMarket = allMarkets.find(m => m.id === marketId);
+    if (rawMarket) {
+      console.error(`Market ${marketId} found in raw data but filtered out.`);
+      console.error(`Title: ${rawMarket.title}`);
+
+      // Check why it was filtered
+      const hasKeyword = hasKeywordToken(rawMarket.title, options.targetKeywords);
+      const isSports = hasSportsTitleKeyword(rawMarket.title, options.excludeTitleKeywords);
+      console.error(`Has target keyword: ${hasKeyword}`);
+      console.error(`Is sports market: ${isSports}`);
+    } else {
+      console.error(`Market ${marketId} not found in ${fromVenue} (lookback=${options.lookbackHours}h)`);
+    }
     return;
   }
 
-  console.log(`Source market:`);
+  console.log(`\nSource market:`);
   console.log(`  ID: ${leftMarket.id}`);
   console.log(`  Title: ${leftMarket.title}`);
   console.log(`  Category: ${leftMarket.category || 'N/A'}`);
@@ -501,23 +749,30 @@ async function debugMarket(
   console.log(`  Comparator: ${leftFingerprint.comparator}`);
   console.log(`  Intent: ${leftFingerprint.intent}`);
   console.log(`  Fingerprint: ${leftFingerprint.fingerprint}`);
-  console.log(`  Text gate: sim>=${MIN_TEXT_SIMILARITY}, jc>=${MIN_JACCARD}`);
+  const isPriceDate = leftFingerprint.intent === MarketIntent.PRICE_DATE;
+  console.log(`  Text gate: sim>=${isPriceDate ? PRICE_DATE_MIN_TEXT_SIMILARITY : RELAXED_MIN_TEXT_SIMILARITY}, jc>=${isPriceDate ? PRICE_DATE_MIN_JACCARD : RELAXED_MIN_JACCARD} (${isPriceDate ? 'PRICE_DATE strict' : 'relaxed'})`);
 
-  // Get target markets
-  console.log(`\nFetching target markets from ${toVenue}...`);
-  const rightMarkets = await marketRepo.listEligibleMarkets(toVenue as Venue, {
-    lookbackHours,
-    limit: 10000,
+  // Fetch target markets using unified pipeline
+  const { markets: rightMarkets, stats: rightStats } = await fetchEligibleMarkets(marketRepo, {
+    venue: toVenue,
+    lookbackHours: options.lookbackHours,
+    limit: options.limitRight,
+    targetKeywords: options.targetKeywords,
+    topic: options.topic,
+    excludeSports: options.excludeSports,
+    excludeKalshiPrefixes: options.excludeKalshiPrefixes,
+    excludeTitleKeywords: options.excludeTitleKeywords,
   });
 
-  console.log(`Found ${rightMarkets.length} markets from ${toVenue}`);
+  console.log(`\n[debug] ${toVenue} markets: ${rightStats.total} -> ${rightStats.afterKeywordFilter} (kw) -> ${rightStats.afterSportsFilter} (sports) -> ${rightStats.afterTopicFilter} (topic)`);
 
   // Build index
   const index = buildEntityIndex(rightMarkets);
+  console.log(`[debug] Index: ${index.byEntity.size} unique entities, ${index.byYear.size} years`);
 
   // Find candidates
   const candidateIds = findCandidatesByEntity(leftFingerprint, leftMarket.closeTime, index, 1000);
-  console.log(`Found ${candidateIds.size} candidates by entity overlap\n`);
+  console.log(`[debug] Found ${candidateIds.size} candidates by entity overlap\n`);
 
   // Score all candidates
   const leftIndexed: IndexedMarket = {
@@ -572,6 +827,10 @@ async function debugMarket(
 
   console.log(`Gate failures: date=${dateGateFailCount}, text=${textGateFailCount} / ${candidateIds.size} candidates`);
 
+  // Count passing scores
+  const passingScores = scores.filter(s => !s.dateGateFailed && !s.textGateFailed);
+  console.log(`Passing candidates (no gate failures): ${passingScores.length}`);
+
   // Show top 20
   console.log(`\nTop 20 candidates:\n`);
   console.log('Rank | Score | Gate | Intent      | Entity | Date   | Number | Title');
@@ -590,7 +849,7 @@ async function debugMarket(
   console.log('\nDetailed top 5:\n');
   for (let i = 0; i < Math.min(5, scores.length); i++) {
     const s = scores[i];
-    const gateIcon = s.dateGateFailed ? '❌ DATE' : (s.textGateFailed ? '❌ TEXT' : '✓');
+    const gateIcon = s.dateGateFailed ? '[DATE FAIL]' : (s.textGateFailed ? '[TEXT FAIL]' : '[PASS]');
     console.log(`#${i + 1} (score=${s.score.toFixed(4)}) ${gateIcon}:`);
     console.log(`  Title: ${s.market.title}`);
     console.log(`  ID: ${s.market.id}`);
@@ -611,7 +870,10 @@ async function debugMarket(
       console.log(`  Status: DATE_GATE_FAILED - intents: source=${leftFingerprint.intent}, target=${s.fingerprint.intent}`);
     } else if (s.textGateFailed) {
       const textSim = ((s.breakdown.jaccard + s.breakdown.fuzzy) / 2).toFixed(3);
-      console.log(`  Status: TEXT_GATE_FAILED - sim=${textSim}, jc=${s.breakdown.jaccard.toFixed(3)} (min: sim>=${MIN_TEXT_SIMILARITY}, jc>=${MIN_JACCARD})`);
+      const isPriceDatePair = leftFingerprint.intent === MarketIntent.PRICE_DATE || s.fingerprint.intent === MarketIntent.PRICE_DATE;
+      const minSim = isPriceDatePair ? PRICE_DATE_MIN_TEXT_SIMILARITY : RELAXED_MIN_TEXT_SIMILARITY;
+      const minJc = isPriceDatePair ? PRICE_DATE_MIN_JACCARD : RELAXED_MIN_JACCARD;
+      console.log(`  Status: TEXT_GATE_FAILED - sim=${textSim}, jc=${s.breakdown.jaccard.toFixed(3)} (min: sim>=${minSim}, jc>=${minJc}, ${isPriceDatePair ? 'strict' : 'relaxed'})`);
     }
     console.log('');
   }
@@ -640,15 +902,26 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     debugMarketId,
     requireOverlapKeywords = true,
     targetKeywords = MATCHING_KEYWORDS,
+    // Topic filter - 'all' by default for backwards compatibility
+    topic = 'all',
     // Sports exclusion options - enabled by default
     excludeSports = true,
     excludeKalshiPrefixes = excludeSports ? KALSHI_SPORTS_PREFIXES : [],
     excludeTitleKeywords = excludeSports ? SPORTS_TITLE_KEYWORDS : [],
   } = options;
 
-  // Handle debug mode
+  // Handle debug mode - uses the same unified pipeline as full run
   if (debugMarketId !== undefined) {
-    await debugMarket(debugMarketId, fromVenue, toVenue, lookbackHours);
+    await debugMarket(debugMarketId, fromVenue, toVenue, {
+      lookbackHours,
+      limitLeft,
+      limitRight,
+      targetKeywords,
+      topic,
+      excludeSports,
+      excludeKalshiPrefixes,
+      excludeTitleKeywords,
+    });
     return {
       leftCount: 0,
       rightCount: 0,
@@ -680,69 +953,41 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     errors: [],
   };
 
-  console.log(`[matching] Starting suggest-matches v2.2: ${fromVenue} -> ${toVenue}`);
+  console.log(`[matching] Starting suggest-matches v2.3: ${fromVenue} -> ${toVenue}`);
   console.log(`[matching] minScore=${minScore}, topK=${topK}, lookbackHours=${lookbackHours}, limitLeft=${limitLeft}, limitRight=${limitRight}, requireOverlap=${requireOverlapKeywords}`);
+  console.log(`[matching] Topic filter: ${topic}`);
   console.log(`[matching] Target keywords: ${targetKeywords.slice(0, 10).join(', ')}${targetKeywords.length > 10 ? '...' : ''}`);
   console.log(`[matching] Sports exclusion: ${excludeSports ? 'enabled' : 'disabled'} (prefixes: ${excludeKalshiPrefixes.length}, keywords: ${excludeTitleKeywords.length})`);
 
   try {
-    // Fetch eligible markets from both venues
+    // Fetch eligible markets from both venues using unified pipeline
     console.log(`[matching] Fetching eligible markets from ${fromVenue}...`);
-    let leftMarkets = await marketRepo.listEligibleMarkets(fromVenue as Venue, {
+    const { markets: leftMarkets, stats: leftStats } = await fetchEligibleMarkets(marketRepo, {
+      venue: fromVenue,
       lookbackHours,
       limit: limitLeft,
-      titleKeywords: targetKeywords,
+      targetKeywords,
+      topic,
+      excludeSports,
+      excludeKalshiPrefixes,
+      excludeTitleKeywords,
     });
-
-    // Apply token-based keyword post-filter (DB uses substring matching which has false positives)
-    const { filtered: leftFiltered, removed: leftKwRemoved } = filterByKeywordTokens(leftMarkets, targetKeywords);
-    leftMarkets = leftFiltered;
-    if (leftKwRemoved > 0) {
-      console.log(`[matching] ${fromVenue} token-filter removed ${leftKwRemoved} false keyword matches`);
-    }
-
-    // Apply sports filtering to left markets (Polymarket)
-    if (excludeTitleKeywords.length > 0) {
-      const polyKeywords = fromVenue === 'polymarket' ? [...excludeTitleKeywords, ...POLYMARKET_ESPORTS_KEYWORDS] : excludeTitleKeywords;
-      const { filtered, stats } = filterSportsMarkets(leftMarkets, fromVenue, {
-        excludeKalshiPrefixes: fromVenue === 'kalshi' ? excludeKalshiPrefixes : [],
-        excludeTitleKeywords: polyKeywords,
-      });
-      leftMarkets = filtered;
-      if (stats.prefixExcluded > 0 || stats.keywordExcluded > 0) {
-        console.log(`[matching] ${fromVenue} sports-filter: -${stats.prefixExcluded} prefix, -${stats.keywordExcluded} keyword`);
-      }
-    }
     result.leftCount = leftMarkets.length;
-    console.log(`[matching] Found ${leftMarkets.length} eligible markets from ${fromVenue}`);
+    console.log(`[matching] ${fromVenue}: ${leftStats.total} -> ${leftStats.afterKeywordFilter} (kw) -> ${leftStats.afterSportsFilter} (sports) -> ${leftStats.afterTopicFilter} (topic)`);
 
-    console.log(`[matching] Fetching eligible markets from ${toVenue} (filtering by keywords)...`);
-    let rightMarkets = await marketRepo.listEligibleMarkets(toVenue as Venue, {
+    console.log(`[matching] Fetching eligible markets from ${toVenue}...`);
+    const { markets: rightMarkets, stats: rightStats } = await fetchEligibleMarkets(marketRepo, {
+      venue: toVenue,
       lookbackHours,
       limit: limitRight,
-      titleKeywords: targetKeywords,
+      targetKeywords,
+      topic,
+      excludeSports,
+      excludeKalshiPrefixes,
+      excludeTitleKeywords,
     });
-
-    // Apply token-based keyword post-filter (DB uses substring matching which has false positives)
-    const { filtered: rightFiltered, removed: rightKwRemoved } = filterByKeywordTokens(rightMarkets, targetKeywords);
-    rightMarkets = rightFiltered;
-    if (rightKwRemoved > 0) {
-      console.log(`[matching] ${toVenue} token-filter removed ${rightKwRemoved} false keyword matches`);
-    }
-
-    // Apply sports filtering to right markets (Kalshi)
-    if (excludeKalshiPrefixes.length > 0 || excludeTitleKeywords.length > 0) {
-      const { filtered, stats } = filterSportsMarkets(rightMarkets, toVenue, {
-        excludeKalshiPrefixes: toVenue === 'kalshi' ? excludeKalshiPrefixes : [],
-        excludeTitleKeywords,
-      });
-      rightMarkets = filtered;
-      if (stats.prefixExcluded > 0 || stats.keywordExcluded > 0) {
-        console.log(`[matching] ${toVenue} sports-filter: -${stats.prefixExcluded} prefix, -${stats.keywordExcluded} keyword`);
-      }
-    }
     result.rightCount = rightMarkets.length;
-    console.log(`[matching] Found ${rightMarkets.length} eligible markets from ${toVenue}`);
+    console.log(`[matching] ${toVenue}: ${rightStats.total} -> ${rightStats.afterKeywordFilter} (kw) -> ${rightStats.afterSportsFilter} (sports) -> ${rightStats.afterTopicFilter} (topic)`);
 
     if (leftMarkets.length === 0 || rightMarkets.length === 0) {
       console.log(`[matching] No markets to match`);
@@ -863,7 +1108,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       }
     }
 
-    console.log(`\n[matching] Suggest-matches v2.2 complete:`);
+    console.log(`\n[matching] Suggest-matches v2.3 complete:`);
     console.log(`  Left markets (${fromVenue}): ${result.leftCount}`);
     console.log(`  Right markets (${toVenue}): ${result.rightCount}`);
     console.log(`  Skipped (already confirmed): ${result.skippedConfirmed}`);

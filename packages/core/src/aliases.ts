@@ -219,11 +219,15 @@ export const ENTITY_ALIASES: Record<string, string> = {
 
 /**
  * Regex patterns for extracting ticker-like entities
+ * IMPORTANT: All patterns must have word boundaries at BOTH start and end
+ * to prevent substring matches (e.g., "Hegseth" should NOT match "ETH")
  */
 export const TICKER_PATTERNS: RegExp[] = [
-  // Crypto tickers: $BTC, BTC, etc.
-  /\$?(?:BTC|ETH|SOL|XRP|DOGE|ADA|BNB|AVAX|MATIC|DOT|LINK|LTC|USDT|USDC|PEPE|SHIB|UNI|AAVE|CRV|MKR|COMP|SNX|YFI|SUSHI|CAKE)\b/gi,
-  // Stock tickers: $AAPL, AAPL, etc.
+  // Crypto tickers with $ prefix: $BTC, $ETH, etc.
+  /\$(?:BTC|ETH|SOL|XRP|DOGE|ADA|BNB|AVAX|MATIC|DOT|LINK|LTC|USDT|USDC|PEPE|SHIB|UNI|AAVE|CRV|MKR|COMP|SNX|YFI|SUSHI|CAKE)\b/gi,
+  // Crypto tickers without $ prefix: require word boundary at start
+  /\b(?:BTC|ETH|SOL|XRP|DOGE|ADA|BNB|AVAX|MATIC|DOT|LINK|LTC|USDT|USDC|PEPE|SHIB|UNI|AAVE|CRV|MKR|COMP|SNX|YFI|SUSHI|CAKE)\b/gi,
+  // Stock tickers: $AAPL, etc.
   /\$(?:AAPL|GOOGL|GOOG|AMZN|MSFT|TSLA|NVDA|META|NFLX|SPY|QQQ|VIX|GLD|SLV|USO|TLT|IWM|DIA)\b/gi,
   // Commodities
   /\b(?:GOLD|SILVER|OIL|WTI|BRENT|NATURAL GAS|COPPER)\b/gi,
