@@ -1556,6 +1556,11 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       // Save suggestions
       for (const candidate of topCandidates) {
         try {
+          // Warn if reason is missing
+          if (!candidate.reason) {
+            console.warn(`[matching] Warning: empty reason for match ${leftMarket.id} -> ${candidate.rightId}`);
+          }
+
           const upsertResult = await linkRepo.upsertSuggestion(
             fromVenue as Venue,
             leftMarket.id,

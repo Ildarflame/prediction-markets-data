@@ -55,20 +55,20 @@ export async function runListSuggestions(options: ListSuggestionsOptions = {}): 
   }
 
   // Print header
-  console.log('ID    | Score | Status     | Left Title                    | Right Title                   | Time Δ');
-  console.log('-'.repeat(110));
+  console.log('ID    | Score | Status     | Left Title                    | Right Title                   | Reason');
+  console.log('-'.repeat(130));
 
   for (const link of links) {
     const leftTitle = truncate(link.leftMarket.title, 28);
     const rightTitle = truncate(link.rightMarket.title, 28);
-    const timeDiff = formatTimeDiff(link.leftMarket.closeTime, link.rightMarket.closeTime);
+    const reason = link.reason ? truncate(link.reason, 40) : 'N/A';
 
     console.log(
-      `${String(link.id).padStart(5)} | ${link.score.toFixed(2).padStart(5)} | ${link.status.padEnd(10)} | ${leftTitle.padEnd(29)} | ${rightTitle.padEnd(29)} | ${timeDiff}`
+      `${String(link.id).padStart(5)} | ${link.score.toFixed(2).padStart(5)} | ${link.status.padEnd(10)} | ${leftTitle.padEnd(29)} | ${rightTitle.padEnd(29)} | ${reason}`
     );
   }
 
-  console.log('-'.repeat(110));
+  console.log('-'.repeat(130));
   console.log(`Total: ${links.length} suggestions`);
 
   // Show counts by status
