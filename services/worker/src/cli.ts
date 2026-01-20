@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -449,6 +449,31 @@ program
       });
     } catch (error) {
       console.error('Macro counts error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Macro best command (v2.4.5)
+program
+  .command('macro:best')
+  .description('Show/confirm best high-score STRONG suggestions (v2.4.5)')
+  .option('--min-score <number>', 'Minimum score filter (default: 0.85)', '0.85')
+  .option('--only-strong', 'Only STRONG tier (default: true)', true)
+  .option('--no-only-strong', 'Include WEAK tier')
+  .option('--limit <number>', 'Maximum results', '50')
+  .option('--apply', 'Auto-confirm matches (default: dry-run)', false)
+  .action(async (opts) => {
+    try {
+      await runMacroBest({
+        minScore: parseFloat(opts.minScore),
+        onlyStrong: opts.onlyStrong,
+        limit: parseInt(opts.limit, 10),
+        apply: opts.apply,
+      });
+    } catch (error) {
+      console.error('Macro best error:', error);
       process.exit(1);
     } finally {
       await disconnect();
