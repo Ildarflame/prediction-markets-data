@@ -307,6 +307,10 @@ export class MarketRepository {
    * Get markets eligible for matching:
    * - status: active or closed within lookback
    * - binary markets: exactly 2 outcomes with sides yes/no
+   *
+   * v2.4.4: Added orderBy option to support different sorting strategies
+   * - 'id': Order by ID desc (default, for general matching - newest markets first)
+   * - 'closeTime': Order by closeTime desc (for macro matching - markets closing soon first)
    */
   async listEligibleMarkets(
     venue: Venue,
@@ -314,9 +318,11 @@ export class MarketRepository {
       lookbackHours?: number;
       limit?: number;
       titleKeywords?: string[];
+      /** Sort order: 'id' (default) or 'closeTime' (v2.4.4) */
+      orderBy?: 'id' | 'closeTime';
     } = {}
   ): Promise<EligibleMarket[]> {
-    const { lookbackHours = 24, limit = 5000, titleKeywords } = options;
+    const { lookbackHours = 24, limit = 5000, titleKeywords, orderBy = 'id' } = options;
     const lookbackCutoff = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
 
     // Build where clause
@@ -348,13 +354,18 @@ export class MarketRepository {
       };
     }
 
-    // Get markets with outcomes (order by ID desc to get newer markets first)
+    // Get markets with outcomes
+    // v2.4.4: Use orderBy parameter to support different sorting strategies
+    // - 'id' (default): newest markets first (for general matching)
+    // - 'closeTime': markets closing soon first (for macro matching - includes old active markets)
     const markets = await this.prisma.market.findMany({
       where: whereClause,
       include: {
         outcomes: true,
       },
-      orderBy: { id: 'desc' },
+      orderBy: orderBy === 'closeTime'
+        ? { closeTime: 'desc' }
+        : { id: 'desc' },
       take: limit,
     });
 

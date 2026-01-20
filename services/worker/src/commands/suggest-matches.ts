@@ -989,6 +989,10 @@ interface FetchMarketsOptions {
   macroMaxYear?: number;
   // Rare entity extended lookback (v2.4.3)
   rareEntityLookbackHours?: number;
+  // Sort order for DB query (v2.4.4)
+  // 'id' (default): newest markets first
+  // 'closeTime': markets closing soon first (better for macro - includes old active markets)
+  orderBy?: 'id' | 'closeTime';
 }
 
 /**
@@ -1027,13 +1031,16 @@ async function fetchEligibleMarkets(
     macroMinYear,
     macroMaxYear,
     rareEntityLookbackHours,
+    orderBy,
   } = options;
 
   // Step 1: Fetch from DB with keyword filter
+  // v2.4.4: Pass orderBy to support different sorting strategies
   let markets = await marketRepo.listEligibleMarkets(venue as Venue, {
     lookbackHours,
     limit,
     titleKeywords: targetKeywords.length > 0 ? targetKeywords : undefined,
+    orderBy,
   });
   const total = markets.length;
 
@@ -1140,10 +1147,12 @@ async function fetchEligibleMarkets(
         const existingIds = new Set(markets.map(m => m.id));
 
         // Fetch with extended lookback
+        // v2.4.4: Use same orderBy for consistency
         const extendedMarkets = await marketRepo.listEligibleMarkets(venue as Venue, {
           lookbackHours: rareEntityLookbackHours,
           limit,
           titleKeywords: rareKeywords,
+          orderBy,
         });
 
         // Process extended markets through same filters
@@ -1225,10 +1234,14 @@ async function debugMarket(
   const prisma = getClient();
   const marketRepo = new MarketRepository(prisma);
 
-  console.log(`\n[debug v2.4] Analyzing market ID ${marketId} from ${fromVenue}...\n`);
+  console.log(`\n[debug v2.4.4] Analyzing market ID ${marketId} from ${fromVenue}...\n`);
   console.log(`[debug] Using unified pipeline with full run settings:`);
   console.log(`[debug] lookbackHours=${options.lookbackHours}, limitLeft=${options.limitLeft}, limitRight=${options.limitRight}`);
   console.log(`[debug] topic=${options.topic}, excludeSports=${options.excludeSports}, keywords=${options.targetKeywords.length}`);
+
+  // v2.4.4: Use closeTime ordering for macro to include old active markets
+  const orderBy = options.topic === 'macro' ? 'closeTime' as const : 'id' as const;
+  console.log(`[debug] orderBy=${orderBy} (v2.4.4: macro uses closeTime to include old active markets)`);
 
   // Fetch source markets using unified pipeline
   const { markets: leftMarkets, stats: leftStats } = await fetchEligibleMarkets(marketRepo, {
@@ -1240,6 +1253,7 @@ async function debugMarket(
     excludeSports: options.excludeSports,
     excludeKalshiPrefixes: options.excludeKalshiPrefixes,
     excludeTitleKeywords: options.excludeTitleKeywords,
+    orderBy,
   });
 
   console.log(`\n[debug] ${fromVenue} markets: ${leftStats.total} -> ${leftStats.afterKeywordFilter} (kw) -> ${leftStats.afterSportsFilter} (sports) -> ${leftStats.afterTopicFilter} (topic)`);
@@ -1247,9 +1261,11 @@ async function debugMarket(
   const leftMarket = leftMarkets.find(m => m.id === marketId);
   if (!leftMarket) {
     // Market not found in filtered set - try to find why
+    // v2.4.4: Use closeTime ordering for macro
     const allMarkets = await marketRepo.listEligibleMarkets(fromVenue as Venue, {
       lookbackHours: options.lookbackHours,
       limit: 50000,
+      orderBy,
     });
     const rawMarket = allMarkets.find(m => m.id === marketId);
     if (rawMarket) {
@@ -1319,6 +1335,7 @@ async function debugMarket(
   }
 
   // Fetch target markets using unified pipeline
+  // v2.4.4: Use orderBy for consistency with left markets
   const { markets: rightMarkets, stats: rightStats } = await fetchEligibleMarkets(marketRepo, {
     venue: toVenue,
     lookbackHours: options.lookbackHours,
@@ -1328,6 +1345,7 @@ async function debugMarket(
     excludeSports: options.excludeSports,
     excludeKalshiPrefixes: options.excludeKalshiPrefixes,
     excludeTitleKeywords: options.excludeTitleKeywords,
+    orderBy,
   });
 
   console.log(`\n[debug] ${toVenue} markets: ${rightStats.total} -> ${rightStats.afterKeywordFilter} (kw) -> ${rightStats.afterSportsFilter} (sports) -> ${rightStats.afterTopicFilter} (topic)`);
@@ -1572,11 +1590,15 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     errors: [],
   };
 
-  console.log(`[matching] Starting suggest-matches v2.4.3: ${fromVenue} -> ${toVenue}`);
+  // v2.4.4: Use closeTime ordering for macro to include old active markets
+  const orderBy = topic === 'macro' ? 'closeTime' as const : 'id' as const;
+
+  console.log(`[matching] Starting suggest-matches v2.4.4: ${fromVenue} -> ${toVenue}`);
   console.log(`[matching] minScore=${minScore}, topK=${topK}, lookbackHours=${lookbackHours}, limitLeft=${limitLeft}, limitRight=${limitRight}, requireOverlap=${requireOverlapKeywords}`);
   console.log(`[matching] Topic filter: ${topic}`);
   if (topic === 'macro') {
     console.log(`[matching] Macro year window: ${macroMinYear}-${macroMaxYear}`);
+    console.log(`[matching] Order by: ${orderBy} (v2.4.4: includes old active markets)`);
   }
   console.log(`[matching] Target keywords: ${targetKeywords.slice(0, 10).join(', ')}${targetKeywords.length > 10 ? '...' : ''}`);
   console.log(`[matching] Sports exclusion: ${excludeSports ? 'enabled' : 'disabled'} (prefixes: ${excludeKalshiPrefixes.length}, keywords: ${excludeTitleKeywords.length})`);
@@ -1601,6 +1623,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       macroMinYear,
       macroMaxYear,
       rareEntityLookbackHours,
+      orderBy,
     });
     result.leftCount = leftMarkets.length;
     if (topic === 'macro') {
@@ -1628,6 +1651,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       macroMinYear,
       macroMaxYear,
       rareEntityLookbackHours,
+      orderBy,
     });
     result.rightCount = rightMarkets.length;
     if (topic === 'macro') {
@@ -1890,7 +1914,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       }
     }
 
-    console.log(`\n[matching] Suggest-matches v2.4.3 complete:`);
+    console.log(`\n[matching] Suggest-matches v2.4.4 complete:`);
     console.log(`  Left markets (${fromVenue}): ${result.leftCount}`);
     console.log(`  Right markets (${toVenue}): ${result.rightCount}`);
     console.log(`  Skipped (already confirmed): ${result.skippedConfirmed}`);
