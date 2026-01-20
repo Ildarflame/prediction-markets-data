@@ -27,7 +27,15 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-datamodule}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-datamodule}?schema=public
       NODE_ENV: production
+      DEDUP_EPSILON_POLYMARKET: ${DEDUP_EPSILON_POLYMARKET:-0.001}
+      DEDUP_MIN_INTERVAL_SECONDS_POLYMARKET: ${DEDUP_MIN_INTERVAL_SECONDS_POLYMARKET:-60}
     command: ["node", "services/worker/dist/cli.js", "ingest", "-v", "polymarket", "-m", "loop", "-i", "${INGEST_INTERVAL_SECONDS:-60}"]
+    healthcheck:
+      test: ["CMD", "node", "services/worker/dist/cli.js", "health", "--max-stale", "5", "--max-job-age", "10"]
+      interval: 1m
+      timeout: 10s
+      retries: 3
+      start_period: 1m
 
   worker-kalshi:
     build: .
@@ -41,7 +49,15 @@ services:
       KALSHI_API_KEY_ID: ${KALSHI_API_KEY_ID}
       KALSHI_PRIVATE_KEY_PEM: ${KALSHI_PRIVATE_KEY_PEM}
       NODE_ENV: production
+      DEDUP_EPSILON_KALSHI: ${DEDUP_EPSILON_KALSHI:-0.001}
+      DEDUP_MIN_INTERVAL_SECONDS_KALSHI: ${DEDUP_MIN_INTERVAL_SECONDS_KALSHI:-60}
     command: ["node", "services/worker/dist/cli.js", "ingest", "-v", "kalshi", "-m", "loop", "-i", "${INGEST_INTERVAL_SECONDS:-60}"]
+    healthcheck:
+      test: ["CMD", "node", "services/worker/dist/cli.js", "health", "--max-stale", "5", "--max-job-age", "10"]
+      interval: 1m
+      timeout: 10s
+      retries: 3
+      start_period: 1m
 
   # Run migrations on startup (one-time job)
   migrate:
