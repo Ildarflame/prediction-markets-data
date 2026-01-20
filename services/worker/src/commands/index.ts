@@ -5,3 +5,4 @@ export { runHealthCheck, type HealthOptions, type HealthResult } from './health.
 export { runReconcile, type ReconcileOptions, type ReconcileResult } from './reconcile.js';
 export { runSuggestMatches, type SuggestMatchesOptions, type SuggestMatchesResult } from './suggest-matches.js';
 export { runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, type ListSuggestionsOptions } from './matching-review.js';
+export { runKalshiReport, type KalshiReportOptions } from './kalshi-report.js';

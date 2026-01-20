@@ -17,6 +17,7 @@
     "seed": "tsx src/cli.ts seed",
     "archive": "tsx src/cli.ts archive",
     "sanity": "tsx src/cli.ts sanity",
+    "kalshi:report": "tsx src/cli.ts kalshi-report",
     "db:migrate": "pnpm --filter @data-module/db db:migrate",
     "db:migrate:deploy": "pnpm --filter @data-module/db db:migrate:deploy",
     "db:generate": "pnpm --filter @data-module/db db:generate"

@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -280,6 +280,8 @@ program
   .option('--lookback-hours <hours>', 'Include closed markets within N hours', '24')
   .option('--limit-left <number>', 'Max source markets to process', '2000')
   .option('--debug-one <marketId>', 'Debug single market: show top 20 candidates with breakdown')
+  .option('--require-overlap-keywords', 'Skip pairs with no keyword overlap (default: true)', true)
+  .option('--no-require-overlap-keywords', 'Disable keyword overlap prefilter')
   .action(async (opts) => {
     const supportedVenues = getSupportedVenues();
 
@@ -307,6 +309,7 @@ program
         lookbackHours: parseInt(opts.lookbackHours, 10),
         limitLeft: parseInt(opts.limitLeft, 10),
         debugMarketId: opts.debugOne ? parseInt(opts.debugOne, 10) : undefined,
+        requireOverlapKeywords: opts.requireOverlapKeywords,
       });
 
       if (result.errors.length > 0) {
@@ -387,6 +390,22 @@ program
       process.exit(1);
     } finally {
       await disconnect();
+    }
+  });
+
+// Kalshi report command
+program
+  .command('kalshi-report')
+  .description('Show Kalshi market coverage report (series, categories, statuses)')
+  .action(async () => {
+    // Load Kalshi auth if available
+    const kalshiAuth = loadKalshiAuth();
+
+    try {
+      await runKalshiReport({ kalshiAuth });
+    } catch (error) {
+      console.error('Kalshi report error:', error);
+      process.exit(1);
     }
   });
 

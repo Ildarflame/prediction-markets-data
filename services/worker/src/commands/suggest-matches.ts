@@ -26,6 +26,7 @@ export interface SuggestMatchesOptions {
   lookbackHours?: number;
   limitLeft?: number;
   debugMarketId?: number;
+  requireOverlapKeywords?: boolean;
 }
 
 export interface SuggestMatchesResult {
@@ -35,6 +36,7 @@ export interface SuggestMatchesResult {
   suggestionsCreated: number;
   suggestionsUpdated: number;
   skippedConfirmed: number;
+  skippedNoOverlap: number;
   errors: string[];
 }
 
@@ -155,6 +157,22 @@ function findCandidatesByEntity(
   }
 
   return candidates;
+}
+
+/**
+ * Check if two titles share at least one keyword
+ * Used as a prefilter to skip obviously unrelated markets
+ */
+function hasKeywordOverlap(titleA: string, titleB: string): boolean {
+  const wordsA = new Set(titleA.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+  const wordsB = new Set(titleB.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+
+  for (const word of wordsA) {
+    if (wordsB.has(word)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -347,6 +365,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     lookbackHours = 24,
     limitLeft = 2000,
     debugMarketId,
+    requireOverlapKeywords = true,
   } = options;
 
   // Handle debug mode
@@ -359,6 +378,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       suggestionsCreated: 0,
       suggestionsUpdated: 0,
       skippedConfirmed: 0,
+      skippedNoOverlap: 0,
       errors: [],
     };
   }
@@ -374,11 +394,12 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     suggestionsCreated: 0,
     suggestionsUpdated: 0,
     skippedConfirmed: 0,
+    skippedNoOverlap: 0,
     errors: [],
   };
 
   console.log(`[matching] Starting suggest-matches v2: ${fromVenue} -> ${toVenue}`);
-  console.log(`[matching] minScore=${minScore}, topK=${topK}, lookbackHours=${lookbackHours}, limitLeft=${limitLeft}`);
+  console.log(`[matching] minScore=${minScore}, topK=${topK}, lookbackHours=${lookbackHours}, limitLeft=${limitLeft}, requireOverlap=${requireOverlapKeywords}`);
 
   try {
     // Fetch eligible markets from both venues
@@ -453,6 +474,14 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
         const rightIndexed = index.markets.get(rightId);
         if (!rightIndexed) continue;
 
+        // Skip if no keyword overlap (prefilter)
+        if (requireOverlapKeywords) {
+          if (!hasKeywordOverlap(leftMarket.title, rightIndexed.market.title)) {
+            result.skippedNoOverlap++;
+            continue;
+          }
+        }
+
         const matchResult = calculateMatchScore(leftIndexed, rightIndexed);
 
         if (matchResult.score >= minScore) {
@@ -501,6 +530,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     console.log(`  Left markets (${fromVenue}): ${result.leftCount}`);
     console.log(`  Right markets (${toVenue}): ${result.rightCount}`);
     console.log(`  Skipped (already confirmed): ${result.skippedConfirmed}`);
+    console.log(`  Skipped (no keyword overlap): ${result.skippedNoOverlap}`);
     console.log(`  Candidates considered: ${result.candidatesConsidered}`);
     console.log(`  Suggestions created: ${result.suggestionsCreated}`);
     console.log(`  Suggestions updated: ${result.suggestionsUpdated}`);
