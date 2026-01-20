@@ -11,6 +11,7 @@ import {
   tokenizeForEntities,
   MarketIntent,
   periodsCompatible,
+  extractPeriod,
   type MarketFingerprint,
 } from '@data-module/core';
 import {
@@ -248,6 +249,9 @@ export interface SuggestMatchesOptions {
   excludeSports?: boolean;
   excludeKalshiPrefixes?: string[];
   excludeTitleKeywords?: string[];
+  // Macro year window (v2.4.1)
+  macroMinYear?: number;
+  macroMaxYear?: number;
 }
 
 export interface SuggestMatchesResult {
@@ -964,6 +968,9 @@ interface FetchMarketsOptions {
   excludeSports: boolean;
   excludeKalshiPrefixes: string[];
   excludeTitleKeywords: string[];
+  // Macro year window (v2.4.1)
+  macroMinYear?: number;
+  macroMaxYear?: number;
 }
 
 /**
@@ -974,6 +981,10 @@ interface FetchMarketsStats {
   afterKeywordFilter: number;
   afterSportsFilter: number;
   afterTopicFilter: number;
+  afterMacroYearFilter: number;
+  macroExcludedYearLow: number;
+  macroExcludedYearHigh: number;
+  macroExcludedNoYear: number;
 }
 
 /**
@@ -993,6 +1004,8 @@ async function fetchEligibleMarkets(
     excludeSports,
     excludeKalshiPrefixes,
     excludeTitleKeywords,
+    macroMinYear,
+    macroMaxYear,
   } = options;
 
   // Step 1: Fetch from DB with keyword filter
@@ -1028,9 +1041,65 @@ async function fetchEligibleMarkets(
   }
   const afterTopicFilter = markets.length;
 
+  // Step 5: Apply macro year window filter (v2.4.1)
+  // Only for topic=macro, filter by period.year or closeTime.year
+  let afterMacroYearFilter = afterTopicFilter;
+  let macroExcludedYearLow = 0;
+  let macroExcludedYearHigh = 0;
+  let macroExcludedNoYear = 0;
+
+  if (topic === 'macro' && (macroMinYear || macroMaxYear)) {
+    const filtered: EligibleMarket[] = [];
+
+    for (const market of markets) {
+      // Extract period from title
+      const period = extractPeriod(market.title, market.closeTime);
+      let year: number | undefined;
+
+      // Use period.year if available, otherwise closeTime.year
+      if (period.year) {
+        year = period.year;
+      } else if (market.closeTime) {
+        year = market.closeTime.getFullYear();
+      }
+
+      // Exclude if no year
+      if (!year) {
+        macroExcludedNoYear++;
+        continue;
+      }
+
+      // Exclude if year < macroMinYear
+      if (macroMinYear && year < macroMinYear) {
+        macroExcludedYearLow++;
+        continue;
+      }
+
+      // Exclude if year > macroMaxYear
+      if (macroMaxYear && year > macroMaxYear) {
+        macroExcludedYearHigh++;
+        continue;
+      }
+
+      filtered.push(market);
+    }
+
+    markets = filtered;
+    afterMacroYearFilter = markets.length;
+  }
+
   return {
     markets,
-    stats: { total, afterKeywordFilter, afterSportsFilter, afterTopicFilter },
+    stats: {
+      total,
+      afterKeywordFilter,
+      afterSportsFilter,
+      afterTopicFilter,
+      afterMacroYearFilter,
+      macroExcludedYearLow,
+      macroExcludedYearHigh,
+      macroExcludedNoYear,
+    },
   };
 }
 
@@ -1317,6 +1386,11 @@ const MATCHING_KEYWORDS = [
 ];
 
 export async function runSuggestMatches(options: SuggestMatchesOptions): Promise<SuggestMatchesResult> {
+  // Defaults for macro year window
+  const currentYear = new Date().getFullYear();
+  const defaultMacroMinYear = currentYear - 1; // e.g., 2025 when running in 2026
+  const defaultMacroMaxYear = currentYear + 1; // e.g., 2027 when running in 2026
+
   const {
     fromVenue,
     toVenue,
@@ -1334,6 +1408,9 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     excludeSports = true,
     excludeKalshiPrefixes = excludeSports ? KALSHI_SPORTS_PREFIXES : [],
     excludeTitleKeywords = excludeSports ? SPORTS_TITLE_KEYWORDS : [],
+    // Macro year window (v2.4.1) - only applied when topic=macro
+    macroMinYear = defaultMacroMinYear,
+    macroMaxYear = defaultMacroMaxYear,
   } = options;
 
   // Handle debug mode - uses the same unified pipeline as full run
@@ -1381,9 +1458,12 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     errors: [],
   };
 
-  console.log(`[matching] Starting suggest-matches v2.4: ${fromVenue} -> ${toVenue}`);
+  console.log(`[matching] Starting suggest-matches v2.4.1: ${fromVenue} -> ${toVenue}`);
   console.log(`[matching] minScore=${minScore}, topK=${topK}, lookbackHours=${lookbackHours}, limitLeft=${limitLeft}, limitRight=${limitRight}, requireOverlap=${requireOverlapKeywords}`);
   console.log(`[matching] Topic filter: ${topic}`);
+  if (topic === 'macro') {
+    console.log(`[matching] Macro year window: ${macroMinYear}-${macroMaxYear}`);
+  }
   console.log(`[matching] Target keywords: ${targetKeywords.slice(0, 10).join(', ')}${targetKeywords.length > 10 ? '...' : ''}`);
   console.log(`[matching] Sports exclusion: ${excludeSports ? 'enabled' : 'disabled'} (prefixes: ${excludeKalshiPrefixes.length}, keywords: ${excludeTitleKeywords.length})`);
 
@@ -1399,9 +1479,18 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       excludeSports,
       excludeKalshiPrefixes,
       excludeTitleKeywords,
+      macroMinYear,
+      macroMaxYear,
     });
     result.leftCount = leftMarkets.length;
-    console.log(`[matching] ${fromVenue}: ${leftStats.total} -> ${leftStats.afterKeywordFilter} (kw) -> ${leftStats.afterSportsFilter} (sports) -> ${leftStats.afterTopicFilter} (topic)`);
+    if (topic === 'macro') {
+      console.log(`[matching] ${fromVenue}: ${leftStats.total} -> ${leftStats.afterKeywordFilter} (kw) -> ${leftStats.afterSportsFilter} (sports) -> ${leftStats.afterTopicFilter} (topic) -> ${leftStats.afterMacroYearFilter} (year)`);
+      if (leftStats.macroExcludedYearLow > 0 || leftStats.macroExcludedYearHigh > 0 || leftStats.macroExcludedNoYear > 0) {
+        console.log(`[matching]   year filter: excluded ${leftStats.macroExcludedYearLow} (year<${macroMinYear}), ${leftStats.macroExcludedYearHigh} (year>${macroMaxYear}), ${leftStats.macroExcludedNoYear} (no year)`);
+      }
+    } else {
+      console.log(`[matching] ${fromVenue}: ${leftStats.total} -> ${leftStats.afterKeywordFilter} (kw) -> ${leftStats.afterSportsFilter} (sports) -> ${leftStats.afterTopicFilter} (topic)`);
+    }
 
     console.log(`[matching] Fetching eligible markets from ${toVenue}...`);
     const { markets: rightMarkets, stats: rightStats } = await fetchEligibleMarkets(marketRepo, {
@@ -1413,9 +1502,18 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       excludeSports,
       excludeKalshiPrefixes,
       excludeTitleKeywords,
+      macroMinYear,
+      macroMaxYear,
     });
     result.rightCount = rightMarkets.length;
-    console.log(`[matching] ${toVenue}: ${rightStats.total} -> ${rightStats.afterKeywordFilter} (kw) -> ${rightStats.afterSportsFilter} (sports) -> ${rightStats.afterTopicFilter} (topic)`);
+    if (topic === 'macro') {
+      console.log(`[matching] ${toVenue}: ${rightStats.total} -> ${rightStats.afterKeywordFilter} (kw) -> ${rightStats.afterSportsFilter} (sports) -> ${rightStats.afterTopicFilter} (topic) -> ${rightStats.afterMacroYearFilter} (year)`);
+      if (rightStats.macroExcludedYearLow > 0 || rightStats.macroExcludedYearHigh > 0 || rightStats.macroExcludedNoYear > 0) {
+        console.log(`[matching]   year filter: excluded ${rightStats.macroExcludedYearLow} (year<${macroMinYear}), ${rightStats.macroExcludedYearHigh} (year>${macroMaxYear}), ${rightStats.macroExcludedNoYear} (no year)`);
+      }
+    } else {
+      console.log(`[matching] ${toVenue}: ${rightStats.total} -> ${rightStats.afterKeywordFilter} (kw) -> ${rightStats.afterSportsFilter} (sports) -> ${rightStats.afterTopicFilter} (topic)`);
+    }
 
     if (leftMarkets.length === 0 || rightMarkets.length === 0) {
       console.log(`[matching] No markets to match`);

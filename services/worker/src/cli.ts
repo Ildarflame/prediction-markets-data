@@ -272,7 +272,7 @@ program
 // Suggest matches command
 program
   .command('suggest-matches')
-  .description('Find potential market matches between venues (v2.3: fingerprint-based with topic filter)')
+  .description('Find potential market matches between venues (v2.4.1: macro-first with year filter)')
   .requiredOption('--from <venue>', `Source venue (${getSupportedVenues().join(', ')})`)
   .option('--to <venue>', `Target venue (${getSupportedVenues().join(', ')})`)
   .option('--min-score <number>', 'Minimum match score (0-1)', '0.6')
@@ -281,6 +281,8 @@ program
   .option('--limit-left <number>', 'Max source markets to process', '2000')
   .option('--limit-right <number>', 'Max target markets to fetch', '20000')
   .option('--topic <topic>', 'Topic filter: crypto, macro, politics, all (default: all)', 'all')
+  .option('--macro-min-year <year>', 'Min year for macro markets (default: currentYear-1)')
+  .option('--macro-max-year <year>', 'Max year for macro markets (default: currentYear+1)')
   .option('--debug-one <marketId>', 'Debug single market: show top 20 candidates with breakdown')
   .option('--require-overlap-keywords', 'Skip pairs with no keyword overlap (default: true)', true)
   .option('--no-require-overlap-keywords', 'Disable keyword overlap prefilter')
@@ -323,6 +325,8 @@ program
         limitLeft: parseInt(opts.limitLeft, 10),
         limitRight: parseInt(opts.limitRight, 10),
         topic: opts.topic as 'crypto' | 'macro' | 'politics' | 'all',
+        macroMinYear: opts.macroMinYear ? parseInt(opts.macroMinYear, 10) : undefined,
+        macroMaxYear: opts.macroMaxYear ? parseInt(opts.macroMaxYear, 10) : undefined,
         debugMarketId: opts.debugOne ? parseInt(opts.debugOne, 10) : undefined,
         requireOverlapKeywords: opts.requireOverlapKeywords,
         excludeSports: opts.excludeSports,
