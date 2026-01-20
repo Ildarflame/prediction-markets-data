@@ -1,0 +1,35 @@
+{
+  "name": "@data-module/worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "worker": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/cli.js",
+    "dev": "tsx src/cli.ts",
+    "ingest": "tsx src/cli.ts ingest",
+    "seed": "tsx src/cli.ts seed",
+    "archive": "tsx src/cli.ts archive",
+    "sanity": "tsx src/cli.ts sanity",
+    "db:migrate": "pnpm --filter @data-module/db db:migrate",
+    "db:migrate:deploy": "pnpm --filter @data-module/db db:migrate:deploy",
+    "db:generate": "pnpm --filter @data-module/db db:generate"
+  },
+  "dependencies": {
+    "@data-module/core": "workspace:*",
+    "@data-module/db": "workspace:*",
+    "commander": "^12.0.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}

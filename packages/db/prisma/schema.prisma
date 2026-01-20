@@ -1,0 +1,142 @@
+// This is your Prisma schema file
+// Learn more at: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Supported prediction market venues
+enum Venue {
+  polymarket
+  kalshi
+}
+
+// Market lifecycle status
+enum MarketStatus {
+  active
+  closed
+  resolved
+  archived
+}
+
+// Outcome side in binary markets
+enum OutcomeSide {
+  yes
+  no
+  other
+}
+
+// Market represents a tradeable prediction market
+model Market {
+  id         Int          @id @default(autoincrement())
+  venue      Venue
+  externalId String       @map("external_id")
+  title      String
+  category   String?
+  status     MarketStatus @default(active)
+  closeTime  DateTime?    @map("close_time") @db.Timestamptz
+  metadata   Json?        @db.JsonB
+  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime     @updatedAt @map("updated_at") @db.Timestamptz
+
+  outcomes Outcome[]
+
+  @@unique([venue, externalId])
+  @@index([venue, externalId])
+  @@index([status, closeTime])
+  @@map("markets")
+}
+
+// Outcome represents a possible result of a market
+model Outcome {
+  id         Int         @id @default(autoincrement())
+  marketId   Int         @map("market_id")
+  externalId String?     @map("external_id")
+  name       String
+  side       OutcomeSide
+  metadata   Json?       @db.JsonB
+  createdAt  DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+
+  market      Market       @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  quotes      Quote[]
+  latestQuote LatestQuote?
+
+  @@unique([marketId, name])
+  @@index([marketId])
+  @@map("outcomes")
+}
+
+// Quote is append-only price history
+model Quote {
+  id          BigInt   @id @default(autoincrement())
+  outcomeId   Int      @map("outcome_id")
+  ts          DateTime @db.Timestamptz
+  price       Float
+  impliedProb Float    @map("implied_prob")
+  liquidity   Float?
+  volume      Float?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  outcome Outcome @relation(fields: [outcomeId], references: [id], onDelete: Cascade)
+
+  @@index([outcomeId, ts(sort: Desc)])
+  @@map("quotes")
+}
+
+// LatestQuote is a materialized view of the most recent quote per outcome
+model LatestQuote {
+  id          Int      @id @default(autoincrement())
+  outcomeId   Int      @unique @map("outcome_id")
+  ts          DateTime @db.Timestamptz
+  price       Float
+  impliedProb Float    @map("implied_prob")
+  liquidity   Float?
+  volume      Float?
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  outcome Outcome @relation(fields: [outcomeId], references: [id], onDelete: Cascade)
+
+  @@index([outcomeId])
+  @@map("latest_quotes")
+}
+
+// IngestionState tracks checkpoint data for incremental ingestion
+model IngestionState {
+  id            Int       @id @default(autoincrement())
+  venue         Venue
+  jobName       String    @map("job_name")
+  cursor        String?
+  watermarkTs   DateTime? @map("watermark_ts") @db.Timestamptz
+  lastSuccessAt DateTime? @map("last_success_at") @db.Timestamptz
+  lastError     String?   @map("last_error")
+  statsJson     Json?     @map("stats_json") @db.JsonB
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@unique([venue, jobName])
+  @@index([venue, jobName])
+  @@map("ingestion_state")
+}
+
+// IngestionRun is an audit log of each ingestion execution
+model IngestionRun {
+  id            Int      @id @default(autoincrement())
+  venue         Venue
+  startedAt     DateTime @map("started_at") @db.Timestamptz
+  finishedAt    DateTime? @map("finished_at") @db.Timestamptz
+  ok            Boolean  @default(false)
+  fetchedCounts Json?    @map("fetched_counts") @db.JsonB
+  writtenCounts Json?    @map("written_counts") @db.JsonB
+  warningsJson  Json?    @map("warnings_json") @db.JsonB
+  errorText     String?  @map("error_text")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([venue, startedAt(sort: Desc)])
+  @@map("ingestion_runs")
+}
