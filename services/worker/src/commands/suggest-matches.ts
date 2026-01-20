@@ -10,6 +10,7 @@ import {
   jaccard,
   tokenizeForEntities,
   MarketIntent,
+  periodsCompatible,
   type MarketFingerprint,
 } from '@data-module/core';
 import {
@@ -257,6 +258,7 @@ export interface SuggestMatchesResult {
   skippedNoOverlap: number;
   skippedDateGate: number;
   skippedTextGate: number;
+  skippedPeriodGate: number;
   errors: string[];
 }
 
@@ -429,32 +431,94 @@ const RELAXED_MIN_JACCARD = 0.05;
  * Weights: 0.35 entity + 0.25 date + 0.25 number + 0.10 fuzzy + 0.05 jaccard
  * Returns score=0 if date gate fails for PRICE_DATE markets
  * Returns score=0 if text similarity is below minimum threshold (hard gate)
+ * For MACRO_PERIOD: uses period gate instead of day-level date gate
  */
 function calculateMatchScore(
   left: IndexedMarket,
   right: IndexedMarket
-): { score: number; reason: string; breakdown: Record<string, number>; dateGateFailed: boolean; textGateFailed: boolean } {
-  // Date gating check - strict matching for PRICE_DATE markets
-  const leftDate = left.fingerprint.dates[0];
-  const rightDate = right.fingerprint.dates[0];
-  const passesGate = passesDateGate(leftDate, rightDate, left.fingerprint.intent, right.fingerprint.intent);
+): { score: number; reason: string; breakdown: Record<string, number>; dateGateFailed: boolean; textGateFailed: boolean; periodGateFailed: boolean } {
+  const isMacroPeriodIntent =
+    left.fingerprint.intent === MarketIntent.MACRO_PERIOD ||
+    right.fingerprint.intent === MarketIntent.MACRO_PERIOD;
 
-  // If date gate fails for date-sensitive markets, return 0 score
-  if (!passesGate) {
-    return {
-      score: 0,
-      reason: `DATE_GATE_FAIL (${left.fingerprint.intent}/${right.fingerprint.intent})`,
-      breakdown: { entity: 0, date: 0, number: 0, fuzzy: 0, jaccard: 0 },
-      dateGateFailed: true,
-      textGateFailed: false,
-    };
+  // MACRO_PERIOD uses period gating instead of day-level date gating
+  if (isMacroPeriodIntent) {
+    const leftPeriod = left.fingerprint.period;
+    const rightPeriod = right.fingerprint.period;
+
+    // If either period is null/undefined, cap the score
+    if (!leftPeriod?.type || !rightPeriod?.type) {
+      // Still calculate scores but mark as period gate fail (will be capped later)
+      const entScore = entityScore(left.fingerprint.entities, right.fingerprint.entities);
+      const numScore = numberScore(left.fingerprint.numbers, right.fingerprint.numbers);
+      const fzScore = fuzzyTitleScore(left.normalizedTitle, right.normalizedTitle);
+      const leftTokens = tokenize(left.market.title);
+      const rightTokens = tokenize(right.market.title);
+      const jcScore = jaccard(leftTokens, rightTokens);
+
+      return {
+        score: 0,
+        reason: `PERIOD_GATE_FAIL (period missing: left=${leftPeriod?.type || 'null'}, right=${rightPeriod?.type || 'null'})`,
+        breakdown: { entity: entScore, date: 0, number: numScore, fuzzy: fzScore, jaccard: jcScore },
+        dateGateFailed: false,
+        textGateFailed: false,
+        periodGateFailed: true,
+      };
+    }
+
+    // Check period compatibility
+    if (!periodsCompatible(leftPeriod, rightPeriod)) {
+      const entScore = entityScore(left.fingerprint.entities, right.fingerprint.entities);
+      const numScore = numberScore(left.fingerprint.numbers, right.fingerprint.numbers);
+      const fzScore = fuzzyTitleScore(left.normalizedTitle, right.normalizedTitle);
+      const leftTokens = tokenize(left.market.title);
+      const rightTokens = tokenize(right.market.title);
+      const jcScore = jaccard(leftTokens, rightTokens);
+
+      const leftPeriodStr = leftPeriod.type === 'month' ? `${leftPeriod.year}-${leftPeriod.month}` :
+                           leftPeriod.type === 'quarter' ? `Q${leftPeriod.quarter} ${leftPeriod.year}` :
+                           `${leftPeriod.year}`;
+      const rightPeriodStr = rightPeriod.type === 'month' ? `${rightPeriod.year}-${rightPeriod.month}` :
+                            rightPeriod.type === 'quarter' ? `Q${rightPeriod.quarter} ${rightPeriod.year}` :
+                            `${rightPeriod.year}`;
+
+      return {
+        score: 0,
+        reason: `PERIOD_GATE_FAIL (incompatible: ${leftPeriodStr} vs ${rightPeriodStr})`,
+        breakdown: { entity: entScore, date: 0, number: numScore, fuzzy: fzScore, jaccard: jcScore },
+        dateGateFailed: false,
+        textGateFailed: false,
+        periodGateFailed: true,
+      };
+    }
+  }
+
+  // Date gating check - strict matching for PRICE_DATE markets (not used for MACRO_PERIOD)
+  if (!isMacroPeriodIntent) {
+    const leftDate = left.fingerprint.dates[0];
+    const rightDate = right.fingerprint.dates[0];
+    const passesGate = passesDateGate(leftDate, rightDate, left.fingerprint.intent, right.fingerprint.intent);
+
+    // If date gate fails for date-sensitive markets, return 0 score
+    if (!passesGate) {
+      return {
+        score: 0,
+        reason: `DATE_GATE_FAIL (${left.fingerprint.intent}/${right.fingerprint.intent})`,
+        breakdown: { entity: 0, date: 0, number: 0, fuzzy: 0, jaccard: 0 },
+        dateGateFailed: true,
+        textGateFailed: false,
+        periodGateFailed: false,
+      };
+    }
   }
 
   // Entity score (0-1)
   const entScore = entityScore(left.fingerprint.entities, right.fingerprint.entities);
 
-  // Date score (0-1)
-  const dtScore = dateScore(leftDate, rightDate);
+  // Date score (0-1) - for MACRO_PERIOD, we use period compatibility instead
+  const leftDate = left.fingerprint.dates[0];
+  const rightDate = right.fingerprint.dates[0];
+  const dtScore = isMacroPeriodIntent ? 1.0 : dateScore(leftDate, rightDate); // Full date score if period gate passed
 
   // Number score (0-1)
   const numScore = numberScore(left.fingerprint.numbers, right.fingerprint.numbers);
@@ -473,6 +537,7 @@ function calculateMatchScore(
   //
   // Intent-based thresholds:
   // - PRICE_DATE requires stricter thresholds (price+date precision matters)
+  // - MACRO_PERIOD uses relaxed thresholds (period is the main gate)
   // - Other intents use relaxed thresholds to increase match coverage
   const isPriceDateIntent =
     left.fingerprint.intent === MarketIntent.PRICE_DATE ||
@@ -492,6 +557,7 @@ function calculateMatchScore(
       breakdown: { entity: entScore, date: dtScore, number: numScore, fuzzy: fzScore, jaccard: jcScore },
       dateGateFailed: false,
       textGateFailed: true,
+      periodGateFailed: false,
     };
   }
 
@@ -513,7 +579,7 @@ function calculateMatchScore(
 
   const reason = `ent=${entScore.toFixed(2)} dt=${dtScore.toFixed(2)} num=${numScore.toFixed(2)} fz=${fzScore.toFixed(2)} jc=${jcScore.toFixed(2)}`;
 
-  return { score, reason, breakdown, dateGateFailed: false, textGateFailed: false };
+  return { score, reason, breakdown, dateGateFailed: false, textGateFailed: false, periodGateFailed: false };
 }
 
 /**
@@ -678,7 +744,7 @@ async function debugMarket(
   const prisma = getClient();
   const marketRepo = new MarketRepository(prisma);
 
-  console.log(`\n[debug v2.3] Analyzing market ID ${marketId} from ${fromVenue}...\n`);
+  console.log(`\n[debug v2.4] Analyzing market ID ${marketId} from ${fromVenue}...\n`);
   console.log(`[debug] Using unified pipeline with full run settings:`);
   console.log(`[debug] lookbackHours=${options.lookbackHours}, limitLeft=${options.limitLeft}, limitRight=${options.limitRight}`);
   console.log(`[debug] topic=${options.topic}, excludeSports=${options.excludeSports}, keywords=${options.targetKeywords.length}`);
@@ -748,9 +814,28 @@ async function debugMarket(
 
   console.log(`  Comparator: ${leftFingerprint.comparator}`);
   console.log(`  Intent: ${leftFingerprint.intent}`);
+
+  // Show period for MACRO_PERIOD intent
+  if (leftFingerprint.period?.type) {
+    const p = leftFingerprint.period;
+    const periodStr = p.type === 'month' ? `${p.year}-${String(p.month).padStart(2, '0')}` :
+                      p.type === 'quarter' ? `Q${p.quarter} ${p.year}` :
+                      `${p.year}`;
+    console.log(`  Period: ${periodStr} (${p.type})`);
+  }
+
+  // Show macro entities for MACRO_PERIOD intent
+  if (leftFingerprint.macroEntities?.size) {
+    console.log(`  Macro entities: ${Array.from(leftFingerprint.macroEntities).join(', ')}`);
+  }
+
   console.log(`  Fingerprint: ${leftFingerprint.fingerprint}`);
   const isPriceDate = leftFingerprint.intent === MarketIntent.PRICE_DATE;
+  const isMacroPeriod = leftFingerprint.intent === MarketIntent.MACRO_PERIOD;
   console.log(`  Text gate: sim>=${isPriceDate ? PRICE_DATE_MIN_TEXT_SIMILARITY : RELAXED_MIN_TEXT_SIMILARITY}, jc>=${isPriceDate ? PRICE_DATE_MIN_JACCARD : RELAXED_MIN_JACCARD} (${isPriceDate ? 'PRICE_DATE strict' : 'relaxed'})`);
+  if (isMacroPeriod) {
+    console.log(`  Period gate: ENABLED (requires compatible period match)`);
+  }
 
   // Fetch target markets using unified pipeline
   const { markets: rightMarkets, stats: rightStats } = await fetchEligibleMarkets(marketRepo, {
@@ -789,10 +874,12 @@ async function debugMarket(
     fingerprint: MarketFingerprint;
     dateGateFailed: boolean;
     textGateFailed: boolean;
+    periodGateFailed: boolean;
   }> = [];
 
   let dateGateFailCount = 0;
   let textGateFailCount = 0;
+  let periodGateFailCount = 0;
 
   for (const rightId of candidateIds) {
     const rightIndexed = index.markets.get(rightId);
@@ -805,6 +892,9 @@ async function debugMarket(
     if (result.textGateFailed) {
       textGateFailCount++;
     }
+    if (result.periodGateFailed) {
+      periodGateFailCount++;
+    }
     scores.push({
       market: rightIndexed.market,
       score: result.score,
@@ -813,34 +903,35 @@ async function debugMarket(
       fingerprint: rightIndexed.fingerprint,
       dateGateFailed: result.dateGateFailed,
       textGateFailed: result.textGateFailed,
+      periodGateFailed: result.periodGateFailed,
     });
   }
 
   // Sort by score (gate failures at the bottom)
   scores.sort((a, b) => {
-    const aFailed = a.dateGateFailed || a.textGateFailed;
-    const bFailed = b.dateGateFailed || b.textGateFailed;
+    const aFailed = a.dateGateFailed || a.textGateFailed || a.periodGateFailed;
+    const bFailed = b.dateGateFailed || b.textGateFailed || b.periodGateFailed;
     if (aFailed && !bFailed) return 1;
     if (!aFailed && bFailed) return -1;
     return b.score - a.score;
   });
 
-  console.log(`Gate failures: date=${dateGateFailCount}, text=${textGateFailCount} / ${candidateIds.size} candidates`);
+  console.log(`Gate failures: date=${dateGateFailCount}, text=${textGateFailCount}, period=${periodGateFailCount} / ${candidateIds.size} candidates`);
 
   // Count passing scores
-  const passingScores = scores.filter(s => !s.dateGateFailed && !s.textGateFailed);
+  const passingScores = scores.filter(s => !s.dateGateFailed && !s.textGateFailed && !s.periodGateFailed);
   console.log(`Passing candidates (no gate failures): ${passingScores.length}`);
 
   // Show top 20
   console.log(`\nTop 20 candidates:\n`);
-  console.log('Rank | Score | Gate | Intent      | Entity | Date   | Number | Title');
+  console.log('Rank | Score | Gate   | Intent       | Entity | Date   | Number | Title');
   console.log('-'.repeat(130));
 
   for (let i = 0; i < Math.min(20, scores.length); i++) {
     const s = scores[i];
     const truncTitle = s.market.title.length > 45 ? s.market.title.slice(0, 42) + '...' : s.market.title;
-    const gateStatus = s.dateGateFailed ? 'DATE' : (s.textGateFailed ? 'TEXT' : 'OK  ');
-    const intent = s.fingerprint.intent.padEnd(11);
+    const gateStatus = s.dateGateFailed ? 'DATE  ' : (s.textGateFailed ? 'TEXT  ' : (s.periodGateFailed ? 'PERIOD' : 'OK    '));
+    const intent = s.fingerprint.intent.padEnd(12);
     console.log(
       `${String(i + 1).padStart(4)} | ${s.score.toFixed(3)} | ${gateStatus} | ${intent} | ${s.breakdown.entity.toFixed(3)}  | ${s.breakdown.date.toFixed(3)}  | ${s.breakdown.number.toFixed(3)}  | ${truncTitle}`
     );
@@ -849,7 +940,7 @@ async function debugMarket(
   console.log('\nDetailed top 5:\n');
   for (let i = 0; i < Math.min(5, scores.length); i++) {
     const s = scores[i];
-    const gateIcon = s.dateGateFailed ? '[DATE FAIL]' : (s.textGateFailed ? '[TEXT FAIL]' : '[PASS]');
+    const gateIcon = s.dateGateFailed ? '[DATE FAIL]' : (s.textGateFailed ? '[TEXT FAIL]' : (s.periodGateFailed ? '[PERIOD FAIL]' : '[PASS]'));
     console.log(`#${i + 1} (score=${s.score.toFixed(4)}) ${gateIcon}:`);
     console.log(`  Title: ${s.market.title}`);
     console.log(`  ID: ${s.market.id}`);
@@ -865,9 +956,20 @@ async function debugMarket(
       console.log(`  Dates: none`);
     }
 
+    // Show period for MACRO_PERIOD intent
+    if (s.fingerprint.period?.type) {
+      const p = s.fingerprint.period;
+      const periodStr = p.type === 'month' ? `${p.year}-${String(p.month).padStart(2, '0')}` :
+                        p.type === 'quarter' ? `Q${p.quarter} ${p.year}` :
+                        `${p.year}`;
+      console.log(`  Period: ${periodStr} (${p.type})`);
+    }
+
     console.log(`  Breakdown: ${s.reason}`);
     if (s.dateGateFailed) {
       console.log(`  Status: DATE_GATE_FAILED - intents: source=${leftFingerprint.intent}, target=${s.fingerprint.intent}`);
+    } else if (s.periodGateFailed) {
+      console.log(`  Status: PERIOD_GATE_FAILED - ${s.reason}`);
     } else if (s.textGateFailed) {
       const textSim = ((s.breakdown.jaccard + s.breakdown.fuzzy) / 2).toFixed(3);
       const isPriceDatePair = leftFingerprint.intent === MarketIntent.PRICE_DATE || s.fingerprint.intent === MarketIntent.PRICE_DATE;
@@ -932,6 +1034,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       skippedNoOverlap: 0,
       skippedDateGate: 0,
       skippedTextGate: 0,
+      skippedPeriodGate: 0,
       errors: [],
     };
   }
@@ -950,10 +1053,11 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     skippedNoOverlap: 0,
     skippedDateGate: 0,
     skippedTextGate: 0,
+    skippedPeriodGate: 0,
     errors: [],
   };
 
-  console.log(`[matching] Starting suggest-matches v2.3: ${fromVenue} -> ${toVenue}`);
+  console.log(`[matching] Starting suggest-matches v2.4: ${fromVenue} -> ${toVenue}`);
   console.log(`[matching] minScore=${minScore}, topK=${topK}, lookbackHours=${lookbackHours}, limitLeft=${limitLeft}, limitRight=${limitRight}, requireOverlap=${requireOverlapKeywords}`);
   console.log(`[matching] Topic filter: ${topic}`);
   console.log(`[matching] Target keywords: ${targetKeywords.slice(0, 10).join(', ')}${targetKeywords.length > 10 ? '...' : ''}`);
@@ -1066,6 +1170,12 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
           continue;
         }
 
+        // Track period gate failures
+        if (matchResult.periodGateFailed) {
+          result.skippedPeriodGate++;
+          continue;
+        }
+
         if (matchResult.score >= minScore) {
           scores.push({
             rightId,
@@ -1115,6 +1225,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     console.log(`  Skipped (no keyword overlap): ${result.skippedNoOverlap}`);
     console.log(`  Skipped (date gate): ${result.skippedDateGate}`);
     console.log(`  Skipped (text gate): ${result.skippedTextGate}`);
+    console.log(`  Skipped (period gate): ${result.skippedPeriodGate}`);
     console.log(`  Candidates considered: ${result.candidatesConsidered}`);
     console.log(`  Suggestions created: ${result.suggestionsCreated}`);
     console.log(`  Suggestions updated: ${result.suggestionsUpdated}`);

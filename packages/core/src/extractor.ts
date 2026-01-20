@@ -69,7 +69,7 @@ function matchesMultiWordAlias(titleTokens: string[], aliasTokens: string[]): bo
  * - "pce" => PCE
  * - "pmi" => PMI
  */
-export function extractMacroEntities(tokens: string[], normalizedTitle: string): Set<string> {
+export function extractMacroEntities(tokens: string[], _normalizedTitle?: string): Set<string> {
   const macroEntities = new Set<string>();
 
   // Helper to check if phrase exists in title (token-based)
@@ -142,10 +142,11 @@ export enum Comparator {
  * Market intent classification for matching rules
  */
 export enum MarketIntent {
-  PRICE_DATE = 'PRICE_DATE',   // "ETH $3700 by Jan 26" - requires strict date match
-  ELECTION = 'ELECTION',       // "Trump wins 2024" - year-level match
-  METRIC_DATE = 'METRIC_DATE', // "CPI above 3% in Dec" - month-level match
-  GENERAL = 'GENERAL',         // Generic market - flexible date matching
+  PRICE_DATE = 'PRICE_DATE',     // "ETH $3700 by Jan 26" - requires strict date match
+  ELECTION = 'ELECTION',         // "Trump wins 2024" - year-level match
+  METRIC_DATE = 'METRIC_DATE',   // "CPI above 3% in Dec" - month-level match (legacy)
+  MACRO_PERIOD = 'MACRO_PERIOD', // "CPI January 2026" - requires period match (month/quarter/year)
+  GENERAL = 'GENERAL',           // Generic market - flexible date matching
 }
 
 /**
@@ -179,6 +180,10 @@ export interface MarketFingerprint {
   comparator: Comparator;
   intent: MarketIntent;
   fingerprint: string;
+  /** Macro economic entities (CPI, GDP, FED_RATE, etc.) - only for MACRO_PERIOD intent */
+  macroEntities?: Set<string>;
+  /** Extracted period (month/quarter/year) - only for MACRO_PERIOD intent */
+  period?: MacroPeriod;
 }
 
 /**
@@ -750,7 +755,8 @@ export function classifyIntent(
   entities: string[],
   numbers: number[],
   dates: ExtractedDate[],
-  comparator: Comparator
+  comparator: Comparator,
+  closeTime?: Date | null
 ): MarketIntent {
   const lower = title.toLowerCase();
 
@@ -767,12 +773,27 @@ export function classifyIntent(
     return MarketIntent.PRICE_DATE;
   }
 
+  // MACRO_PERIOD: macro entity + period (month/quarter/year)
+  // Examples: "CPI inflation January 2026", "GDP Q1 2026", "Fed rate decision 2026"
+  // Check BEFORE ELECTION to prioritize macro classification
+  const tokens = tokenizeForEntities(title);
+  const macroEntities = extractMacroEntities(tokens, lower);
+  if (macroEntities.size > 0) {
+    const period = extractPeriod(title, closeTime);
+    if (period.type !== null) {
+      return MarketIntent.MACRO_PERIOD;
+    }
+    // Has macro entity but no period - still classify as MACRO_PERIOD
+    // but matching will handle missing period (cap score)
+    return MarketIntent.MACRO_PERIOD;
+  }
+
   // ELECTION: election-related keywords
   if (ELECTION_KEYWORDS.some(kw => lower.includes(kw))) {
     return MarketIntent.ELECTION;
   }
 
-  // METRIC_DATE: economic metrics with date
+  // METRIC_DATE: economic metrics with date (legacy - kept for backwards compatibility)
   if (METRIC_KEYWORDS.some(kw => lower.includes(kw)) && dates.length > 0) {
     return MarketIntent.METRIC_DATE;
   }
@@ -810,7 +831,16 @@ export function buildFingerprint(title: string, closeTime?: Date | null, options
     }
   }
 
-  const intent = classifyIntent(title, entities, numbers, dates, comparator);
+  const intent = classifyIntent(title, entities, numbers, dates, comparator, closeTime);
+
+  // For MACRO_PERIOD intent, extract macro entities and period
+  let macroEntities: Set<string> | undefined;
+  let period: MacroPeriod | undefined;
+  if (intent === MarketIntent.MACRO_PERIOD) {
+    const tokens = tokenizeForEntities(title);
+    macroEntities = extractMacroEntities(tokens, title.toLowerCase());
+    period = extractPeriod(title, closeTime);
+  }
 
   // Build fingerprint string
   const parts: string[] = [];
@@ -857,6 +887,8 @@ export function buildFingerprint(title: string, closeTime?: Date | null, options
     comparator,
     intent,
     fingerprint: parts.join('|') || 'UNKNOWN',
+    macroEntities,
+    period,
   };
 }
 
