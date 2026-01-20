@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG } from '@data-module/core';
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile } from './commands/index.js';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
 const program = new Command();
@@ -190,6 +190,64 @@ program
       }
     } catch (error) {
       console.error('Sanity check error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Health check command
+program
+  .command('health')
+  .description('Run health check on database and ingestion jobs')
+  .option('--max-stale <minutes>', 'Max age for quotes to be considered fresh', '5')
+  .option('--max-job-age <minutes>', 'Max age for last successful job run', '10')
+  .action(async (opts) => {
+    try {
+      const result = await runHealthCheck({
+        maxStaleMinutes: parseInt(opts.maxStale, 10),
+        maxLastSuccessMinutes: parseInt(opts.maxJobAge, 10),
+      });
+
+      if (!result.ok) {
+        process.exit(1);
+      }
+    } catch (error) {
+      console.error('Health check error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Reconcile command
+program
+  .command('reconcile')
+  .description('Reconcile markets from source with database')
+  .requiredOption('-v, --venue <venue>', `Venue to reconcile (${getSupportedVenues().join(', ')})`)
+  .option('--page-size <number>', 'Page size for API requests', '100')
+  .option('--max-markets <number>', 'Maximum markets to fetch from source', '50000')
+  .action(async (opts) => {
+    const venue = opts.venue as Venue;
+    const supportedVenues = getSupportedVenues();
+
+    if (!supportedVenues.includes(venue)) {
+      console.error(`Invalid venue: ${venue}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    try {
+      const result = await runReconcile({
+        venue,
+        pageSize: parseInt(opts.pageSize, 10),
+        maxMarkets: parseInt(opts.maxMarkets, 10),
+      });
+
+      if (result.errors.length > 0) {
+        process.exit(1);
+      }
+    } catch (error) {
+      console.error('Reconcile error:', error);
       process.exit(1);
     } finally {
       await disconnect();

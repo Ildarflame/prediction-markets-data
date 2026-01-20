@@ -190,4 +190,13 @@ export class IngestionRepository {
       where: { venue },
     });
   }
+
+  /**
+   * Get all ingestion states (all venues/jobs)
+   */
+  async getAllStates(): Promise<IngestionState[]> {
+    return this.prisma.ingestionState.findMany({
+      orderBy: [{ venue: 'asc' }, { jobName: 'asc' }],
+    });
+  }
 }
