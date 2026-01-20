@@ -108,52 +108,82 @@ function postFilterDBResults(
 
 // ============================================================
 // Keyword patterns for DB scan
+// v2.4.9: Split into STRICT (accurate, for rate calculation) and BROAD (diagnostic only)
 // ============================================================
 
-const ENTITY_KEYWORDS: Record<string, string[]> = {
-  NFP: [
-    'nfp', 'nonfarm', 'non-farm', 'payroll', 'payrolls',
-    'jobs added', 'jobs report', 'employment situation',
-    'add jobs', 'lose jobs',
-    'jobs in january', 'jobs in february', 'jobs in march',
-    'jobs in april', 'jobs in may', 'jobs in june',
-    'jobs in july', 'jobs in august', 'jobs in september',
-    'jobs in october', 'jobs in november', 'jobs in december',
-  ],
-  JOBLESS_CLAIMS: [
-    'jobless claims', 'initial claims', 'unemployment claims',
-    'weekly claims', 'continuing claims', 'initial jobless',
-  ],
-  PMI: [
-    // v2.4.9: Use broad keywords for DB scan, filter with regex word-boundary post-processing
-    // This catches all potential PMI markets, then postFilterDBResults removes false positives
-    'pmi', // will be filtered by validatePMIMatch() to exclude "DeepMind" etc.
-    'purchasing managers index', // full phrase (not "purchasing manager" singular)
-    'ism manufacturing', 'ism services',
-  ],
-  PCE: [
-    'pce', 'personal consumption', 'core pce',
-  ],
-  CPI: [
-    'cpi', 'consumer price', 'inflation',
-  ],
-  GDP: [
-    'gdp', 'gross domestic',
-  ],
-  UNEMPLOYMENT_RATE: [
-    'unemployment rate', 'jobless rate',
-  ],
-  FED_RATE: [
-    // v2.4.8: Require Fed/FOMC context to avoid BOE/BOJ/credit card false positives
-    'fed rate', 'fed fund', 'federal fund', 'fed funds',
-    'fed cut', 'fed hike', 'fed increases', 'fed decreases',
-    'fomc rate', 'fomc cut', 'fomc hike',
-    // Generic rate cut/hike only with Fed context (handled by OR in query)
-    'fed emergency rate', 'federal reserve rate',
-  ],
-  FOMC: [
-    'fomc', 'federal reserve', 'fed meeting',
-  ],
+interface EntityKeywords {
+  strict: string[];  // Accurate keywords - detection rate calculated on these
+  broad: string[];   // Diagnostic keywords - shown separately, excluded from rate
+}
+
+const ENTITY_KEYWORDS_V2: Record<string, EntityKeywords> = {
+  NFP: {
+    strict: [
+      'nfp', 'nonfarm', 'non-farm', 'payroll', 'payrolls',
+      'jobs added', 'jobs report', 'employment situation',
+      'add jobs', 'lose jobs',
+      'jobs in january', 'jobs in february', 'jobs in march',
+      'jobs in april', 'jobs in may', 'jobs in june',
+      'jobs in july', 'jobs in august', 'jobs in september',
+      'jobs in october', 'jobs in november', 'jobs in december',
+    ],
+    broad: [], // No additional broad terms
+  },
+  JOBLESS_CLAIMS: {
+    strict: [
+      'jobless claims', 'initial claims', 'unemployment claims',
+      'weekly claims', 'continuing claims', 'initial jobless',
+    ],
+    broad: [],
+  },
+  PMI: {
+    strict: [
+      // v2.4.9: Use regex post-filter for word-boundary
+      'pmi', // filtered by validatePMIMatch() to exclude "DeepMind"
+      'purchasing managers index',
+      'ism manufacturing', 'ism services',
+    ],
+    broad: [],
+  },
+  PCE: {
+    strict: ['pce', 'personal consumption', 'core pce'],
+    broad: [],
+  },
+  CPI: {
+    // v2.4.9: Split CPI keywords - "inflation" alone is too broad
+    strict: [
+      'cpi', 'consumer price index', 'core cpi', 'headline cpi',
+      'cpi inflation', // explicit CPI + inflation
+    ],
+    broad: [
+      'inflation', // diagnostic only - could be PCE inflation, general discussion
+    ],
+  },
+  GDP: {
+    strict: ['gdp', 'gross domestic'],
+    broad: [],
+  },
+  UNEMPLOYMENT_RATE: {
+    strict: ['unemployment rate', 'jobless rate'],
+    broad: [],
+  },
+  FED_RATE: {
+    // v2.4.9: Split FED_RATE - generic rate terms are too broad
+    strict: [
+      'fed rate', 'fed fund', 'federal fund', 'fed funds',
+      'fed cut', 'fed hike', 'fed increases', 'fed decreases',
+      'fomc rate', 'fomc cut', 'fomc hike',
+      'fed emergency rate', 'federal reserve rate',
+      'target range', // Fed-specific term
+    ],
+    broad: [
+      'interest rate', 'rate cut', 'rate hike', // could be ECB, BOE, BOJ, mortgage, credit card
+    ],
+  },
+  FOMC: {
+    strict: ['fomc', 'federal reserve', 'fed meeting'],
+    broad: [],
+  },
 };
 
 // ============================================================
@@ -183,8 +213,11 @@ interface StatusBreakdown {
 
 /** DB Fact Scan result */
 interface DBFactResult {
-  foundTitleCount: number;
+  foundTitleCount: number;      // Total (strict + broad)
   foundMetaCount: number;
+  // v2.4.9: Separate strict vs broad counts for accurate rate calculation
+  foundStrictCount: number;     // Matches from strict keywords only
+  foundBroadCount: number;      // Matches from broad keywords only (diagnostic)
   statusBreakdown: StatusBreakdown;
   closeTimeMin: Date | null;
   closeTimeMax: Date | null;
@@ -220,19 +253,27 @@ export interface MacroAuditResult {
 // ============================================================
 
 /**
+ * Check if a title matches any keyword (case-insensitive)
+ */
+function titleMatchesKeyword(title: string, keyword: string): boolean {
+  return title.toLowerCase().includes(keyword.toLowerCase());
+}
+
+/**
  * Phase A: DB Fact Scan - raw keyword search without eligibility filters
- * v2.4.9: Added entity parameter for post-filtering (e.g., PMI word-boundary check)
+ * v2.4.9: Added entity parameter for post-filtering + strict/broad separation
  */
 async function runDBFactScan(
   venue: Venue,
   entity: string,
-  keywords: string[],
+  entityKeywords: EntityKeywords,
   dbLimit: number,
 ): Promise<DBFactResult> {
   const prisma = getClient();
+  const allKeywords = [...entityKeywords.strict, ...entityKeywords.broad];
 
   // Build OR conditions for title keywords
-  const titleConditions: Prisma.MarketWhereInput[] = keywords.map(kw => ({
+  const titleConditions: Prisma.MarketWhereInput[] = allKeywords.map(kw => ({
     title: { contains: kw, mode: 'insensitive' as const },
   }));
 
@@ -258,12 +299,28 @@ async function runDBFactScan(
   // v2.4.9: Apply entity-specific post-filtering (e.g., PMI word-boundary)
   const markets = postFilterDBResults(entity, rawMarkets).slice(0, dbLimit);
 
+  // v2.4.9: Calculate strict vs broad counts
+  // A market is "strict" if it matches ANY strict keyword
+  // A market is "broad-only" if it matches ONLY broad keywords (no strict)
+  let foundStrictCount = 0;
+  let foundBroadCount = 0;
+
+  for (const m of markets) {
+    const matchesStrict = entityKeywords.strict.some(kw => titleMatchesKeyword(m.title, kw));
+    if (matchesStrict) {
+      foundStrictCount++;
+    } else {
+      // Only broad keywords matched
+      foundBroadCount++;
+    }
+  }
+
   // Also check metadata (separate query for count only)
   const metaCount = await prisma.market.count({
     where: {
       venue,
       metadata: { not: Prisma.DbNull },
-      OR: keywords.map(kw => ({
+      OR: allKeywords.map(kw => ({
         metadata: { path: [], string_contains: kw },
       })),
     },
@@ -309,6 +366,9 @@ async function runDBFactScan(
   return {
     foundTitleCount: markets.length,
     foundMetaCount: metaCount,
+    // v2.4.9: strict vs broad counts
+    foundStrictCount,
+    foundBroadCount,
     statusBreakdown,
     closeTimeMin,
     closeTimeMax,
@@ -504,10 +564,10 @@ export async function runMacroAudit(options: MacroAuditOptions): Promise<MacroAu
   console.log(`MODE: ${mode}, includeResolved=${includeResolved}`);
   console.log(`${'='.repeat(60)}\n`);
 
-  const keywords = ENTITY_KEYWORDS[entityUpper];
-  if (!keywords) {
+  const entityKeywords = ENTITY_KEYWORDS_V2[entityUpper];
+  if (!entityKeywords) {
     console.log(`[ERROR] Unknown entity: ${entityUpper}`);
-    console.log(`[INFO] Supported: ${Object.keys(ENTITY_KEYWORDS).join(', ')}`);
+    console.log(`[INFO] Supported: ${Object.keys(ENTITY_KEYWORDS_V2).join(', ')}`);
     const emptyResult: MacroAuditResult = {
       verdict: AuditVerdict.NO_DATA_IN_DB,
       verdictReason: 'Unknown entity',
@@ -516,6 +576,8 @@ export async function runMacroAudit(options: MacroAuditOptions): Promise<MacroAu
       dbFact: {
         foundTitleCount: 0,
         foundMetaCount: 0,
+        foundStrictCount: 0,
+        foundBroadCount: 0,
         statusBreakdown: { active: 0, closed: 0, resolved: 0, archived: 0 },
         closeTimeMin: null,
         closeTimeMax: null,
@@ -537,16 +599,23 @@ export async function runMacroAudit(options: MacroAuditOptions): Promise<MacroAu
     return emptyResult;
   }
 
+  // For backwards compatibility and logging
+  const keywords = [...entityKeywords.strict, ...entityKeywords.broad];
+
   // ============================================================
   // PHASE A: DB Fact Scan
   // ============================================================
   console.log(`[PHASE A] DB FACT SCAN (no eligibility filters)`);
-  console.log(`Keywords: ${keywords.slice(0, 4).join(', ')}${keywords.length > 4 ? '...' : ''}`);
+  console.log(`Strict keywords: ${entityKeywords.strict.slice(0, 3).join(', ')}${entityKeywords.strict.length > 3 ? '...' : ''}`);
+  if (entityKeywords.broad.length > 0) {
+    console.log(`Broad keywords (diagnostic): ${entityKeywords.broad.join(', ')}`);
+  }
   console.log(`DB limit: ${dbLimit}\n`);
 
-  const dbFact = await runDBFactScan(venue, entityUpper, keywords, dbLimit);
+  const dbFact = await runDBFactScan(venue, entityUpper, entityKeywords, dbLimit);
 
-  console.log(`>>> found_in_title: ${dbFact.foundTitleCount}`);
+  // v2.4.9: Show strict vs broad breakdown
+  console.log(`>>> found_in_title: ${dbFact.foundTitleCount} (strict=${dbFact.foundStrictCount}, broad=${dbFact.foundBroadCount})`);
   console.log(`>>> found_in_meta:  ${dbFact.foundMetaCount}`);
   console.log(`>>> status: active=${dbFact.statusBreakdown.active}, closed=${dbFact.statusBreakdown.closed}, resolved=${dbFact.statusBreakdown.resolved}, archived=${dbFact.statusBreakdown.archived}`);
 
@@ -658,38 +727,43 @@ export interface AuditPackOptions {
 export interface AuditPackRow {
   entity: string;
   dbFound: number;
+  // v2.4.9: strict vs broad breakdown
+  dbStrict: number;
+  dbBroad: number;
   windowEligible: number;
   detected: number;
+  rateStrict: number;  // detected / dbStrict (0-1), NaN if dbStrict=0
   verdict: AuditVerdict;
 }
 
 /**
  * Run audit pack - batch audit multiple entities with compact output
+ * v2.4.9: Shows strict vs broad DB counts and detection rate based on strict only
  */
 export async function runAuditPack(options: AuditPackOptions): Promise<AuditPackRow[]> {
   const {
     venue,
-    entities = Object.keys(ENTITY_KEYWORDS),
+    entities = Object.keys(ENTITY_KEYWORDS_V2),
     allTime = false,
     includeResolved = false,
   } = options;
 
   const mode = allTime ? 'all-time' : 'window';
 
-  console.log(`\n[macro:audit-pack v2.4.7] ${venue}`);
-  console.log(`${'='.repeat(70)}`);
+  console.log(`\n[macro:audit-pack v2.4.9] ${venue}`);
+  console.log(`${'='.repeat(90)}`);
   console.log(`MODE: ${mode}, includeResolved=${includeResolved}`);
-  console.log(`${'='.repeat(70)}\n`);
+  console.log(`${'='.repeat(90)}\n`);
 
   const results: AuditPackRow[] = [];
 
-  // Print header
-  console.log(`${'Entity'.padEnd(18)} | ${'DB Found'.padStart(8)} | ${'Eligible'.padStart(8)} | ${'Detected'.padStart(8)} | Verdict`);
-  console.log(`${'-'.repeat(18)}-+-${'-'.repeat(8)}-+-${'-'.repeat(8)}-+-${'-'.repeat(8)}-+-${'-'.repeat(25)}`);
+  // v2.4.9: Updated header with strict/broad columns
+  console.log(`${'Entity'.padEnd(18)} | ${'Strict'.padStart(7)} | ${'Broad'.padStart(6)} | ${'Detect'.padStart(6)} | ${'Rate%'.padStart(6)} | Verdict`);
+  console.log(`${'-'.repeat(18)}-+-${'-'.repeat(7)}-+-${'-'.repeat(6)}-+-${'-'.repeat(6)}-+-${'-'.repeat(6)}-+-${'-'.repeat(25)}`);
 
   for (const entity of entities) {
     const entityUpper = entity.toUpperCase();
-    if (!ENTITY_KEYWORDS[entityUpper]) continue;
+    if (!ENTITY_KEYWORDS_V2[entityUpper]) continue;
 
     // Run audit silently (suppress console output)
     const originalLog = console.log;
@@ -703,11 +777,19 @@ export async function runAuditPack(options: AuditPackOptions): Promise<AuditPack
         includeResolved,
       });
 
+      const dbStrict = result.dbFact.foundStrictCount;
+      const dbBroad = result.dbFact.foundBroadCount;
+      const detected = result.pipeline.detectedCount;
+      const rateStrict = dbStrict > 0 ? detected / dbStrict : NaN;
+
       const row: AuditPackRow = {
         entity: entityUpper,
         dbFound: result.dbFact.foundTitleCount,
+        dbStrict,
+        dbBroad,
         windowEligible: result.pipeline.eligibleCount,
-        detected: result.pipeline.detectedCount,
+        detected,
+        rateStrict,
         verdict: result.verdict,
       };
       results.push(row);
@@ -715,12 +797,13 @@ export async function runAuditPack(options: AuditPackOptions): Promise<AuditPack
       // Restore and print row
       console.log = originalLog;
       const verdictShort = row.verdict.replace('PRESENT_', '').replace('_', ' ');
+      const rateStr = isNaN(rateStrict) ? 'N/A' : `${(rateStrict * 100).toFixed(0)}%`;
       console.log(
-        `${row.entity.padEnd(18)} | ${String(row.dbFound).padStart(8)} | ${String(row.windowEligible).padStart(8)} | ${String(row.detected).padStart(8)} | ${verdictShort}`
+        `${row.entity.padEnd(18)} | ${String(dbStrict).padStart(7)} | ${String(dbBroad).padStart(6)} | ${String(detected).padStart(6)} | ${rateStr.padStart(6)} | ${verdictShort}`
       );
     } catch (err) {
       console.log = originalLog;
-      console.log(`${entityUpper.padEnd(18)} | ${'ERROR'.padStart(8)} | ${'-'.padStart(8)} | ${'-'.padStart(8)} | ERROR`);
+      console.log(`${entityUpper.padEnd(18)} | ${'ERR'.padStart(7)} | ${'-'.padStart(6)} | ${'-'.padStart(6)} | ${'-'.padStart(6)} | ERROR`);
     }
   }
 
@@ -732,7 +815,7 @@ export async function runAuditPack(options: AuditPackOptions): Promise<AuditPack
 
 /** Get supported entities */
 export function getSupportedEntities(): string[] {
-  return Object.keys(ENTITY_KEYWORDS);
+  return Object.keys(ENTITY_KEYWORDS_V2);
 }
 
 /**
