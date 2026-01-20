@@ -1,4 +1,4 @@
-# Data Module v1
+# Data Module v1.1
 
 Data ingestion module for prediction markets (Polymarket, Kalshi). Collects markets, outcomes, and price quotes with deduplication, checkpointing, and archival support.
 
@@ -11,6 +11,15 @@ Data ingestion module for prediction markets (Polymarket, Kalshi). Collects mark
 - **Audit trail**: Track all ingestion runs
 - **Archival**: Automatic archiving of old/resolved markets
 - **Seed mode**: Generate test data without API calls
+
+### v1.1 Improvements
+
+- **Split sync mode**: Separate intervals for markets (slow) and quotes (fast)
+- **Float-safe dedup**: Bucket-based price comparison
+- **In-cycle dedup**: Prevent duplicates within same ingestion run
+- **Raw JSON storage**: Debug data saved with quotes
+- **Health check**: Monitor database and job health
+- **Reconcile**: Find and add missing markets from source
 
 ## Project Structure
 
@@ -83,14 +92,22 @@ Fetch data from a prediction market venue.
 pnpm --filter @data-module/worker ingest [options]
 
 Options:
-  -v, --venue <venue>       Venue: polymarket, kalshi (required)
-  -m, --mode <mode>         Mode: once or loop (default: once)
-  -i, --interval <seconds>  Loop interval in seconds (default: 60)
-  --max-markets <number>    Max markets to fetch (default: 10000)
-  --page-size <number>      API page size (default: 100)
-  --epsilon <number>        Price dedup threshold (default: 0.001)
-  --min-interval <seconds>  Min seconds between quotes (default: 60)
+  -v, --venue <venue>          Venue: polymarket, kalshi (required)
+  -m, --mode <mode>            Mode: once, loop, or split (default: once)
+  -i, --interval <seconds>     Loop interval in seconds (default: 60)
+  --max-markets <number>       Max markets to fetch (default: 10000)
+  --page-size <number>         API page size (default: 100)
+  --epsilon <number>           Price dedup threshold (default: 0.001)
+  --min-interval <seconds>     Min seconds between quotes (default: 60)
+  --markets-refresh <seconds>  Markets refresh interval, split mode (default: 1800)
+  --quotes-refresh <seconds>   Quotes refresh interval, split mode (default: 60)
+  --quotes-lookback <hours>    Include closed markets within N hours (default: 24)
 ```
+
+**Modes:**
+- `once`: Single ingestion run
+- `loop`: Continuous ingestion at fixed interval
+- `split`: Separate intervals for markets (slow) and quotes (fast)
 
 ### Seed
 
@@ -129,6 +146,33 @@ pnpm --filter @data-module/worker sanity [options]
 Options:
   -v, --venue <venue>     Check specific venue only
   --max-age <minutes>     Max age for fresh quotes (default: 10)
+```
+
+### Health Check (v1.1)
+
+Check database connection, job states, and quote freshness.
+
+```bash
+pnpm --filter @data-module/worker health [options]
+
+Options:
+  --max-stale <minutes>    Max age for fresh quotes (default: 5)
+  --max-job-age <minutes>  Max age for last successful job (default: 10)
+```
+
+Exit code 0 if healthy, 1 if issues detected.
+
+### Reconcile (v1.1)
+
+Find and add missing markets from source.
+
+```bash
+pnpm --filter @data-module/worker reconcile [options]
+
+Options:
+  -v, --venue <venue>       Venue to reconcile (required)
+  --page-size <number>      API page size (default: 100)
+  --max-markets <number>    Max markets to fetch (default: 50000)
 ```
 
 ## Database Schema
