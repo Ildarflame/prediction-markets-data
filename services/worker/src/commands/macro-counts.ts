@@ -43,10 +43,12 @@ export async function runMacroCounts(options: MacroCountsOptions): Promise<void>
   console.log(`[macro:counts] Lookback: ${lookbackHours}h, limit: ${limit}`);
 
   // Fetch markets using closeTime ordering (v2.4.4)
+  // v2.4.6: Added 'jobs', 'employment', 'claims', 'ism', 'purchasing' for Polymarket NFP patterns
   const MACRO_KEYWORDS = [
     'cpi', 'gdp', 'inflation', 'unemployment', 'jobless',
     'payrolls', 'nonfarm', 'nfp', 'fed', 'fomc',
     'rates', 'interest', 'pce', 'pmi',
+    'jobs', 'employment', 'claims', 'ism', 'purchasing',
   ];
 
   const markets = await marketRepo.listEligibleMarkets(venue as Venue, {
