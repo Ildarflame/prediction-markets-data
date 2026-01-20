@@ -10,6 +10,7 @@ export interface ReconcileOptions {
   venue: Venue;
   pageSize?: number;
   maxMarkets?: number;
+  dryRun?: boolean;
 }
 
 export interface ReconcileResult {
@@ -17,6 +18,9 @@ export interface ReconcileResult {
   totalDb: number;
   missing: number;
   added: number;
+  outcomesAdded: number;
+  extraInDb: number;
+  missingIds: string[];
   errors: string[];
 }
 
@@ -30,7 +34,7 @@ export interface ReconcileResult {
  * - For 100% coverage of closed/resolved markets, may need historical data export
  */
 export async function runReconcile(options: ReconcileOptions): Promise<ReconcileResult> {
-  const { venue, pageSize = 100, maxMarkets = 50000 } = options;
+  const { venue, pageSize = 100, maxMarkets = 50000, dryRun = false } = options;
 
   const prisma = getClient();
   const marketRepo = new MarketRepository(prisma);
@@ -41,10 +45,13 @@ export async function runReconcile(options: ReconcileOptions): Promise<Reconcile
     totalDb: 0,
     missing: 0,
     added: 0,
+    outcomesAdded: 0,
+    extraInDb: 0,
+    missingIds: [],
     errors: [],
   };
 
-  console.log(`[${venue}] Starting reconciliation...`);
+  console.log(`[${venue}] Starting reconciliation${dryRun ? ' (DRY RUN)' : ''}...`);
 
   try {
     // Fetch all market external IDs from source
@@ -83,28 +90,50 @@ export async function runReconcile(options: ReconcileOptions): Promise<Reconcile
     // Find missing markets
     const missingMarkets = sourceMarkets.filter((m) => !dbIds.has(m.externalId));
     result.missing = missingMarkets.length;
+    result.missingIds = missingMarkets.slice(0, 20).map((m) => m.externalId);
+
+    // Check for markets in DB that are not in source
+    const extraInDbMarkets = dbMarkets.filter((m) => !sourceIds.has(m.externalId));
+    result.extraInDb = extraInDbMarkets.length;
 
     console.log(`[${venue}] Found ${result.missing} missing markets`);
 
-    if (missingMarkets.length > 0) {
-      // Add missing markets
-      console.log(`[${venue}] Adding missing markets...`);
+    if (dryRun) {
+      // Dry run: just output info
+      console.log(`\n[${venue}] DRY RUN - No changes made`);
+      console.log(`  Source markets: ${result.totalSource}`);
+      console.log(`  DB markets: ${result.totalDb}`);
+      console.log(`  Missing: ${result.missing}`);
+      console.log(`  Extra in DB: ${result.extraInDb}`);
+
+      if (result.missingIds.length > 0) {
+        console.log(`\n  Missing market IDs (first ${result.missingIds.length}):`);
+        for (const id of result.missingIds) {
+          console.log(`    - ${id}`);
+        }
+      }
+    } else if (missingMarkets.length > 0) {
+      // Normal run: add missing markets
+      console.log(`[${venue}] Adding ${missingMarkets.length} missing markets...`);
+
+      // Calculate total outcomes to be added
+      const totalOutcomes = missingMarkets.reduce((sum, m) => sum + m.outcomes.length, 0);
+
       const upsertResult = await marketRepo.upsertMarkets(venue as DbVenue, missingMarkets);
       result.added = upsertResult.created;
-      console.log(`[${venue}] Added ${result.added} markets`);
+      result.outcomesAdded = totalOutcomes;
+
+      console.log(`[${venue}] Added ${result.added} markets with ${result.outcomesAdded} outcomes`);
     }
 
-    // Check for markets in DB that are not in source (may be deleted/hidden)
-    const extraInDb = dbMarkets.filter((m) => !sourceIds.has(m.externalId));
-    if (extraInDb.length > 0) {
-      console.log(`[${venue}] Note: ${extraInDb.length} markets in DB not found in source (may be deleted/hidden)`);
+    if (!dryRun) {
+      console.log(`\n[${venue}] Reconciliation complete:`);
+      console.log(`  Source markets: ${result.totalSource}`);
+      console.log(`  DB markets: ${result.totalDb}`);
+      console.log(`  Missing: ${result.missing}`);
+      console.log(`  Added: ${result.added} markets, ${result.outcomesAdded} outcomes`);
+      console.log(`  Extra in DB: ${result.extraInDb}`);
     }
-
-    console.log(`\n[${venue}] Reconciliation complete:`);
-    console.log(`  Source markets: ${result.totalSource}`);
-    console.log(`  DB markets: ${result.totalDb}`);
-    console.log(`  Missing (added): ${result.added}`);
-    console.log(`  Extra in DB: ${extraInDb.length}`);
 
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);

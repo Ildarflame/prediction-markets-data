@@ -239,6 +239,7 @@ program
   .requiredOption('-v, --venue <venue>', `Venue to reconcile (${getSupportedVenues().join(', ')})`)
   .option('--page-size <number>', 'Page size for API requests', '100')
   .option('--max-markets <number>', 'Maximum markets to fetch from source', '50000')
+  .option('--dry-run', 'Preview what would be added without making changes', false)
   .action(async (opts) => {
     const venue = opts.venue as Venue;
     const supportedVenues = getSupportedVenues();
@@ -253,6 +254,7 @@ program
         venue,
         pageSize: parseInt(opts.pageSize, 10),
         maxMarkets: parseInt(opts.maxMarkets, 10),
+        dryRun: opts.dryRun,
       });
 
       if (result.errors.length > 0) {
