@@ -989,7 +989,7 @@ interface FetchMarketsOptions {
   macroMaxYear?: number;
   // Rare entity extended lookback (v2.4.3)
   rareEntityLookbackHours?: number;
-  // Sort order for DB query (v2.4.4)
+  // Sort order for DB query (v2.4.5)
   // 'id' (default): newest markets first
   // 'closeTime': markets closing soon first (better for macro - includes old active markets)
   orderBy?: 'id' | 'closeTime';
@@ -1035,7 +1035,7 @@ async function fetchEligibleMarkets(
   } = options;
 
   // Step 1: Fetch from DB with keyword filter
-  // v2.4.4: Pass orderBy to support different sorting strategies
+  // v2.4.5: Pass orderBy to support different sorting strategies
   let markets = await marketRepo.listEligibleMarkets(venue as Venue, {
     lookbackHours,
     limit,
@@ -1147,7 +1147,7 @@ async function fetchEligibleMarkets(
         const existingIds = new Set(markets.map(m => m.id));
 
         // Fetch with extended lookback
-        // v2.4.4: Use same orderBy for consistency
+        // v2.4.5: Use same orderBy for consistency
         const extendedMarkets = await marketRepo.listEligibleMarkets(venue as Venue, {
           lookbackHours: rareEntityLookbackHours,
           limit,
@@ -1234,14 +1234,14 @@ async function debugMarket(
   const prisma = getClient();
   const marketRepo = new MarketRepository(prisma);
 
-  console.log(`\n[debug v2.4.4] Analyzing market ID ${marketId} from ${fromVenue}...\n`);
+  console.log(`\n[debug v2.4.5] Analyzing market ID ${marketId} from ${fromVenue}...\n`);
   console.log(`[debug] Using unified pipeline with full run settings:`);
   console.log(`[debug] lookbackHours=${options.lookbackHours}, limitLeft=${options.limitLeft}, limitRight=${options.limitRight}`);
   console.log(`[debug] topic=${options.topic}, excludeSports=${options.excludeSports}, keywords=${options.targetKeywords.length}`);
 
-  // v2.4.4: Use closeTime ordering for macro to include old active markets
+  // v2.4.5: Use closeTime ordering for macro to include old active markets
   const orderBy = options.topic === 'macro' ? 'closeTime' as const : 'id' as const;
-  console.log(`[debug] orderBy=${orderBy} (v2.4.4: macro uses closeTime to include old active markets)`);
+  console.log(`[debug] orderBy=${orderBy} (v2.4.5: macro uses closeTime to include old active markets)`);
 
   // Fetch source markets using unified pipeline
   const { markets: leftMarkets, stats: leftStats } = await fetchEligibleMarkets(marketRepo, {
@@ -1261,7 +1261,7 @@ async function debugMarket(
   const leftMarket = leftMarkets.find(m => m.id === marketId);
   if (!leftMarket) {
     // Market not found in filtered set - try to find why
-    // v2.4.4: Use closeTime ordering for macro
+    // v2.4.5: Use closeTime ordering for macro
     const allMarkets = await marketRepo.listEligibleMarkets(fromVenue as Venue, {
       lookbackHours: options.lookbackHours,
       limit: 50000,
@@ -1335,7 +1335,7 @@ async function debugMarket(
   }
 
   // Fetch target markets using unified pipeline
-  // v2.4.4: Use orderBy for consistency with left markets
+  // v2.4.5: Use orderBy for consistency with left markets
   const { markets: rightMarkets, stats: rightStats } = await fetchEligibleMarkets(marketRepo, {
     venue: toVenue,
     lookbackHours: options.lookbackHours,
@@ -1536,7 +1536,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     rareEntityLookbackHours = parseInt(process.env.RARE_ENTITY_LOOKBACK_HOURS || String(RARE_ENTITY_DEFAULT_LOOKBACK_HOURS), 10),
   } = options;
 
-  // v2.4.4: Use topic-specific keywords for DB query filtering
+  // v2.4.5: Use topic-specific keywords for DB query filtering
   // This prevents mixed keyword lists from pushing out relevant markets
   // (e.g., politics markets with 2045 close dates pushing out macro markets)
   const targetKeywords = topic !== 'all' && TOPIC_KEYWORDS[topic]
@@ -1596,15 +1596,15 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     errors: [],
   };
 
-  // v2.4.4: Use closeTime ordering for macro to include old active markets
+  // v2.4.5: Use closeTime ordering for macro to include old active markets
   const orderBy = topic === 'macro' ? 'closeTime' as const : 'id' as const;
 
-  console.log(`[matching] Starting suggest-matches v2.4.4: ${fromVenue} -> ${toVenue}`);
+  console.log(`[matching] Starting suggest-matches v2.4.5: ${fromVenue} -> ${toVenue}`);
   console.log(`[matching] minScore=${minScore}, topK=${topK}, lookbackHours=${lookbackHours}, limitLeft=${limitLeft}, limitRight=${limitRight}, requireOverlap=${requireOverlapKeywords}`);
   console.log(`[matching] Topic filter: ${topic}`);
   if (topic === 'macro') {
     console.log(`[matching] Macro year window: ${macroMinYear}-${macroMaxYear}`);
-    console.log(`[matching] Order by: ${orderBy} (v2.4.4: includes old active markets)`);
+    console.log(`[matching] Order by: ${orderBy} (v2.4.5: includes old active markets)`);
   }
   console.log(`[matching] Target keywords: ${targetKeywords.slice(0, 10).join(', ')}${targetKeywords.length > 10 ? '...' : ''}`);
   console.log(`[matching] Sports exclusion: ${excludeSports ? 'enabled' : 'disabled'} (prefixes: ${excludeKalshiPrefixes.length}, keywords: ${excludeTitleKeywords.length})`);
@@ -1889,14 +1889,25 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       // Track macro matches/unmatched
       if (isMacroTopic && leftFingerprint.macroEntities?.size) {
         if (topCandidates.length > 0) {
-          // Market found a match - track by macro entity
-          for (const entity of leftFingerprint.macroEntities) {
-            macroStats.matchedByEntity.set(entity, (macroStats.matchedByEntity.get(entity) || 0) + 1);
-          }
-          // Track period compatibility kinds for the matches (v2.4.3)
+          // v2.4.5: Only count entities that ACTUALLY matched (intersection with right side)
+          // This fixes the bug where matchedByEntity[PCE]=55 but rightByEntity[PCE]=0
+          const matchedEntitiesForThisLeft = new Set<string>();
           for (const candidate of topCandidates) {
+            const rightIndexed = index.markets.get(candidate.rightId);
+            if (rightIndexed?.fingerprint.macroEntities) {
+              for (const entity of leftFingerprint.macroEntities) {
+                if (rightIndexed.fingerprint.macroEntities.has(entity)) {
+                  matchedEntitiesForThisLeft.add(entity);
+                }
+              }
+            }
+            // Track period compatibility kinds for the matches (v2.4.3)
             const kind = candidate.periodKind || 'exact';
             macroStats.periodKindCounts.set(kind, (macroStats.periodKindCounts.get(kind) || 0) + 1);
+          }
+          // Increment matched count for entities that actually matched
+          for (const entity of matchedEntitiesForThisLeft) {
+            macroStats.matchedByEntity.set(entity, (macroStats.matchedByEntity.get(entity) || 0) + 1);
           }
         } else {
           // Market is unmatched - add to unmatched list
@@ -1920,7 +1931,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       }
     }
 
-    console.log(`\n[matching] Suggest-matches v2.4.4 complete:`);
+    console.log(`\n[matching] Suggest-matches v2.4.5 complete:`);
     console.log(`  Left markets (${fromVenue}): ${result.leftCount}`);
     console.log(`  Right markets (${toVenue}): ${result.rightCount}`);
     console.log(`  Skipped (already confirmed): ${result.skippedConfirmed}`);
@@ -1959,6 +1970,9 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       let totalLeft = 0;
       let totalMatched = 0;
 
+      // v2.4.5: Track entities with inconsistent counts for sanity check
+      const inconsistentEntities: string[] = [];
+
       for (const entity of sortedEntities) {
         const left = macroStats.leftByEntity.get(entity) || 0;
         const right = macroStats.rightByEntity.get(entity) || 0;
@@ -1967,8 +1981,22 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
 
         console.log(`${entity.padEnd(15)} | ${String(left).padStart(6)} | ${String(right).padStart(6)} | ${String(matched).padStart(8)} | ${rate.padStart(6)}`);
 
+        // v2.4.5: Sanity check - matched > 0 but right = 0 is impossible
+        if (right === 0 && matched > 0) {
+          inconsistentEntities.push(entity);
+        }
+
         totalLeft += left;
         totalMatched += matched;
+      }
+
+      // v2.4.5: Print warning for inconsistent entities
+      if (inconsistentEntities.length > 0) {
+        console.log(`\n[WARN] Inconsistent entity counts detected (Right=0 but Matched>0):`);
+        for (const entity of inconsistentEntities) {
+          const matched = macroStats.matchedByEntity.get(entity) || 0;
+          console.log(`  ${entity}: Right=0 but Matched=${matched} - this indicates a bug in entity matching`);
+        }
       }
 
       console.log('-'.repeat(50));

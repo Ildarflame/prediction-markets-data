@@ -1,10 +1,10 @@
 /**
- * Macro Pipeline (v2.4.4)
+ * Macro Pipeline (v2.4.5)
  *
  * Unified pipeline for fetching and processing macro markets.
  * Used by both suggest-matches and macro:overlap to ensure consistency.
  *
- * v2.4.4: Fixed ORDER BY id DESC bug - now uses closeTime for macro markets
+ * v2.4.5: Fixed ORDER BY id DESC bug - now uses closeTime for macro markets
  *         to include old active markets with future close times
  * v2.4.3: Added period compatibility engine (month/quarter/year)
  */
@@ -420,7 +420,7 @@ export async function fetchEligibleMacroMarkets(
   };
 
   // Step 1: Fetch from DB with keyword pre-filter
-  // v2.4.4: Use closeTime ordering for macro to include old active markets
+  // v2.4.5: Use closeTime ordering for macro to include old active markets
   let markets = await marketRepo.listEligibleMarkets(venue as Venue, {
     lookbackHours,
     limit,
@@ -545,7 +545,7 @@ export async function fetchEligibleMacroMarkets(
         const existingIds = new Set(result.map(m => m.market.id));
 
         // Fetch with extended lookback
-        // v2.4.4: Use closeTime ordering for consistency
+        // v2.4.5: Use closeTime ordering for consistency
         const extendedMarkets = await marketRepo.listEligibleMarkets(venue as Venue, {
           lookbackHours: rareEntityLookbackHours,
           limit,

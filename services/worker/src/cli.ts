@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -418,6 +418,37 @@ program
       });
     } catch (error) {
       console.error('Macro probe error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Macro counts command (v2.4.5)
+program
+  .command('macro:counts')
+  .description('Show macro entity counts and samples per venue (v2.4.5)')
+  .requiredOption('--venue <venue>', `Venue to analyze (${getSupportedVenues().join(', ')})`)
+  .option('--lookback-hours <hours>', 'Search window in hours', '720')
+  .option('--limit <number>', 'Max markets to fetch', '5000')
+  .option('--samples <number>', 'Sample titles per entity', '5')
+  .action(async (opts) => {
+    const supportedVenues = getSupportedVenues();
+
+    if (!supportedVenues.includes(opts.venue)) {
+      console.error(`Invalid --venue: ${opts.venue}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    try {
+      await runMacroCounts({
+        venue: opts.venue as Venue,
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+        limit: parseInt(opts.limit, 10),
+        samplesPerEntity: parseInt(opts.samples, 10),
+      });
+    } catch (error) {
+      console.error('Macro counts error:', error);
       process.exit(1);
     } finally {
       await disconnect();
