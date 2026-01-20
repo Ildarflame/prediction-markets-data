@@ -196,8 +196,8 @@ export const TOPIC_ENTITIES: Record<Exclude<TopicFilter, 'all'>, string[]> = {
     'AVALANCHE', 'POLYGON', 'POLKADOT', 'CHAINLINK', 'LITECOIN',
   ],
   macro: [
-    'CPI', 'GDP', 'NFP', 'FOMC', 'FED_RATE', 'UNEMPLOYMENT', 'INFLATION',
-    'INTEREST_RATE', 'PPI', 'PCE',
+    'CPI', 'GDP', 'NFP', 'FOMC', 'FED_RATE', 'UNEMPLOYMENT_RATE', 'JOBLESS_CLAIMS',
+    'INFLATION', 'INTEREST_RATE', 'PPI', 'PCE',
   ],
   politics: [
     'DONALD_TRUMP', 'DONALD_TRUMP_JR', 'JOE_BIDEN', 'HUNTER_BIDEN',

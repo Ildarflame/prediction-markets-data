@@ -65,10 +65,12 @@ export const MACRO_KEYWORDS = [
 
 /**
  * Macro entity names for topic filtering
+ * Note: UNEMPLOYMENT_RATE replaces UNEMPLOYMENT (v2.4.2)
+ *       JOBLESS_CLAIMS added as separate entity
  */
 export const MACRO_ENTITIES = [
-  'CPI', 'GDP', 'NFP', 'FOMC', 'FED_RATE', 'UNEMPLOYMENT', 'INFLATION',
-  'INTEREST_RATE', 'PPI', 'PCE',
+  'CPI', 'GDP', 'NFP', 'FOMC', 'FED_RATE', 'UNEMPLOYMENT_RATE', 'JOBLESS_CLAIMS',
+  'INFLATION', 'INTEREST_RATE', 'PPI', 'PCE',
 ];
 
 /**

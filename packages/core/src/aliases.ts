@@ -23,10 +23,25 @@ export const MACRO_ENTITIES = {
     tokens: ['gdp'],
     phrases: ['gross domestic product'],
   },
+  UNEMPLOYMENT_RATE: {
+    canonical: 'UNEMPLOYMENT_RATE',
+    tokens: [], // Requires phrase matching - "unemployment" alone goes here by default
+    phrases: ['unemployment rate', 'jobless rate'],
+  },
+  JOBLESS_CLAIMS: {
+    canonical: 'JOBLESS_CLAIMS',
+    tokens: [], // Requires phrase matching with "claims"
+    phrases: ['jobless claims', 'initial claims', 'continuing claims', 'unemployment claims'],
+  },
   UNEMPLOYMENT: {
-    canonical: 'UNEMPLOYMENT',
+    canonical: 'UNEMPLOYMENT_RATE', // Bare "unemployment" without "claims" => UNEMPLOYMENT_RATE
     tokens: ['unemployment'],
-    phrases: ['jobless rate', 'unemployment rate'],
+    phrases: [],
+  },
+  JOBLESS: {
+    canonical: 'UNEMPLOYMENT_RATE', // "jobless" without "claims" => UNEMPLOYMENT_RATE
+    tokens: ['jobless'],
+    phrases: [],
   },
   NFP: {
     canonical: 'NFP',

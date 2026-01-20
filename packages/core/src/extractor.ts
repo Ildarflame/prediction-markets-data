@@ -62,7 +62,8 @@ function matchesMultiWordAlias(titleTokens: string[], aliasTokens: string[]): bo
  * - "cpi" or "consumer price index" => CPI
  * - "inflation" => CPI (mapped for MVP)
  * - "gdp" or "gross domestic product" => GDP
- * - "unemployment" or "jobless rate" => UNEMPLOYMENT
+ * - "unemployment rate" or "jobless rate" or "unemployment" (no claims) => UNEMPLOYMENT_RATE
+ * - "jobless claims" or "initial claims" or "continuing claims" => JOBLESS_CLAIMS
  * - "nfp" or "payrolls" or "nonfarm" phrases => NFP
  * - "fed" + ("rate" or "interest") or phrases => FED_RATE
  * - "fomc" or "federal reserve" => FOMC
@@ -95,21 +96,30 @@ export function extractMacroEntities(tokens: string[], _normalizedTitle?: string
     return false;
   };
 
-  // Check each macro entity
+  // First pass: check ALL phrases (most specific)
   for (const key of Object.keys(MACRO_ENTITIES) as MacroEntityKey[]) {
     const entityDef = MACRO_ENTITIES[key];
-
-    // Check single tokens
-    for (const token of entityDef.tokens) {
-      if (tokens.includes(token)) {
+    for (const phrase of entityDef.phrases) {
+      if (hasPhrase(phrase)) {
         macroEntities.add(entityDef.canonical);
         break;
       }
     }
+  }
 
-    // Check phrases
-    for (const phrase of entityDef.phrases) {
-      if (hasPhrase(phrase)) {
+  // Second pass: check single tokens only if canonical not already matched
+  // This ensures "jobless claims" -> JOBLESS_CLAIMS (not UNEMPLOYMENT_RATE from "jobless" token)
+  for (const key of Object.keys(MACRO_ENTITIES) as MacroEntityKey[]) {
+    const entityDef = MACRO_ENTITIES[key];
+    if (macroEntities.has(entityDef.canonical)) continue; // Already matched by phrase
+
+    for (const token of entityDef.tokens) {
+      if (tokens.includes(token)) {
+        // Special case: skip "unemployment"/"jobless" token if "claims" is present
+        // This prevents "jobless claims" from matching UNEMPLOYMENT_RATE via token
+        if ((token === 'unemployment' || token === 'jobless') && tokens.includes('claims')) {
+          continue;
+        }
         macroEntities.add(entityDef.canonical);
         break;
       }
