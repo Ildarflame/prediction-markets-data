@@ -132,7 +132,7 @@ export class KalshiAdapter implements VenueAdapter {
         const orderbook = await this.fetchOrderbook(market.externalId);
 
         // Process Yes side
-        if (orderbook.orderbook.yes.length > 0) {
+        if (orderbook.orderbook.yes?.length > 0) {
           const bestBid = orderbook.orderbook.yes[0];
           const totalLiquidity = orderbook.orderbook.yes.reduce((sum, [, qty]) => sum + qty, 0);
           const yesPrice = bestBid[0] / 100; // Convert cents to dollars
@@ -152,7 +152,7 @@ export class KalshiAdapter implements VenueAdapter {
         }
 
         // Process No side
-        if (orderbook.orderbook.no.length > 0) {
+        if (orderbook.orderbook.no?.length > 0) {
           const bestBid = orderbook.orderbook.no[0];
           const totalLiquidity = orderbook.orderbook.no.reduce((sum, [, qty]) => sum + qty, 0);
           const noPrice = bestBid[0] / 100;
