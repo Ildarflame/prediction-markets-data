@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -474,6 +474,35 @@ program
       });
     } catch (error) {
       console.error('Macro best error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Macro audit command (v2.4.6)
+program
+  .command('macro:audit')
+  .description('Fact-check macro entity detection in DB (v2.4.6)')
+  .requiredOption('--venue <venue>', `Venue to audit (${getSupportedVenues().join(', ')})`)
+  .requiredOption('--entity <entity>', 'Entity to audit (NFP, JOBLESS_CLAIMS, PMI, PCE, CPI, GDP, etc.)')
+  .option('--limit <number>', 'Max markets to analyze', '200')
+  .action(async (opts) => {
+    const supportedVenues = getSupportedVenues();
+
+    if (!supportedVenues.includes(opts.venue)) {
+      console.error(`Invalid --venue: ${opts.venue}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    try {
+      await runMacroAudit({
+        venue: opts.venue as Venue,
+        entity: opts.entity,
+        limit: parseInt(opts.limit, 10),
+      });
+    } catch (error) {
+      console.error('Macro audit error:', error);
       process.exit(1);
     } finally {
       await disconnect();

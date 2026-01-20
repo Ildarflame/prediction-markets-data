@@ -13,3 +13,4 @@ export { runMacroOverlap, type MacroOverlapOptions } from './macro-overlap.js';
 export { runMacroProbe, type MacroProbeOptions } from './macro-probe.js';
 export { runMacroCounts, type MacroCountsOptions } from './macro-counts.js';
 export { runMacroBest, type MacroBestOptions, type MacroBestResult } from './macro-best.js';
+export { runMacroAudit, type MacroAuditOptions, type MacroAuditResult } from './macro-audit.js';
