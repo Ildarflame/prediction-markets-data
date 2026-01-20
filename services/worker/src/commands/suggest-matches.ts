@@ -360,9 +360,10 @@ function fuzzyTitleScore(titleA: string, titleB: string): number {
   return Math.max(0, similarity);
 }
 
-// Minimum text similarity threshold (jaccard + fuzzy) to prevent false positives
+// Minimum text similarity thresholds to prevent false positives
 // when entities match but titles are completely different (e.g., "Trump Greenland" vs "Trump pardon")
-const MIN_TEXT_SIMILARITY = 0.15;
+const MIN_TEXT_SIMILARITY = 0.20;  // (jaccard + fuzzy) / 2 must exceed this
+const MIN_JACCARD = 0.10;          // jaccard alone must exceed this
 
 /**
  * Calculate weighted match score using multiple signals
@@ -407,14 +408,17 @@ function calculateMatchScore(
   const rightTokens = tokenize(right.market.title);
   const jcScore = jaccard(leftTokens, rightTokens);
 
-  // HARD GATE: Require minimum text similarity (jaccard + fuzzy average)
+  // HARD GATE: Require minimum text similarity
   // This prevents matches like "Trump Greenland Tariffs" vs "Trump pardon" where
   // entity matches but titles are semantically different
   const textSimilarity = (jcScore + fzScore) / 2;
-  if (textSimilarity < MIN_TEXT_SIMILARITY) {
+  if (textSimilarity < MIN_TEXT_SIMILARITY || jcScore < MIN_JACCARD) {
+    const reason = jcScore < MIN_JACCARD
+      ? `TEXT_GATE_FAIL (jc=${jcScore.toFixed(3)} < ${MIN_JACCARD})`
+      : `TEXT_GATE_FAIL (sim=${textSimilarity.toFixed(3)} < ${MIN_TEXT_SIMILARITY})`;
     return {
       score: 0,
-      reason: `TEXT_GATE_FAIL (sim=${textSimilarity.toFixed(3)} < ${MIN_TEXT_SIMILARITY})`,
+      reason,
       breakdown: { entity: entScore, date: dtScore, number: numScore, fuzzy: fzScore, jaccard: jcScore },
       dateGateFailed: false,
       textGateFailed: true,
@@ -497,7 +501,7 @@ async function debugMarket(
   console.log(`  Comparator: ${leftFingerprint.comparator}`);
   console.log(`  Intent: ${leftFingerprint.intent}`);
   console.log(`  Fingerprint: ${leftFingerprint.fingerprint}`);
-  console.log(`  Text sim threshold: ${MIN_TEXT_SIMILARITY}`);
+  console.log(`  Text gate: sim>=${MIN_TEXT_SIMILARITY}, jc>=${MIN_JACCARD}`);
 
   // Get target markets
   console.log(`\nFetching target markets from ${toVenue}...`);
@@ -607,7 +611,7 @@ async function debugMarket(
       console.log(`  Status: DATE_GATE_FAILED - intents: source=${leftFingerprint.intent}, target=${s.fingerprint.intent}`);
     } else if (s.textGateFailed) {
       const textSim = ((s.breakdown.jaccard + s.breakdown.fuzzy) / 2).toFixed(3);
-      console.log(`  Status: TEXT_GATE_FAILED - sim=${textSim} < ${MIN_TEXT_SIMILARITY}`);
+      console.log(`  Status: TEXT_GATE_FAILED - sim=${textSim}, jc=${s.breakdown.jaccard.toFixed(3)} (min: sim>=${MIN_TEXT_SIMILARITY}, jc>=${MIN_JACCARD})`);
     }
     console.log('');
   }
