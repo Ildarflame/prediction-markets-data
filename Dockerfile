@@ -31,21 +31,24 @@ RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 
 WORKDIR /app
 
-# Copy built application
+# Copy package files for install
 COPY --from=builder /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
 COPY --from=builder /app/packages/core/package.json ./packages/core/
-COPY --from=builder /app/packages/core/dist ./packages/core/dist
 COPY --from=builder /app/packages/db/package.json ./packages/db/
-COPY --from=builder /app/packages/db/dist ./packages/db/dist
-COPY --from=builder /app/packages/db/prisma ./packages/db/prisma
 COPY --from=builder /app/services/worker/package.json ./services/worker/
-COPY --from=builder /app/services/worker/dist ./services/worker/dist
 
-# Install production dependencies only
+# Install production dependencies
 RUN pnpm install --frozen-lockfile --prod
 
-# Generate Prisma client in production image
-RUN pnpm --filter @data-module/db db:generate
+# Copy built code
+COPY --from=builder /app/packages/core/dist ./packages/core/dist
+COPY --from=builder /app/packages/db/dist ./packages/db/dist
+COPY --from=builder /app/packages/db/prisma ./packages/db/prisma
+COPY --from=builder /app/services/worker/dist ./services/worker/dist
+
+# Copy generated Prisma client from builder
+COPY --from=builder /app/node_modules/.pnpm/@prisma+client*/node_modules/@prisma/client ./node_modules/@prisma/client
+COPY --from=builder /app/node_modules/.pnpm/@prisma+client*/node_modules/.prisma ./node_modules/.prisma
 
 # Set environment
 ENV NODE_ENV=production
