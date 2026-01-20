@@ -34,3 +34,16 @@ export {
   type TruthAuditOptions,
   type TruthAuditResult,
 } from './macro-truth-audit.js';
+
+// Crypto commands (v2.5.0)
+export { runCryptoCounts, type CryptoCountsOptions, type CryptoCountsResult } from './crypto-counts.js';
+export { runCryptoOverlap, type CryptoOverlapOptions, type CryptoOverlapResult } from './crypto-overlap.js';
+export {
+  runCryptoTruthAudit,
+  runCryptoTruthAuditBatch,
+  getSupportedCryptoTruthAuditEntities,
+  CryptoTruthVerdict,
+  CRYPTO_VERDICT_DESCRIPTIONS,
+  type CryptoTruthAuditOptions,
+  type CryptoTruthAuditResult,
+} from './crypto-truth-audit.js';

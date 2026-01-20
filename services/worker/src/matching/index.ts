@@ -29,3 +29,31 @@ export {
   collectMacroPeriods,
   collectSamplesByEntity,
 } from './macroPipeline.js';
+
+// Crypto Pipeline (v2.5.0)
+export {
+  // Constants
+  CRYPTO_ENTITIES_V1,
+  CRYPTO_ENTITIES_EXTENDED,
+  CRYPTO_KEYWORDS_STRICT,
+  CRYPTO_KEYWORDS_BROAD,
+  // Types
+  type CryptoEntityV1,
+  type CryptoSignals,
+  type CryptoMarket,
+  type FetchCryptoMarketsOptions,
+  type FetchCryptoMarketsStats,
+  type CryptoScoreResult,
+  // Functions
+  getCryptoStrictKeywords,
+  extractSettleDate,
+  settleDateDayDiff,
+  extractCryptoEntity,
+  extractCryptoSignals,
+  fetchEligibleCryptoMarkets,
+  buildCryptoIndex,
+  findCryptoCandidates,
+  cryptoMatchScore,
+  collectCryptoSettleDates,
+  collectCryptoSamplesByEntity,
+} from './cryptoPipeline.js';

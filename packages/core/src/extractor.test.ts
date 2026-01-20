@@ -451,6 +451,46 @@ describe('extractMacroEntities', () => {
     // Note: Actually both could match if "jobless" alone triggers UNEMPLOYMENT_RATE
     // This test documents the current behavior
   });
+
+});
+
+// v2.5.0: Crypto entity extraction tests (uses extractEntities, not extractMacroEntities)
+describe('extractEntities (crypto)', () => {
+  it('should NOT extract ETH from "Pete Hegseth"', () => {
+    const entities = extractEntities('Pete Hegseth confirmed as Secretary of Defense');
+    assert.ok(!entities.includes('ETHEREUM'), `"Hegseth" should NOT match ETH, got ${JSON.stringify(entities)}`);
+    assert.ok(!entities.includes('ETH'), `"Hegseth" should NOT match ETH, got ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract BITCOIN from "BTC above $100,000"', () => {
+    const entities = extractEntities('BTC above $100,000 on Jan 20, 2026');
+    assert.ok(entities.includes('BITCOIN'), `Expected BITCOIN from BTC in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract ETHEREUM from "Ethereum price at Dec 13"', () => {
+    const entities = extractEntities('Ethereum price at Dec 13, 2025 - $3,710 to 3,729.99');
+    assert.ok(entities.includes('ETHEREUM'), `Expected ETHEREUM in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract BITCOIN from "Bitcoin Up or Down"', () => {
+    const entities = extractEntities('Bitcoin Up or Down - January 20');
+    assert.ok(entities.includes('BITCOIN'), `Expected BITCOIN in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract BITCOIN from $BTC ticker pattern', () => {
+    const entities = extractEntities('$BTC price prediction for end of year');
+    assert.ok(entities.includes('BITCOIN'), `Expected BITCOIN from $BTC in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract ETHEREUM from $ETH ticker pattern', () => {
+    const entities = extractEntities('$ETH will reach $5000 by Q2 2026');
+    assert.ok(entities.includes('ETHEREUM'), `Expected ETHEREUM from $ETH in ${JSON.stringify(entities)}`);
+  });
+
+  it('should extract SOLANA from "sol" token', () => {
+    const entities = extractEntities('SOL price above $200 on Feb 1');
+    assert.ok(entities.includes('SOLANA'), `Expected SOLANA from SOL in ${JSON.stringify(entities)}`);
+  });
 });
 
 describe('extractPeriod', () => {
