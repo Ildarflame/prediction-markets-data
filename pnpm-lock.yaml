@@ -51,6 +51,9 @@ importers:
       dotenv:
         specifier: ^16.3.1
         version: 16.6.1
+      fastest-levenshtein:
+        specifier: ^1.0.16
+        version: 1.0.16
     devDependencies:
       '@types/node':
         specifier: ^20.11.0
@@ -260,6 +263,10 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
+  fastest-levenshtein@1.0.16:
+    resolution: {integrity: sha512-eRnCtTTtGZFpQCwhJiUOuxPQWRXVKYDn0b2PeHfXL6/Zi53SLAzAHfVhVWK2AryC/WH05kGfxhFIPvTF0SXQzg==}
+    engines: {node: '>= 4.9.1'}
+
   fsevents@2.3.3:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
@@ -430,6 +437,8 @@ snapshots:
       '@esbuild/win32-arm64': 0.27.2
       '@esbuild/win32-ia32': 0.27.2
       '@esbuild/win32-x64': 0.27.2
+
+  fastest-levenshtein@1.0.16: {}
 
   fsevents@2.3.3:
     optional: true

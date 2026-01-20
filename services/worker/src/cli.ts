@@ -272,13 +272,14 @@ program
 // Suggest matches command
 program
   .command('suggest-matches')
-  .description('Find potential market matches between venues')
+  .description('Find potential market matches between venues (v2: fingerprint-based)')
   .requiredOption('--from <venue>', `Source venue (${getSupportedVenues().join(', ')})`)
   .requiredOption('--to <venue>', `Target venue (${getSupportedVenues().join(', ')})`)
-  .option('--min-score <number>', 'Minimum match score (0-1)', '0.75')
+  .option('--min-score <number>', 'Minimum match score (0-1)', '0.55')
   .option('--top-k <number>', 'Top K matches per source market', '10')
   .option('--lookback-hours <hours>', 'Include closed markets within N hours', '24')
   .option('--limit-left <number>', 'Max source markets to process', '2000')
+  .option('--debug-one <marketId>', 'Debug single market: show top 20 candidates with breakdown')
   .action(async (opts) => {
     const supportedVenues = getSupportedVenues();
 
@@ -305,6 +306,7 @@ program
         topK: parseInt(opts.topK, 10),
         lookbackHours: parseInt(opts.lookbackHours, 10),
         limitLeft: parseInt(opts.limitLeft, 10),
+        debugMarketId: opts.debugOne ? parseInt(opts.debugOne, 10) : undefined,
       });
 
       if (result.errors.length > 0) {
