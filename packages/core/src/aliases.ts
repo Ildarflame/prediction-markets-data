@@ -160,11 +160,13 @@ export const ENTITY_ALIASES: Record<string, string> = {
   'nba finals': 'NBA_FINALS',
   'stanley cup': 'STANLEY_CUP',
   'olympics': 'OLYMPICS',
-  'election': 'ELECTION',
+  // Note: generic 'election' removed - too broad, matches all election markets
   'presidential election': 'US_PRESIDENTIAL_ELECTION',
+  'us presidential election': 'US_PRESIDENTIAL_ELECTION',
   'us election': 'US_PRESIDENTIAL_ELECTION',
   'midterms': 'US_MIDTERMS',
   'midterm': 'US_MIDTERMS',
+  'us midterms': 'US_MIDTERMS',
 
   // Companies/Stocks
   'apple': 'AAPL',
