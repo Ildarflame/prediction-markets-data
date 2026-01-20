@@ -50,7 +50,9 @@ export class MarketRepository {
                 title: market.title,
                 category: market.category,
                 status: market.status as MarketStatus,
+                statusMeta: market.statusMeta as object | undefined,
                 closeTime: market.closeTime,
+                sourceUpdatedAt: market.sourceUpdatedAt,
                 metadata: market.metadata as object,
               },
             });
@@ -88,7 +90,9 @@ export class MarketRepository {
                 title: market.title,
                 category: market.category,
                 status: market.status as MarketStatus,
+                statusMeta: market.statusMeta as object | undefined,
                 closeTime: market.closeTime,
+                sourceUpdatedAt: market.sourceUpdatedAt,
                 metadata: market.metadata as object,
                 outcomes: {
                   create: market.outcomes.map((o) => ({
@@ -119,6 +123,34 @@ export class MarketRepository {
         status: {
           in: ['active', 'closed'],
         },
+      },
+      include: {
+        outcomes: true,
+      },
+    });
+  }
+
+  /**
+   * Get markets eligible for quotes sync:
+   * - all active markets
+   * - closed markets within lookback window (if closeTime is set)
+   */
+  async getMarketsForQuotesSync(
+    venue: Venue,
+    closedLookbackHours = 24
+  ): Promise<MarketWithOutcomes[]> {
+    const lookbackCutoff = new Date(Date.now() - closedLookbackHours * 60 * 60 * 1000);
+
+    return this.prisma.market.findMany({
+      where: {
+        venue,
+        OR: [
+          { status: 'active' },
+          {
+            status: 'closed',
+            closeTime: { gte: lookbackCutoff },
+          },
+        ],
       },
       include: {
         outcomes: true,

@@ -6,6 +6,7 @@ import { Command } from 'commander';
 import { type Venue, DEFAULT_DEDUP_CONFIG } from '@data-module/core';
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
+import { runSplitIngestionLoop } from './pipeline/split-runner.js';
 import { runSeed, runArchive, runSanityCheck } from './commands/index.js';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -54,12 +55,15 @@ program
   .command('ingest')
   .description('Ingest data from a prediction market venue')
   .requiredOption('-v, --venue <venue>', `Venue to ingest from (${getSupportedVenues().join(', ')})`)
-  .option('-m, --mode <mode>', 'Mode: once or loop', 'once')
+  .option('-m, --mode <mode>', 'Mode: once, loop, or split', 'once')
   .option('-i, --interval <seconds>', 'Interval between ingestion cycles (loop mode)', '60')
   .option('--max-markets <number>', 'Maximum markets to fetch', '10000')
   .option('--page-size <number>', 'Page size for API requests', '100')
   .option('--epsilon <number>', 'Price change threshold for dedup', String(DEFAULT_DEDUP_CONFIG.epsilon))
   .option('--min-interval <seconds>', 'Minimum interval between quotes', String(DEFAULT_DEDUP_CONFIG.minIntervalSeconds))
+  .option('--markets-refresh <seconds>', 'Markets refresh interval (split mode)', process.env.MARKETS_REFRESH_SECONDS || '1800')
+  .option('--quotes-refresh <seconds>', 'Quotes refresh interval (split mode)', process.env.QUOTES_REFRESH_SECONDS || '60')
+  .option('--quotes-lookback <hours>', 'Closed markets lookback for quotes (split mode)', process.env.QUOTES_CLOSED_LOOKBACK_HOURS || '24')
   .action(async (opts) => {
     const venue = opts.venue as Venue;
     const supportedVenues = getSupportedVenues();
@@ -78,7 +82,19 @@ program
     const kalshiAuth = venue === 'kalshi' ? loadKalshiAuth() : undefined;
 
     try {
-      if (opts.mode === 'loop') {
+      if (opts.mode === 'split') {
+        // Split mode: separate intervals for markets and quotes
+        await runSplitIngestionLoop({
+          venue,
+          maxMarkets: parseInt(opts.maxMarkets, 10),
+          pageSize: parseInt(opts.pageSize, 10),
+          dedupConfig,
+          kalshiAuth,
+          marketsRefreshSeconds: parseInt(opts.marketsRefresh, 10),
+          quotesRefreshSeconds: parseInt(opts.quotesRefresh, 10),
+          quotesClosedLookbackHours: parseInt(opts.quotesLookback, 10),
+        });
+      } else if (opts.mode === 'loop') {
         await runIngestionLoop({
           venue,
           maxMarkets: parseInt(opts.maxMarkets, 10),

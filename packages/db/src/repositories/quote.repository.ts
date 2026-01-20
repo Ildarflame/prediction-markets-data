@@ -1,10 +1,11 @@
 import type { PrismaClient, Quote, LatestQuote, Venue } from '@prisma/client';
 import type { DedupConfig } from '@data-module/core';
-import { shouldRecordQuote, DEFAULT_DEDUP_CONFIG } from '@data-module/core';
+import { shouldRecordQuote, QuoteDeduplicator, DEFAULT_DEDUP_CONFIG } from '@data-module/core';
 
 export interface InsertQuotesResult {
   inserted: number;
   skipped: number;
+  skippedInCycle: number;
 }
 
 export interface QuoteInput {
@@ -14,6 +15,7 @@ export interface QuoteInput {
   impliedProb: number;
   liquidity?: number;
   volume?: number;
+  raw?: Record<string, unknown>;
 }
 
 /**
@@ -27,7 +29,7 @@ export class QuoteRepository {
 
   /**
    * Insert quotes with deduplication
-   * Uses latest_quotes table for dedup check
+   * Uses latest_quotes table for dedup check + in-cycle deduplicator
    */
   async insertQuotesWithDedup(
     quotes: QuoteInput[],
@@ -35,6 +37,10 @@ export class QuoteRepository {
   ): Promise<InsertQuotesResult> {
     let inserted = 0;
     let skipped = 0;
+    let skippedInCycle = 0;
+
+    // In-cycle deduplicator to prevent duplicates within same run
+    const cycleDedup = new QuoteDeduplicator(this.dedupConfig);
 
     // Get current latest quotes for all outcomes
     const outcomeIds = [...new Set(quotes.map((q) => q.outcomeId))];
@@ -50,6 +56,12 @@ export class QuoteRepository {
     const latestUpdates = new Map<number, QuoteInput>();
 
     for (const quote of quotes) {
+      // Check in-cycle dedup first
+      if (cycleDedup.isDuplicate(quote.outcomeId, quote.price, quote.ts)) {
+        skippedInCycle++;
+        continue;
+      }
+
       const latest = latestMap.get(quote.outcomeId);
 
       const shouldRecord = shouldRecordQuote(
@@ -84,6 +96,7 @@ export class QuoteRepository {
           impliedProb: q.impliedProb,
           liquidity: q.liquidity,
           volume: q.volume,
+          raw: q.raw as object | undefined,
         })),
         skipDuplicates: true,
       });
@@ -102,6 +115,7 @@ export class QuoteRepository {
           impliedProb: quote.impliedProb,
           liquidity: quote.liquidity,
           volume: quote.volume,
+          raw: quote.raw as object | undefined,
         },
         update: {
           ts: quote.ts,
@@ -109,11 +123,12 @@ export class QuoteRepository {
           impliedProb: quote.impliedProb,
           liquidity: quote.liquidity,
           volume: quote.volume,
+          raw: quote.raw as object | undefined,
         },
       });
     }
 
-    return { inserted, skipped };
+    return { inserted, skipped, skippedInCycle };
   }
 
   /**
