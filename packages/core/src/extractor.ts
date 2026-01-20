@@ -2,7 +2,57 @@
  * Fingerprint-based entity extraction for market matching
  */
 
-import { ENTITY_ALIASES, TICKER_PATTERNS, normalizeEntity, isKnownEntity } from './aliases.js';
+import { ENTITY_ALIASES, TICKER_PATTERNS, normalizeEntity, isKnownEntity, extractEntityFromKalshiTicker } from './aliases.js';
+
+/**
+ * Tokenize text for entity matching
+ * - Lowercase
+ * - Replace all non-alphanumeric with spaces
+ * - Split by whitespace
+ * - Filter out empty tokens
+ */
+export function tokenizeForEntities(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(/\s+/)
+    .filter(t => t.length > 0);
+}
+
+/**
+ * Get tokens as a Set for O(1) lookup
+ */
+export function tokenSetForEntities(text: string): Set<string> {
+  return new Set(tokenizeForEntities(text));
+}
+
+/**
+ * Check if multi-word alias matches in title using tokens
+ * All alias tokens must appear as consecutive tokens in title
+ */
+function matchesMultiWordAlias(titleTokens: string[], aliasTokens: string[]): boolean {
+  if (aliasTokens.length === 0) return false;
+  if (aliasTokens.length === 1) {
+    // Single token - exact match in token set
+    return titleTokens.includes(aliasTokens[0]);
+  }
+
+  // Multi-word: find consecutive sequence
+  const first = aliasTokens[0];
+  for (let i = 0; i <= titleTokens.length - aliasTokens.length; i++) {
+    if (titleTokens[i] === first) {
+      let matches = true;
+      for (let j = 1; j < aliasTokens.length; j++) {
+        if (titleTokens[i + j] !== aliasTokens[j]) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) return true;
+    }
+  }
+  return false;
+}
 
 /**
  * Comparator type for market conditions
@@ -10,6 +60,7 @@ import { ENTITY_ALIASES, TICKER_PATTERNS, normalizeEntity, isKnownEntity } from 
 export enum Comparator {
   GE = 'GE',       // Greater than or equal (above, over, exceed, reach, at least)
   LE = 'LE',       // Less than or equal (below, under, less than, at most)
+  BETWEEN = 'BETWEEN', // Range condition (between X and Y)
   WIN = 'WIN',     // Win/victory condition
   UNKNOWN = 'UNKNOWN',
 }
@@ -96,21 +147,47 @@ const WIN_KEYWORDS = [
 
 /**
  * Extract entities from market title using alias map and patterns
+ * Uses TOKEN-BASED matching to prevent substring false positives
+ * (e.g., "Hegseth" should NOT match "eth" → ETHEREUM)
  */
 export function extractEntities(title: string): string[] {
   const entities = new Set<string>();
-  const normalizedTitle = title.toLowerCase();
 
-  // Check multi-word aliases first (longer matches take priority)
-  const sortedAliases = Object.keys(ENTITY_ALIASES).sort((a, b) => b.length - a.length);
+  // Tokenize the title for precise matching
+  const titleTokens = tokenizeForEntities(title);
+  const titleTokenSet = new Set(titleTokens);
+
+  // Pre-tokenize all aliases (cache for performance)
+  const aliasTokensMap = new Map<string, string[]>();
+  for (const alias of Object.keys(ENTITY_ALIASES)) {
+    aliasTokensMap.set(alias, tokenizeForEntities(alias));
+  }
+
+  // Check aliases using TOKEN matching (not substring)
+  // Sort by token count descending (multi-word first)
+  const sortedAliases = Object.keys(ENTITY_ALIASES).sort((a, b) => {
+    const tokensA = aliasTokensMap.get(a)!;
+    const tokensB = aliasTokensMap.get(b)!;
+    return tokensB.length - tokensA.length;
+  });
 
   for (const alias of sortedAliases) {
-    if (normalizedTitle.includes(alias)) {
-      entities.add(ENTITY_ALIASES[alias]);
+    const aliasTokens = aliasTokensMap.get(alias)!;
+
+    if (aliasTokens.length === 1) {
+      // Single-token alias: exact token match required
+      if (titleTokenSet.has(aliasTokens[0])) {
+        entities.add(ENTITY_ALIASES[alias]);
+      }
+    } else if (aliasTokens.length > 1) {
+      // Multi-token alias: all tokens must appear consecutively
+      if (matchesMultiWordAlias(titleTokens, aliasTokens)) {
+        entities.add(ENTITY_ALIASES[alias]);
+      }
     }
   }
 
-  // Extract ticker patterns
+  // Extract ticker patterns (these use word boundaries via regex)
   for (const pattern of TICKER_PATTERNS) {
     const matches = title.match(pattern);
     if (matches) {
@@ -122,12 +199,10 @@ export function extractEntities(title: string): string[] {
     }
   }
 
-  // Extract remaining capitalized words that might be entities
-  const words = title.split(/\s+/);
-  for (const word of words) {
-    const clean = word.replace(/[^a-zA-Z0-9]/g, '');
-    if (clean.length >= 2 && isKnownEntity(clean)) {
-      entities.add(normalizeEntity(clean));
+  // Extract remaining known entity tokens
+  for (const token of titleTokens) {
+    if (token.length >= 2 && isKnownEntity(token)) {
+      entities.add(normalizeEntity(token));
     }
   }
 
@@ -323,6 +398,20 @@ export function extractDates(title: string): ExtractedDate[] {
 export function extractComparator(title: string): Comparator {
   const lower = title.toLowerCase();
 
+  // Check for BETWEEN/range patterns first (higher priority)
+  // Patterns: "between $X and $Y", "from $X to $Y", "$X-$Y range", "$X to $Y"
+  const betweenPatterns = [
+    /between\s+\$?[\d,]+\s+and\s+\$?[\d,]+/i,
+    /from\s+\$?[\d,]+\s+to\s+\$?[\d,]+/i,
+    /\$?[\d,]+\s*[-–]\s*\$?[\d,]+/,  // e.g., "$3700-$3800" or "$3700–$3800"
+    /\$?[\d,]+\s+to\s+\$?[\d,]+/i,
+  ];
+  for (const pattern of betweenPatterns) {
+    if (pattern.test(lower)) {
+      return Comparator.BETWEEN;
+    }
+  }
+
   // Check for GE keywords
   for (const kw of GE_KEYWORDS) {
     if (lower.includes(kw)) {
@@ -370,12 +459,15 @@ export function classifyIntent(
   const lower = title.toLowerCase();
 
   // PRICE_DATE: crypto/asset + price number + specific date
-  // Examples: "ETH above $3700 by Jan 26", "BTC hits 100k by Dec 31"
+  // Examples: "ETH above $3700 by Jan 26", "BTC hits 100k by Dec 31", "ETH between $3700 and $3800 on Jan 26"
   const hasPriceTicker = entities.some(e => PRICE_TICKERS.includes(e.toUpperCase()));
   const hasSignificantNumber = numbers.some(n => n >= 1000); // Price targets usually > 1000
   const hasDayDate = dates.some(d => d.precision === DatePrecision.DAY);
 
-  if (hasPriceTicker && hasSignificantNumber && hasDayDate && (comparator === Comparator.GE || comparator === Comparator.LE)) {
+  // Accept GE, LE, or BETWEEN comparators for price markets
+  const hasPriceComparator = comparator === Comparator.GE || comparator === Comparator.LE || comparator === Comparator.BETWEEN;
+
+  if (hasPriceTicker && hasSignificantNumber && hasDayDate && hasPriceComparator) {
     return MarketIntent.PRICE_DATE;
   }
 
@@ -393,14 +485,35 @@ export function classifyIntent(
 }
 
 /**
+ * Options for fingerprint building
+ */
+export interface FingerprintOptions {
+  /** Market metadata (for Kalshi ticker extraction) */
+  metadata?: Record<string, unknown> | null;
+}
+
+/**
  * Build a fingerprint string for a market
  * Format: ENTITIES|NUMBER|DATE|COMPARATOR
  */
-export function buildFingerprint(title: string, closeTime?: Date | null): MarketFingerprint {
+export function buildFingerprint(title: string, closeTime?: Date | null, options?: FingerprintOptions): MarketFingerprint {
   const entities = extractEntities(title);
   const numbers = extractNumbers(title);
   const dates = extractDates(title);
   const comparator = extractComparator(title);
+
+  // Extract entity from Kalshi eventTicker if available (metadata enrichment)
+  if (options?.metadata) {
+    const eventTicker = options.metadata.eventTicker || options.metadata.event_ticker;
+    if (typeof eventTicker === 'string') {
+      const tickerEntity = extractEntityFromKalshiTicker(eventTicker);
+      if (tickerEntity && !entities.includes(tickerEntity)) {
+        entities.push(tickerEntity);
+        entities.sort(); // Keep sorted
+      }
+    }
+  }
+
   const intent = classifyIntent(title, entities, numbers, dates, comparator);
 
   // Build fingerprint string

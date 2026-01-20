@@ -8,6 +8,7 @@ import {
   passesDateGate,
   tokenize,
   jaccard,
+  tokenizeForEntities,
   type MarketFingerprint,
 } from '@data-module/core';
 import {
@@ -75,10 +76,67 @@ function isKalshiSportsMarket(metadata: Record<string, unknown> | null | undefin
 
 /**
  * Check if a market title contains sports keywords
+ * Uses substring matching for sports patterns (intentional - patterns like ": 10+" need this)
  */
 function hasSportsTitleKeyword(title: string, keywords: string[]): boolean {
   const lowerTitle = title.toLowerCase();
   return keywords.some(keyword => lowerTitle.includes(keyword.toLowerCase()));
+}
+
+/**
+ * Check if a market title contains at least one keyword using TOKEN-based matching
+ * This prevents "Hegseth" from matching keyword "eth"
+ */
+function hasKeywordToken(title: string, keywords: string[]): boolean {
+  const titleTokens = new Set(tokenizeForEntities(title));
+  // Also add some common variations
+  for (const kw of keywords) {
+    const kwLower = kw.toLowerCase();
+    // Check if keyword appears as a token (exact match)
+    if (titleTokens.has(kwLower)) {
+      return true;
+    }
+    // For multi-word keywords, check if all words appear as consecutive tokens
+    const kwTokens = tokenizeForEntities(kw);
+    if (kwTokens.length > 1) {
+      const titleTokenArr = tokenizeForEntities(title);
+      // Check for consecutive match
+      for (let i = 0; i <= titleTokenArr.length - kwTokens.length; i++) {
+        let allMatch = true;
+        for (let j = 0; j < kwTokens.length; j++) {
+          if (titleTokenArr[i + j] !== kwTokens[j]) {
+            allMatch = false;
+            break;
+          }
+        }
+        if (allMatch) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Post-filter markets to ensure they match keywords using token-based matching
+ * The database query uses substring matching which can produce false positives
+ */
+function filterByKeywordTokens(
+  markets: EligibleMarket[],
+  keywords: string[]
+): { filtered: EligibleMarket[]; removed: number } {
+  if (keywords.length === 0) {
+    return { filtered: markets, removed: 0 };
+  }
+  const filtered: EligibleMarket[] = [];
+  let removed = 0;
+  for (const market of markets) {
+    if (hasKeywordToken(market.title, keywords)) {
+      filtered.push(market);
+    } else {
+      removed++;
+    }
+  }
+  return { filtered, removed };
 }
 
 /**
@@ -146,6 +204,7 @@ export interface SuggestMatchesResult {
   skippedConfirmed: number;
   skippedNoOverlap: number;
   skippedDateGate: number;
+  skippedTextGate: number;
   errors: string[];
 }
 
@@ -176,7 +235,8 @@ function buildEntityIndex(markets: EligibleMarket[]): EntityIndex {
   const marketsMap = new Map<number, IndexedMarket>();
 
   for (const market of markets) {
-    const fingerprint = buildFingerprint(market.title, market.closeTime);
+    // Pass metadata for Kalshi ticker entity extraction
+    const fingerprint = buildFingerprint(market.title, market.closeTime, { metadata: market.metadata });
     const normalizedTitle = normalizeTitleForFuzzy(market.title);
 
     const indexed: IndexedMarket = { market, fingerprint, normalizedTitle };
@@ -300,15 +360,20 @@ function fuzzyTitleScore(titleA: string, titleB: string): number {
   return Math.max(0, similarity);
 }
 
+// Minimum text similarity threshold (jaccard + fuzzy) to prevent false positives
+// when entities match but titles are completely different (e.g., "Trump Greenland" vs "Trump pardon")
+const MIN_TEXT_SIMILARITY = 0.10;
+
 /**
  * Calculate weighted match score using multiple signals
  * Weights: 0.35 entity + 0.25 date + 0.25 number + 0.10 fuzzy + 0.05 jaccard
  * Returns score=0 if date gate fails for PRICE_DATE markets
+ * Returns score=0 if text similarity is below minimum threshold (hard gate)
  */
 function calculateMatchScore(
   left: IndexedMarket,
   right: IndexedMarket
-): { score: number; reason: string; breakdown: Record<string, number>; dateGateFailed: boolean } {
+): { score: number; reason: string; breakdown: Record<string, number>; dateGateFailed: boolean; textGateFailed: boolean } {
   // Date gating check - strict matching for PRICE_DATE markets
   const leftDate = left.fingerprint.dates[0];
   const rightDate = right.fingerprint.dates[0];
@@ -321,6 +386,7 @@ function calculateMatchScore(
       reason: `DATE_GATE_FAIL (${left.fingerprint.intent}/${right.fingerprint.intent})`,
       breakdown: { entity: 0, date: 0, number: 0, fuzzy: 0, jaccard: 0 },
       dateGateFailed: true,
+      textGateFailed: false,
     };
   }
 
@@ -341,6 +407,20 @@ function calculateMatchScore(
   const rightTokens = tokenize(right.market.title);
   const jcScore = jaccard(leftTokens, rightTokens);
 
+  // HARD GATE: Require minimum text similarity (jaccard + fuzzy average)
+  // This prevents matches like "Trump Greenland Tariffs" vs "Trump pardon" where
+  // entity matches but titles are semantically different
+  const textSimilarity = (jcScore + fzScore) / 2;
+  if (textSimilarity < MIN_TEXT_SIMILARITY) {
+    return {
+      score: 0,
+      reason: `TEXT_GATE_FAIL (sim=${textSimilarity.toFixed(3)} < ${MIN_TEXT_SIMILARITY})`,
+      breakdown: { entity: entScore, date: dtScore, number: numScore, fuzzy: fzScore, jaccard: jcScore },
+      dateGateFailed: false,
+      textGateFailed: true,
+    };
+  }
+
   // Weighted combination
   const score =
     0.35 * entScore +
@@ -359,7 +439,7 @@ function calculateMatchScore(
 
   const reason = `ent=${entScore.toFixed(2)} dt=${dtScore.toFixed(2)} num=${numScore.toFixed(2)} fz=${fzScore.toFixed(2)} jc=${jcScore.toFixed(2)}`;
 
-  return { score, reason, breakdown, dateGateFailed: false };
+  return { score, reason, breakdown, dateGateFailed: false, textGateFailed: false };
 }
 
 /**
@@ -374,7 +454,7 @@ async function debugMarket(
   const prisma = getClient();
   const marketRepo = new MarketRepository(prisma);
 
-  console.log(`\n[debug] Analyzing market ID ${marketId} from ${fromVenue}...\n`);
+  console.log(`\n[debug v2.2] Analyzing market ID ${marketId} from ${fromVenue}...\n`);
 
   // Get the source market
   const leftMarkets = await marketRepo.listEligibleMarkets(fromVenue as Venue, {
@@ -394,7 +474,15 @@ async function debugMarket(
   console.log(`  Category: ${leftMarket.category || 'N/A'}`);
   console.log(`  Close time: ${leftMarket.closeTime?.toISOString() || 'N/A'}`);
 
-  const leftFingerprint = buildFingerprint(leftMarket.title, leftMarket.closeTime);
+  // Show metadata if available (for Kalshi)
+  if (leftMarket.metadata) {
+    const eventTicker = (leftMarket.metadata as Record<string, unknown>).eventTicker || (leftMarket.metadata as Record<string, unknown>).event_ticker;
+    if (eventTicker) {
+      console.log(`  Event ticker: ${eventTicker}`);
+    }
+  }
+
+  const leftFingerprint = buildFingerprint(leftMarket.title, leftMarket.closeTime, { metadata: leftMarket.metadata });
   console.log(`  Entities: ${leftFingerprint.entities.join(', ') || 'none'}`);
   console.log(`  Numbers: ${leftFingerprint.numbers.join(', ') || 'none'}`);
 
@@ -409,6 +497,7 @@ async function debugMarket(
   console.log(`  Comparator: ${leftFingerprint.comparator}`);
   console.log(`  Intent: ${leftFingerprint.intent}`);
   console.log(`  Fingerprint: ${leftFingerprint.fingerprint}`);
+  console.log(`  Text sim threshold: ${MIN_TEXT_SIMILARITY}`);
 
   // Get target markets
   console.log(`\nFetching target markets from ${toVenue}...`);
@@ -440,9 +529,11 @@ async function debugMarket(
     breakdown: Record<string, number>;
     fingerprint: MarketFingerprint;
     dateGateFailed: boolean;
+    textGateFailed: boolean;
   }> = [];
 
   let dateGateFailCount = 0;
+  let textGateFailCount = 0;
 
   for (const rightId of candidateIds) {
     const rightIndexed = index.markets.get(rightId);
@@ -452,6 +543,9 @@ async function debugMarket(
     if (result.dateGateFailed) {
       dateGateFailCount++;
     }
+    if (result.textGateFailed) {
+      textGateFailCount++;
+    }
     scores.push({
       market: rightIndexed.market,
       score: result.score,
@@ -459,17 +553,20 @@ async function debugMarket(
       breakdown: result.breakdown,
       fingerprint: rightIndexed.fingerprint,
       dateGateFailed: result.dateGateFailed,
+      textGateFailed: result.textGateFailed,
     });
   }
 
-  // Sort by score (date gate failures at the bottom)
+  // Sort by score (gate failures at the bottom)
   scores.sort((a, b) => {
-    if (a.dateGateFailed && !b.dateGateFailed) return 1;
-    if (!a.dateGateFailed && b.dateGateFailed) return -1;
+    const aFailed = a.dateGateFailed || a.textGateFailed;
+    const bFailed = b.dateGateFailed || b.textGateFailed;
+    if (aFailed && !bFailed) return 1;
+    if (!aFailed && bFailed) return -1;
     return b.score - a.score;
   });
 
-  console.log(`Date gate failures: ${dateGateFailCount}/${candidateIds.size} candidates`);
+  console.log(`Gate failures: date=${dateGateFailCount}, text=${textGateFailCount} / ${candidateIds.size} candidates`);
 
   // Show top 20
   console.log(`\nTop 20 candidates:\n`);
@@ -479,7 +576,7 @@ async function debugMarket(
   for (let i = 0; i < Math.min(20, scores.length); i++) {
     const s = scores[i];
     const truncTitle = s.market.title.length > 45 ? s.market.title.slice(0, 42) + '...' : s.market.title;
-    const gateStatus = s.dateGateFailed ? 'FAIL' : 'OK  ';
+    const gateStatus = s.dateGateFailed ? 'DATE' : (s.textGateFailed ? 'TEXT' : 'OK  ');
     const intent = s.fingerprint.intent.padEnd(11);
     console.log(
       `${String(i + 1).padStart(4)} | ${s.score.toFixed(3)} | ${gateStatus} | ${intent} | ${s.breakdown.entity.toFixed(3)}  | ${s.breakdown.date.toFixed(3)}  | ${s.breakdown.number.toFixed(3)}  | ${truncTitle}`
@@ -489,7 +586,7 @@ async function debugMarket(
   console.log('\nDetailed top 5:\n');
   for (let i = 0; i < Math.min(5, scores.length); i++) {
     const s = scores[i];
-    const gateIcon = s.dateGateFailed ? '❌' : '✓';
+    const gateIcon = s.dateGateFailed ? '❌ DATE' : (s.textGateFailed ? '❌ TEXT' : '✓');
     console.log(`#${i + 1} (score=${s.score.toFixed(4)}) ${gateIcon}:`);
     console.log(`  Title: ${s.market.title}`);
     console.log(`  ID: ${s.market.id}`);
@@ -508,6 +605,9 @@ async function debugMarket(
     console.log(`  Breakdown: ${s.reason}`);
     if (s.dateGateFailed) {
       console.log(`  Status: DATE_GATE_FAILED - intents: source=${leftFingerprint.intent}, target=${s.fingerprint.intent}`);
+    } else if (s.textGateFailed) {
+      const textSim = ((s.breakdown.jaccard + s.breakdown.fuzzy) / 2).toFixed(3);
+      console.log(`  Status: TEXT_GATE_FAILED - sim=${textSim} < ${MIN_TEXT_SIMILARITY}`);
     }
     console.log('');
   }
@@ -554,6 +654,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       skippedConfirmed: 0,
       skippedNoOverlap: 0,
       skippedDateGate: 0,
+      skippedTextGate: 0,
       errors: [],
     };
   }
@@ -571,10 +672,11 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     skippedConfirmed: 0,
     skippedNoOverlap: 0,
     skippedDateGate: 0,
+    skippedTextGate: 0,
     errors: [],
   };
 
-  console.log(`[matching] Starting suggest-matches v2: ${fromVenue} -> ${toVenue}`);
+  console.log(`[matching] Starting suggest-matches v2.2: ${fromVenue} -> ${toVenue}`);
   console.log(`[matching] minScore=${minScore}, topK=${topK}, lookbackHours=${lookbackHours}, limitLeft=${limitLeft}, limitRight=${limitRight}, requireOverlap=${requireOverlapKeywords}`);
   console.log(`[matching] Target keywords: ${targetKeywords.slice(0, 10).join(', ')}${targetKeywords.length > 10 ? '...' : ''}`);
   console.log(`[matching] Sports exclusion: ${excludeSports ? 'enabled' : 'disabled'} (prefixes: ${excludeKalshiPrefixes.length}, keywords: ${excludeTitleKeywords.length})`);
@@ -587,7 +689,13 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       limit: limitLeft,
       titleKeywords: targetKeywords,
     });
-    const leftBeforeFilter = leftMarkets.length;
+
+    // Apply token-based keyword post-filter (DB uses substring matching which has false positives)
+    const { filtered: leftFiltered, removed: leftKwRemoved } = filterByKeywordTokens(leftMarkets, targetKeywords);
+    leftMarkets = leftFiltered;
+    if (leftKwRemoved > 0) {
+      console.log(`[matching] ${fromVenue} token-filter removed ${leftKwRemoved} false keyword matches`);
+    }
 
     // Apply sports filtering to left markets (Polymarket)
     if (excludeTitleKeywords.length > 0) {
@@ -598,7 +706,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       });
       leftMarkets = filtered;
       if (stats.prefixExcluded > 0 || stats.keywordExcluded > 0) {
-        console.log(`[matching] ${fromVenue} filtered: ${leftBeforeFilter} -> ${leftMarkets.length} (prefix: -${stats.prefixExcluded}, keyword: -${stats.keywordExcluded})`);
+        console.log(`[matching] ${fromVenue} sports-filter: -${stats.prefixExcluded} prefix, -${stats.keywordExcluded} keyword`);
       }
     }
     result.leftCount = leftMarkets.length;
@@ -610,7 +718,13 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       limit: limitRight,
       titleKeywords: targetKeywords,
     });
-    const rightBeforeFilter = rightMarkets.length;
+
+    // Apply token-based keyword post-filter (DB uses substring matching which has false positives)
+    const { filtered: rightFiltered, removed: rightKwRemoved } = filterByKeywordTokens(rightMarkets, targetKeywords);
+    rightMarkets = rightFiltered;
+    if (rightKwRemoved > 0) {
+      console.log(`[matching] ${toVenue} token-filter removed ${rightKwRemoved} false keyword matches`);
+    }
 
     // Apply sports filtering to right markets (Kalshi)
     if (excludeKalshiPrefixes.length > 0 || excludeTitleKeywords.length > 0) {
@@ -620,7 +734,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       });
       rightMarkets = filtered;
       if (stats.prefixExcluded > 0 || stats.keywordExcluded > 0) {
-        console.log(`[matching] ${toVenue} filtered: ${rightBeforeFilter} -> ${rightMarkets.length} (prefix: -${stats.prefixExcluded}, keyword: -${stats.keywordExcluded})`);
+        console.log(`[matching] ${toVenue} sports-filter: -${stats.prefixExcluded} prefix, -${stats.keywordExcluded} keyword`);
       }
     }
     result.rightCount = rightMarkets.length;
@@ -658,7 +772,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
         continue;
       }
 
-      const leftFingerprint = buildFingerprint(leftMarket.title, leftMarket.closeTime);
+      const leftFingerprint = buildFingerprint(leftMarket.title, leftMarket.closeTime, { metadata: leftMarket.metadata });
       const leftIndexed: IndexedMarket = {
         market: leftMarket,
         fingerprint: leftFingerprint,
@@ -694,6 +808,12 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
         // Track date gate failures
         if (matchResult.dateGateFailed) {
           result.skippedDateGate++;
+          continue;
+        }
+
+        // Track text gate failures
+        if (matchResult.textGateFailed) {
+          result.skippedTextGate++;
           continue;
         }
 
@@ -739,12 +859,13 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       }
     }
 
-    console.log(`\n[matching] Suggest-matches v2 complete:`);
+    console.log(`\n[matching] Suggest-matches v2.2 complete:`);
     console.log(`  Left markets (${fromVenue}): ${result.leftCount}`);
     console.log(`  Right markets (${toVenue}): ${result.rightCount}`);
     console.log(`  Skipped (already confirmed): ${result.skippedConfirmed}`);
     console.log(`  Skipped (no keyword overlap): ${result.skippedNoOverlap}`);
     console.log(`  Skipped (date gate): ${result.skippedDateGate}`);
+    console.log(`  Skipped (text gate): ${result.skippedTextGate}`);
     console.log(`  Candidates considered: ${result.candidatesConsidered}`);
     console.log(`  Suggestions created: ${result.suggestionsCreated}`);
     console.log(`  Suggestions updated: ${result.suggestionsUpdated}`);
