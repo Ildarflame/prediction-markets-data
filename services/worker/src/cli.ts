@@ -346,14 +346,15 @@ program
 // Macro overlap report command
 program
   .command('macro:overlap')
-  .description('Show macro period overlap between venues (v2.4.1)')
+  .description('Show macro period overlap between venues (v2.4.2 - unified pipeline)')
   .option('--from <venue>', `Source venue (${getSupportedVenues().join(', ')})`, 'kalshi')
   .option('--to <venue>', `Target venue (${getSupportedVenues().join(', ')})`, 'polymarket')
-  .option('--lookback-hours <hours>', 'Include markets within N hours', '720')
-  .option('--limit-left <number>', 'Max source markets', '10000')
-  .option('--limit-right <number>', 'Max target markets', '50000')
+  .option('--lookback-hours <hours>', 'Include markets within N hours (default: 24, same as suggest-matches)', '24')
+  .option('--limit-left <number>', 'Max source markets (default: 2000)', '2000')
+  .option('--limit-right <number>', 'Max target markets (default: 20000)', '20000')
   .option('--macro-min-year <year>', 'Min year for macro markets')
   .option('--macro-max-year <year>', 'Max year for macro markets')
+  .option('--sample <count>', 'Show N sample markets per entity for debugging', '0')
   .action(async (opts) => {
     const supportedVenues = getSupportedVenues();
 
@@ -376,6 +377,7 @@ program
         limitRight: parseInt(opts.limitRight, 10),
         macroMinYear: opts.macroMinYear ? parseInt(opts.macroMinYear, 10) : undefined,
         macroMaxYear: opts.macroMaxYear ? parseInt(opts.macroMaxYear, 10) : undefined,
+        sampleCount: parseInt(opts.sample, 10),
       });
     } catch (error) {
       console.error('Macro overlap report error:', error);

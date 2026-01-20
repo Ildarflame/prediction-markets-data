@@ -1,22 +1,18 @@
 /**
- * Macro Period Overlap Report (v2.4.1)
+ * Macro Period Overlap Report (v2.4.2)
  *
  * Shows period overlap statistics for each macro entity between venues.
- * Helps identify why match rate might be low (e.g., no overlapping periods).
+ * Uses the SAME pipeline as suggest-matches --topic macro for consistency.
  */
 
 import type { Venue as CoreVenue } from '@data-module/core';
+import { getClient, MarketRepository } from '@data-module/db';
 import {
-  buildFingerprint,
-  extractPeriod,
-  type MacroPeriod,
-} from '@data-module/core';
-import {
-  getClient,
-  MarketRepository,
-  type Venue,
-  type EligibleMarket,
-} from '@data-module/db';
+  fetchEligibleMacroMarkets,
+  collectMacroPeriods,
+  collectSamplesByEntity,
+  type FetchMacroMarketsStats,
+} from '../matching/index.js';
 
 export interface MacroOverlapOptions {
   fromVenue: CoreVenue;
@@ -26,6 +22,7 @@ export interface MacroOverlapOptions {
   limitRight?: number;
   macroMinYear?: number;
   macroMaxYear?: number;
+  sampleCount?: number;
 }
 
 interface PeriodStats {
@@ -37,53 +34,14 @@ interface PeriodStats {
 }
 
 /**
- * Build a period key string from a MacroPeriod
+ * Print pipeline stats
  */
-function buildPeriodKey(period: MacroPeriod): string | null {
-  if (!period.type || !period.year) return null;
-
-  if (period.type === 'month' && period.month) {
-    return `${period.year}-${String(period.month).padStart(2, '0')}`;
-  } else if (period.type === 'quarter' && period.quarter) {
-    return `${period.year}-Q${period.quarter}`;
-  } else if (period.type === 'year') {
-    return `${period.year}`;
+function printPipelineStats(venue: string, stats: FetchMacroMarketsStats): void {
+  console.log(`[macro-overlap] ${venue}: ${stats.total} -> ${stats.afterKeywordFilter} (kw) -> ${stats.afterSportsFilter} (sports) -> ${stats.afterTopicFilter} (topic) -> ${stats.afterYearFilter} (year)`);
+  if (stats.excludedYearLow > 0 || stats.excludedYearHigh > 0 || stats.excludedNoYear > 0) {
+    console.log(`[macro-overlap]   year filter: excluded ${stats.excludedYearLow} (low), ${stats.excludedYearHigh} (high), ${stats.excludedNoYear} (no year)`);
   }
-  return null;
-}
-
-/**
- * Collect macro entity -> periods from a list of markets
- */
-function collectMacroPeriods(
-  markets: EligibleMarket[],
-  minYear?: number,
-  maxYear?: number
-): Map<string, Set<string>> {
-  const entityPeriods = new Map<string, Set<string>>();
-
-  for (const market of markets) {
-    const fingerprint = buildFingerprint(market.title, market.closeTime, { metadata: market.metadata });
-
-    if (!fingerprint.macroEntities?.size) continue;
-
-    const period = fingerprint.period || extractPeriod(market.title, market.closeTime);
-    const periodKey = buildPeriodKey(period);
-
-    // Skip if no period or outside year window
-    if (!periodKey) continue;
-    if (period.year && minYear && period.year < minYear) continue;
-    if (period.year && maxYear && period.year > maxYear) continue;
-
-    for (const entity of fingerprint.macroEntities) {
-      if (!entityPeriods.has(entity)) {
-        entityPeriods.set(entity, new Set());
-      }
-      entityPeriods.get(entity)!.add(periodKey);
-    }
-  }
-
-  return entityPeriods;
+  console.log(`[macro-overlap]   with macro entity: ${stats.withMacroEntity}, with period: ${stats.withPeriod}`);
 }
 
 /**
@@ -93,11 +51,12 @@ export async function runMacroOverlap(options: MacroOverlapOptions): Promise<voi
   const {
     fromVenue,
     toVenue,
-    lookbackHours = 720, // 30 days default for broader view
-    limitLeft = 10000,
-    limitRight = 50000,
+    lookbackHours = 24, // Match suggest-matches default
+    limitLeft = 2000,   // Match suggest-matches default
+    limitRight = 20000, // Match suggest-matches default
     macroMinYear,
     macroMaxYear,
+    sampleCount = 0,
   } = options;
 
   // Defaults for year window
@@ -108,29 +67,36 @@ export async function runMacroOverlap(options: MacroOverlapOptions): Promise<voi
   const prisma = getClient();
   const marketRepo = new MarketRepository(prisma);
 
-  console.log(`\n[macro-overlap] Period Overlap Report: ${fromVenue} <-> ${toVenue}`);
+  console.log(`\n[macro-overlap] Period Overlap Report v2.4.2: ${fromVenue} <-> ${toVenue}`);
   console.log(`[macro-overlap] Year window: ${minYear}-${maxYear}`);
   console.log(`[macro-overlap] Lookback: ${lookbackHours}h, limits: left=${limitLeft}, right=${limitRight}`);
+  console.log(`[macro-overlap] Using unified pipeline (same as suggest-matches --topic macro)`);
 
-  // Fetch markets from both venues
-  console.log(`\n[macro-overlap] Fetching markets from ${fromVenue}...`);
-  const leftMarkets = await marketRepo.listEligibleMarkets(fromVenue as Venue, {
+  // Fetch markets using unified pipeline
+  console.log(`\n[macro-overlap] Fetching macro markets from ${fromVenue}...`);
+  const { markets: leftMarkets, stats: leftStats } = await fetchEligibleMacroMarkets(marketRepo, {
+    venue: fromVenue,
     lookbackHours,
     limit: limitLeft,
+    macroMinYear: minYear,
+    macroMaxYear: maxYear,
   });
-  console.log(`[macro-overlap] ${fromVenue}: ${leftMarkets.length} markets`);
+  printPipelineStats(fromVenue, leftStats);
 
-  console.log(`[macro-overlap] Fetching markets from ${toVenue}...`);
-  const rightMarkets = await marketRepo.listEligibleMarkets(toVenue as Venue, {
+  console.log(`\n[macro-overlap] Fetching macro markets from ${toVenue}...`);
+  const { markets: rightMarkets, stats: rightStats } = await fetchEligibleMacroMarkets(marketRepo, {
+    venue: toVenue,
     lookbackHours,
     limit: limitRight,
+    macroMinYear: minYear,
+    macroMaxYear: maxYear,
   });
-  console.log(`[macro-overlap] ${toVenue}: ${rightMarkets.length} markets`);
+  printPipelineStats(toVenue, rightStats);
 
-  // Collect macro periods
+  // Collect macro periods using unified function
   console.log(`\n[macro-overlap] Collecting macro entity periods...`);
-  const leftEntityPeriods = collectMacroPeriods(leftMarkets, minYear, maxYear);
-  const rightEntityPeriods = collectMacroPeriods(rightMarkets, minYear, maxYear);
+  const leftEntityPeriods = collectMacroPeriods(leftMarkets);
+  const rightEntityPeriods = collectMacroPeriods(rightMarkets);
 
   // Get all unique entities
   const allEntities = new Set([
@@ -141,6 +107,8 @@ export async function runMacroOverlap(options: MacroOverlapOptions): Promise<voi
 
   if (sortedEntities.length === 0) {
     console.log(`\n[macro-overlap] No macro entities found in either venue.`);
+    console.log(`[macro-overlap] Left markets with entity: ${leftStats.withMacroEntity}/${leftMarkets.length}`);
+    console.log(`[macro-overlap] Right markets with entity: ${rightStats.withMacroEntity}/${rightMarkets.length}`);
     return;
   }
 
@@ -178,17 +146,34 @@ export async function runMacroOverlap(options: MacroOverlapOptions): Promise<voi
     });
   }
 
+  // Count markets per entity
+  const leftMarketsByEntity = new Map<string, number>();
+  const rightMarketsByEntity = new Map<string, number>();
+
+  for (const { signals } of leftMarkets) {
+    for (const entity of signals.entities) {
+      leftMarketsByEntity.set(entity, (leftMarketsByEntity.get(entity) || 0) + 1);
+    }
+  }
+  for (const { signals } of rightMarkets) {
+    for (const entity of signals.entities) {
+      rightMarketsByEntity.set(entity, (rightMarketsByEntity.get(entity) || 0) + 1);
+    }
+  }
+
   // Print summary table
-  console.log(`\n${'Entity'.padEnd(15)} | ${'Left'.padStart(6)} | ${'Right'.padStart(6)} | ${'Overlap'.padStart(7)} | ${'L-only'.padStart(7)} | ${'R-only'.padStart(7)}`);
-  console.log('-'.repeat(70));
+  console.log(`\n${'Entity'.padEnd(15)} | ${'L-mkts'.padStart(7)} | ${'R-mkts'.padStart(7)} | ${'L-pers'.padStart(7)} | ${'R-pers'.padStart(7)} | ${'Overlap'.padStart(7)} | ${'L-only'.padStart(7)} | ${'R-only'.padStart(7)}`);
+  console.log('-'.repeat(90));
 
   for (const entity of sortedEntities) {
     const stats = entityStats.get(entity)!;
+    const leftMkts = leftMarketsByEntity.get(entity) || 0;
+    const rightMkts = rightMarketsByEntity.get(entity) || 0;
     console.log(
-      `${entity.padEnd(15)} | ${String(stats.leftPeriods.size).padStart(6)} | ${String(stats.rightPeriods.size).padStart(6)} | ${String(stats.overlapPeriods.size).padStart(7)} | ${String(stats.leftOnlyPeriods.size).padStart(7)} | ${String(stats.rightOnlyPeriods.size).padStart(7)}`
+      `${entity.padEnd(15)} | ${String(leftMkts).padStart(7)} | ${String(rightMkts).padStart(7)} | ${String(stats.leftPeriods.size).padStart(7)} | ${String(stats.rightPeriods.size).padStart(7)} | ${String(stats.overlapPeriods.size).padStart(7)} | ${String(stats.leftOnlyPeriods.size).padStart(7)} | ${String(stats.rightOnlyPeriods.size).padStart(7)}`
     );
   }
-  console.log('-'.repeat(70));
+  console.log('-'.repeat(90));
 
   // Print details for each entity
   for (const entity of sortedEntities) {
@@ -211,6 +196,38 @@ export async function runMacroOverlap(options: MacroOverlapOptions): Promise<voi
     if (stats.rightOnlyPeriods.size > 0) {
       const rightOnly = Array.from(stats.rightOnlyPeriods).sort().slice(0, 10);
       console.log(`  ${toVenue}-only (${stats.rightOnlyPeriods.size}): ${rightOnly.join(', ')}${stats.rightOnlyPeriods.size > 10 ? '...' : ''}`);
+    }
+  }
+
+  // Print sample markets if requested
+  if (sampleCount > 0) {
+    console.log(`\n[macro-overlap] Sample markets (--sample ${sampleCount}):`);
+
+    const leftSamples = collectSamplesByEntity(leftMarkets, sampleCount);
+    const rightSamples = collectSamplesByEntity(rightMarkets, sampleCount);
+
+    for (const entity of sortedEntities) {
+      console.log(`\n--- ${entity} ---`);
+
+      const leftList = leftSamples.get(entity) || [];
+      if (leftList.length > 0) {
+        console.log(`  ${fromVenue}:`);
+        for (const s of leftList) {
+          console.log(`    [${s.period || 'no-period'}] ID=${s.id} "${s.title.substring(0, 60)}${s.title.length > 60 ? '...' : ''}"`);
+        }
+      } else {
+        console.log(`  ${fromVenue}: (none)`);
+      }
+
+      const rightList = rightSamples.get(entity) || [];
+      if (rightList.length > 0) {
+        console.log(`  ${toVenue}:`);
+        for (const s of rightList) {
+          console.log(`    [${s.period || 'no-period'}] ID=${s.id} "${s.title.substring(0, 60)}${s.title.length > 60 ? '...' : ''}"`);
+        }
+      } else {
+        console.log(`  ${toVenue}: (none)`);
+      }
     }
   }
 
