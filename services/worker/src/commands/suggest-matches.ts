@@ -1519,7 +1519,6 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     limitRight = 20000,
     debugMarketId,
     requireOverlapKeywords = true,
-    targetKeywords = MATCHING_KEYWORDS,
     // Topic filter - 'all' by default for backwards compatibility
     topic = 'all',
     // Sports exclusion options - enabled by default
@@ -1536,6 +1535,13 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     // Extended lookback for rare entities (v2.4.3) - ENV overridable
     rareEntityLookbackHours = parseInt(process.env.RARE_ENTITY_LOOKBACK_HOURS || String(RARE_ENTITY_DEFAULT_LOOKBACK_HOURS), 10),
   } = options;
+
+  // v2.4.4: Use topic-specific keywords for DB query filtering
+  // This prevents mixed keyword lists from pushing out relevant markets
+  // (e.g., politics markets with 2045 close dates pushing out macro markets)
+  const targetKeywords = topic !== 'all' && TOPIC_KEYWORDS[topic]
+    ? TOPIC_KEYWORDS[topic]
+    : MATCHING_KEYWORDS;
 
   // Handle debug mode - uses the same unified pipeline as full run
   if (debugMarketId !== undefined) {
