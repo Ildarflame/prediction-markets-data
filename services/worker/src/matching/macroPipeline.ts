@@ -1,8 +1,10 @@
 /**
- * Macro Pipeline (v2.4.2)
+ * Macro Pipeline (v2.4.3)
  *
  * Unified pipeline for fetching and processing macro markets.
  * Used by both suggest-matches and macro:overlap to ensure consistency.
+ *
+ * v2.4.3: Added period compatibility engine (month/quarter/year)
  */
 
 import type { Venue as CoreVenue } from '@data-module/core';
@@ -134,6 +136,143 @@ export function buildPeriodKey(period: MacroPeriod): string | null {
     return `${period.year}`;
   }
   return null;
+}
+
+/**
+ * Period compatibility kind (v2.4.3)
+ * Defines how two periods relate to each other
+ */
+export type PeriodCompatibilityKind =
+  | 'exact'           // Same period (2026-01 vs 2026-01)
+  | 'month_in_quarter' // Month within quarter (2026-02 vs 2026-Q1)
+  | 'month_in_year'    // Month within year (2026-02 vs 2026)
+  | 'quarter_in_year'  // Quarter within year (2026-Q1 vs 2026)
+  | 'none';            // Not compatible
+
+/**
+ * Result of period compatibility check
+ */
+export interface PeriodCompatibilityResult {
+  compatible: boolean;
+  kind: PeriodCompatibilityKind;
+}
+
+/**
+ * Parse period key into components
+ * Returns { type, year, month?, quarter? }
+ */
+export function parsePeriodKey(key: string): { type: 'month' | 'quarter' | 'year'; year: number; month?: number; quarter?: number } | null {
+  if (!key) return null;
+
+  // Month format: YYYY-MM (e.g., 2026-01)
+  const monthMatch = key.match(/^(\d{4})-(\d{2})$/);
+  if (monthMatch) {
+    return { type: 'month', year: parseInt(monthMatch[1], 10), month: parseInt(monthMatch[2], 10) };
+  }
+
+  // Quarter format: YYYY-Qn (e.g., 2026-Q1)
+  const quarterMatch = key.match(/^(\d{4})-Q([1-4])$/);
+  if (quarterMatch) {
+    return { type: 'quarter', year: parseInt(quarterMatch[1], 10), quarter: parseInt(quarterMatch[2], 10) };
+  }
+
+  // Year format: YYYY (e.g., 2026)
+  const yearMatch = key.match(/^(\d{4})$/);
+  if (yearMatch) {
+    return { type: 'year', year: parseInt(yearMatch[1], 10) };
+  }
+
+  return null;
+}
+
+/**
+ * Get quarter number (1-4) for a given month (1-12)
+ */
+function getQuarterForMonth(month: number): number {
+  return Math.ceil(month / 3);
+}
+
+/**
+ * Check if two periods are compatible (v2.4.3)
+ *
+ * Compatibility rules (symmetric):
+ * - month(YYYY-MM) compatible with quarter(YYYY-Qn) if month is in that quarter
+ * - month(YYYY-MM) compatible with year(YYYY) if same year
+ * - quarter(YYYY-Qn) compatible with year(YYYY) if same year
+ */
+export function isPeriodCompatible(keyA: string | null, keyB: string | null): PeriodCompatibilityResult {
+  if (!keyA || !keyB) {
+    return { compatible: false, kind: 'none' };
+  }
+
+  // Exact match
+  if (keyA === keyB) {
+    return { compatible: true, kind: 'exact' };
+  }
+
+  const a = parsePeriodKey(keyA);
+  const b = parsePeriodKey(keyB);
+
+  if (!a || !b) {
+    return { compatible: false, kind: 'none' };
+  }
+
+  // Different years => not compatible
+  if (a.year !== b.year) {
+    return { compatible: false, kind: 'none' };
+  }
+
+  // Same type but different values (already checked exact match above)
+  if (a.type === b.type) {
+    return { compatible: false, kind: 'none' };
+  }
+
+  // Month vs Quarter
+  if (a.type === 'month' && b.type === 'quarter') {
+    const monthQuarter = getQuarterForMonth(a.month!);
+    if (monthQuarter === b.quarter) {
+      return { compatible: true, kind: 'month_in_quarter' };
+    }
+    return { compatible: false, kind: 'none' };
+  }
+  if (a.type === 'quarter' && b.type === 'month') {
+    const monthQuarter = getQuarterForMonth(b.month!);
+    if (monthQuarter === a.quarter) {
+      return { compatible: true, kind: 'month_in_quarter' };
+    }
+    return { compatible: false, kind: 'none' };
+  }
+
+  // Month vs Year (same year already checked)
+  if ((a.type === 'month' && b.type === 'year') || (a.type === 'year' && b.type === 'month')) {
+    return { compatible: true, kind: 'month_in_year' };
+  }
+
+  // Quarter vs Year (same year already checked)
+  if ((a.type === 'quarter' && b.type === 'year') || (a.type === 'year' && b.type === 'quarter')) {
+    return { compatible: true, kind: 'quarter_in_year' };
+  }
+
+  return { compatible: false, kind: 'none' };
+}
+
+/**
+ * Period compatibility scores (v2.4.3)
+ * Used in macro scoring formula
+ */
+export const PERIOD_COMPATIBILITY_SCORES: Record<PeriodCompatibilityKind, number> = {
+  exact: 1.00,
+  month_in_quarter: 0.60,
+  quarter_in_year: 0.55,
+  month_in_year: 0.45,
+  none: 0,
+};
+
+/**
+ * Get period compatibility score for a given kind
+ */
+export function periodCompatibilityScore(kind: PeriodCompatibilityKind): number {
+  return PERIOD_COMPATIBILITY_SCORES[kind];
 }
 
 /**

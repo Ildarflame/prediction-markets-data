@@ -10,9 +10,9 @@ import {
   jaccard,
   tokenizeForEntities,
   MarketIntent,
-  periodsCompatible,
   extractPeriod,
   type MarketFingerprint,
+  type MacroPeriod,
 } from '@data-module/core';
 import {
   getClient,
@@ -22,6 +22,12 @@ import {
   type EligibleMarket,
 } from '@data-module/db';
 import { distance } from 'fastest-levenshtein';
+import {
+  buildPeriodKey,
+  isPeriodCompatible,
+  periodCompatibilityScore,
+  type PeriodCompatibilityKind,
+} from '../matching/index.js';
 
 /**
  * Sports exclusion patterns for Kalshi
@@ -376,52 +382,52 @@ function macroEntityScore(leftMacroEntities: Set<string> | undefined, rightMacro
 }
 
 /**
- * Calculate period match score
- * Returns 0.4 for exact match, 0.2 for compatible (e.g., month in quarter), 0 otherwise
+ * Calculate period match score using period compatibility engine (v2.4.3)
+ *
+ * Scoring weights (applied to base 0.4):
+ * - exact: 1.00 -> 0.40
+ * - month_in_quarter: 0.60 -> 0.24
+ * - quarter_in_year: 0.55 -> 0.22
+ * - month_in_year: 0.45 -> 0.18
+ * - none: 0 -> 0
  */
-function periodScore(
-  leftPeriod: { type: string | null; year?: number; month?: number; quarter?: number } | undefined,
-  rightPeriod: { type: string | null; year?: number; month?: number; quarter?: number } | undefined
-): number {
-  if (!leftPeriod?.type || !rightPeriod?.type) return 0;
-  if (leftPeriod.year !== rightPeriod.year) return 0;
-
-  // Exact match: same type and values
-  if (leftPeriod.type === rightPeriod.type) {
-    if (leftPeriod.type === 'month' && leftPeriod.month === rightPeriod.month) {
-      return 0.4; // Exact month match
-    }
-    if (leftPeriod.type === 'quarter' && leftPeriod.quarter === rightPeriod.quarter) {
-      return 0.4; // Exact quarter match
-    }
-    if (leftPeriod.type === 'year') {
-      return 0.4; // Exact year match
-    }
+function periodScoreWithKind(
+  leftPeriod: MacroPeriod | undefined,
+  rightPeriod: MacroPeriod | undefined
+): { score: number; kind: PeriodCompatibilityKind } {
+  if (!leftPeriod?.type || !rightPeriod?.type) {
+    return { score: 0, kind: 'none' };
   }
 
-  // Compatible: month in quarter
-  if (leftPeriod.type === 'month' && rightPeriod.type === 'quarter') {
-    const quarter = Math.ceil(leftPeriod.month! / 3);
-    if (quarter === rightPeriod.quarter) {
-      return 0.2; // Month falls within quarter
-    }
-  }
-  if (leftPeriod.type === 'quarter' && rightPeriod.type === 'month') {
-    const quarter = Math.ceil(rightPeriod.month! / 3);
-    if (quarter === leftPeriod.quarter) {
-      return 0.2; // Quarter contains month
-    }
+  const leftKey = buildPeriodKey(leftPeriod);
+  const rightKey = buildPeriodKey(rightPeriod);
+
+  const compat = isPeriodCompatible(leftKey, rightKey);
+
+  if (!compat.compatible) {
+    return { score: 0, kind: 'none' };
   }
 
-  // Year contains month/quarter
-  if (leftPeriod.type === 'year' && (rightPeriod.type === 'month' || rightPeriod.type === 'quarter')) {
-    return 0.2; // Year is broader
-  }
-  if (rightPeriod.type === 'year' && (leftPeriod.type === 'month' || leftPeriod.type === 'quarter')) {
-    return 0.2; // Year is broader
-  }
+  // Base weight for period is 0.4, scaled by compatibility
+  const score = 0.4 * periodCompatibilityScore(compat.kind);
 
-  return 0; // Incompatible
+  return { score, kind: compat.kind };
+}
+
+/**
+ * Check if periods are compatible (v2.4.3)
+ * Uses the new period compatibility engine
+ */
+function periodsAreCompatible(
+  leftPeriod: MacroPeriod | undefined,
+  rightPeriod: MacroPeriod | undefined
+): boolean {
+  if (!leftPeriod?.type || !rightPeriod?.type) return false;
+
+  const leftKey = buildPeriodKey(leftPeriod);
+  const rightKey = buildPeriodKey(rightPeriod);
+
+  return isPeriodCompatible(leftKey, rightKey).compatible;
 }
 
 /**
@@ -766,14 +772,10 @@ function calculateMatchScore(
       };
     }
 
-    // HARD GATE 4: Period must be compatible
-    if (!periodsCompatible(leftPeriod, rightPeriod)) {
-      const leftPeriodStr = leftPeriod.type === 'month' ? `${leftPeriod.year}-${leftPeriod.month}` :
-                           leftPeriod.type === 'quarter' ? `Q${leftPeriod.quarter} ${leftPeriod.year}` :
-                           `${leftPeriod.year}`;
-      const rightPeriodStr = rightPeriod.type === 'month' ? `${rightPeriod.year}-${rightPeriod.month}` :
-                            rightPeriod.type === 'quarter' ? `Q${rightPeriod.quarter} ${rightPeriod.year}` :
-                            `${rightPeriod.year}`;
+    // HARD GATE 4: Period must be compatible (v2.4.3 - uses compatibility engine)
+    if (!periodsAreCompatible(leftPeriod, rightPeriod)) {
+      const leftPeriodStr = buildPeriodKey(leftPeriod) || 'null';
+      const rightPeriodStr = buildPeriodKey(rightPeriod) || 'null';
 
       return {
         score: 0,
@@ -785,25 +787,22 @@ function calculateMatchScore(
       };
     }
 
-    // Calculate period score (0.4 exact, 0.2 compatible)
-    const perScore = periodScore(leftPeriod, rightPeriod);
+    // Calculate period score with compatibility kind (v2.4.3)
+    const { score: perScore, kind: periodKind } = periodScoreWithKind(leftPeriod, rightPeriod);
 
-    // MACRO_PERIOD scoring formula:
-    // macroEntity (0.5) + period (0.4) + number (0.05) + text bonus (0.05)
-    // Total max = 1.0
+    // MACRO_PERIOD scoring formula (v2.4.3):
+    // macroEntity (0.5) + period (0.4 * compatScore) + number (0.05) + text bonus (0.05)
+    // Period scores by kind: exact=0.40, month_in_quarter=0.24, quarter_in_year=0.22, month_in_year=0.18
     const textBonus = (fzScore + jcScore) / 2 * 0.1; // Up to 0.05 contribution
     const numberBonus = numScore * 0.1; // Up to 0.05 contribution
 
     const score = macroEntScore + perScore + numberBonus + textBonus;
 
-    const leftPeriodStr = leftPeriod.type === 'month' ? `${leftPeriod.year}-${leftPeriod.month}` :
-                         leftPeriod.type === 'quarter' ? `Q${leftPeriod.quarter} ${leftPeriod.year}` :
-                         `${leftPeriod.year}`;
-    const rightPeriodStr = rightPeriod.type === 'month' ? `${rightPeriod.year}-${rightPeriod.month}` :
-                          rightPeriod.type === 'quarter' ? `Q${rightPeriod.quarter} ${rightPeriod.year}` :
-                          `${rightPeriod.year}`;
+    const leftPeriodStr = buildPeriodKey(leftPeriod) || 'null';
+    const rightPeriodStr = buildPeriodKey(rightPeriod) || 'null';
 
-    const reason = `MACRO: me=${macroEntScore.toFixed(2)} per=${perScore.toFixed(2)}(${leftPeriodStr}/${rightPeriodStr}) num=${numberBonus.toFixed(2)} txt=${textBonus.toFixed(2)}`;
+    // Include period kind in reason for debugging (v2.4.3)
+    const reason = `MACRO: me=${macroEntScore.toFixed(2)} per=${perScore.toFixed(2)}[${periodKind}](${leftPeriodStr}/${rightPeriodStr}) num=${numberBonus.toFixed(2)} txt=${textBonus.toFixed(2)}`;
 
     return {
       score,
