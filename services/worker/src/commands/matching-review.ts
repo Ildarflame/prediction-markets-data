@@ -66,53 +66,96 @@ function extractPeriodKey(title: string, closeTime: Date | null): string {
   return buildPeriodKey(period);
 }
 
+/**
+ * Extract tier from reason string (v2.4.5)
+ * Parses "tier=STRONG" or "tier=WEAK" from reason
+ */
+function extractTier(reason: string | null): 'STRONG' | 'WEAK' | null {
+  if (!reason) return null;
+  const match = reason.match(/tier=(STRONG|WEAK)/);
+  return match ? (match[1] as 'STRONG' | 'WEAK') : null;
+}
+
 export interface ListSuggestionsOptions {
   minScore?: number;
   status?: LinkStatus;
   limit?: number;
+  /** v2.4.5: Include WEAK tier suggestions (default: false, only STRONG shown) */
+  includeWeak?: boolean;
 }
 
 /**
  * List market link suggestions
  */
 export async function runListSuggestions(options: ListSuggestionsOptions = {}): Promise<void> {
-  const { minScore = 0, status, limit = 50 } = options;
+  const { minScore = 0, status, limit = 50, includeWeak = false } = options;
 
   const prisma = getClient();
   const linkRepo = new MarketLinkRepository(prisma);
 
-  console.log(`[matching] Listing suggestions (minScore=${minScore}, status=${status || 'all'}, limit=${limit})\n`);
+  // v2.4.5: Filter by tier unless includeWeak is true
+  const tierFilter = includeWeak ? 'all' : 'STRONG only';
+  console.log(`[matching] Listing suggestions (minScore=${minScore}, status=${status || 'all'}, limit=${limit}, tier=${tierFilter})\n`);
 
-  const links = await linkRepo.listSuggestions({
+  // Fetch more than limit to account for tier filtering
+  const fetchLimit = includeWeak ? limit : limit * 3;
+  const allLinks = await linkRepo.listSuggestions({
     minScore,
     status,
-    limit,
+    limit: fetchLimit,
   });
 
+  // v2.4.5: Filter by tier
+  let links = allLinks;
+  let weakCount = 0;
+  if (!includeWeak) {
+    links = allLinks.filter(link => {
+      const tier = extractTier(link.reason);
+      // Include if tier is STRONG or if no tier info (pre-2.4.5 suggestions)
+      if (tier === 'WEAK') {
+        weakCount++;
+        return false;
+      }
+      return true;
+    });
+  }
+
+  // Apply final limit
+  if (links.length > limit) {
+    links = links.slice(0, limit);
+  }
+
   if (links.length === 0) {
-    console.log('No suggestions found.');
+    if (weakCount > 0) {
+      console.log(`No STRONG suggestions found. (${weakCount} WEAK suggestions hidden, use --include-weak to see them)`);
+    } else {
+      console.log('No suggestions found.');
+    }
     return;
   }
 
-  // Print header: id | score | entity | periodLeft | periodRight | leftTitle | rightTitle | reason
-  console.log('ID    | Score | Entity     | PeriodL  | PeriodR  | Left Title              | Right Title             | Reason');
-  console.log('-'.repeat(140));
+  // Print header: id | score | tier | entity | periodL | periodR | leftTitle | rightTitle
+  console.log('ID    | Score | Tier   | Entity     | PeriodL  | PeriodR  | Left Title              | Right Title');
+  console.log('-'.repeat(130));
 
   for (const link of links) {
+    const tier = extractTier(link.reason) || '-';
     const entity = truncate(extractEntity(link.leftMarket.title, link.leftMarket.closeTime), 10);
     const periodLeft = extractPeriodKey(link.leftMarket.title, link.leftMarket.closeTime);
     const periodRight = extractPeriodKey(link.rightMarket.title, link.rightMarket.closeTime);
     const leftTitle = truncate(link.leftMarket.title, 23);
     const rightTitle = truncate(link.rightMarket.title, 23);
-    const reason = link.reason ? truncate(link.reason, 30) : 'N/A';
 
     console.log(
-      `${String(link.id).padStart(5)} | ${link.score.toFixed(2).padStart(5)} | ${entity.padEnd(10)} | ${periodLeft.padEnd(8)} | ${periodRight.padEnd(8)} | ${leftTitle.padEnd(23)} | ${rightTitle.padEnd(23)} | ${reason}`
+      `${String(link.id).padStart(5)} | ${link.score.toFixed(2).padStart(5)} | ${tier.padEnd(6)} | ${entity.padEnd(10)} | ${periodLeft.padEnd(8)} | ${periodRight.padEnd(8)} | ${leftTitle.padEnd(23)} | ${rightTitle.padEnd(23)}`
     );
   }
 
-  console.log('-'.repeat(140));
-  console.log(`Total: ${links.length} suggestions`);
+  console.log('-'.repeat(130));
+  console.log(`Shown: ${links.length} suggestions`);
+  if (weakCount > 0 && !includeWeak) {
+    console.log(`Hidden: ${weakCount} WEAK suggestions (use --include-weak to see them)`);
+  }
 
   // Show counts by status
   const counts = await linkRepo.countByStatus();

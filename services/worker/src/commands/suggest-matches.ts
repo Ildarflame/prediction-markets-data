@@ -392,6 +392,27 @@ function macroEntityScore(leftMacroEntities: Set<string> | undefined, rightMacro
 }
 
 /**
+ * Match strength tier (v2.4.5)
+ *
+ * STRONG: High-confidence match
+ * - Period kind is exact, month_in_quarter, or quarter_in_year
+ * - NOT month_in_year (too loose, many false positives)
+ *
+ * WEAK: Lower confidence, useful for discovery but needs manual review
+ * - Period kind is month_in_year
+ */
+export type MatchTier = 'STRONG' | 'WEAK';
+
+function computeMatchTier(periodKind: PeriodCompatibilityKind | undefined): MatchTier {
+  // month_in_year and none are WEAK
+  if (periodKind === 'month_in_year' || periodKind === 'none' || !periodKind) {
+    return 'WEAK';
+  }
+  // exact, month_in_quarter, quarter_in_year are STRONG
+  return 'STRONG';
+}
+
+/**
  * Calculate period match score using period compatibility engine (v2.4.3)
  *
  * Scoring weights (applied to base 0.4):
@@ -811,8 +832,11 @@ function calculateMatchScore(
     const leftPeriodStr = buildPeriodKey(leftPeriod) || 'null';
     const rightPeriodStr = buildPeriodKey(rightPeriod) || 'null';
 
-    // Include period kind in reason for debugging (v2.4.3)
-    const reason = `MACRO: me=${macroEntScore.toFixed(2)} per=${perScore.toFixed(2)}[${periodKind}](${leftPeriodStr}/${rightPeriodStr}) num=${numberBonus.toFixed(2)} txt=${textBonus.toFixed(2)}`;
+    // v2.4.5: Compute match tier and include in reason
+    const tier = computeMatchTier(periodKind);
+
+    // Include tier and period kind in reason for debugging (v2.4.5)
+    const reason = `MACRO: tier=${tier} me=${macroEntScore.toFixed(2)} per=${perScore.toFixed(2)}[${periodKind}](${leftPeriodStr}/${rightPeriodStr}) num=${numberBonus.toFixed(2)} txt=${textBonus.toFixed(2)}`;
 
     return {
       score,

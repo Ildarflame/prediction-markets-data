@@ -458,16 +458,18 @@ program
 // List suggestions command
 program
   .command('list-suggestions')
-  .description('List market link suggestions')
+  .description('List market link suggestions (v2.4.5: shows only STRONG by default)')
   .option('--min-score <number>', 'Minimum score filter', '0')
   .option('--status <status>', 'Filter by status (suggested, confirmed, rejected)')
   .option('--limit <number>', 'Maximum results to show', '50')
+  .option('--include-weak', 'Include WEAK tier suggestions (default: only STRONG)', false)
   .action(async (opts) => {
     try {
       await runListSuggestions({
         minScore: parseFloat(opts.minScore),
         status: opts.status as LinkStatus | undefined,
         limit: parseInt(opts.limit, 10),
+        includeWeak: opts.includeWeak,
       });
     } catch (error) {
       console.error('List suggestions error:', error);
