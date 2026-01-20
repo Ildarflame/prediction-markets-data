@@ -76,6 +76,25 @@ export const MACRO_ENTITIES = [
 ];
 
 /**
+ * Rare macro entities that require extended lookback window (v2.4.3)
+ * These entities are updated less frequently (quarterly/monthly releases)
+ * and may not appear in a 24h lookback window.
+ *
+ * GDP: Quarterly release (BEA)
+ * UNEMPLOYMENT_RATE: Monthly release (BLS)
+ */
+export const RARE_MACRO_ENTITIES: Set<string> = new Set([
+  'GDP',
+  'UNEMPLOYMENT_RATE',
+]);
+
+/**
+ * Default extended lookback hours for rare entities (v2.4.3)
+ * 168 hours = 7 days
+ */
+export const RARE_ENTITY_DEFAULT_LOOKBACK_HOURS = 168;
+
+/**
  * Extracted macro signals from a market
  */
 export interface MacroSignals {
@@ -96,6 +115,8 @@ export interface FetchMacroMarketsOptions {
   macroMinYear?: number;
   macroMaxYear?: number;
   excludeSports?: boolean;
+  /** Extended lookback for rare entities like GDP, UNEMPLOYMENT_RATE (v2.4.3) */
+  rareEntityLookbackHours?: number;
 }
 
 /**
@@ -112,6 +133,8 @@ export interface FetchMacroMarketsStats {
   excludedNoYear: number;
   withMacroEntity: number;
   withPeriod: number;
+  /** Markets added via rare entity extended lookback (v2.4.3) */
+  rareEntityMarketsAdded: number;
 }
 
 /**
@@ -372,6 +395,7 @@ export async function fetchEligibleMacroMarkets(
     macroMinYear,
     macroMaxYear,
     excludeSports = true,
+    rareEntityLookbackHours = RARE_ENTITY_DEFAULT_LOOKBACK_HOURS,
   } = options;
 
   // Current year for defaults
@@ -390,6 +414,7 @@ export async function fetchEligibleMacroMarkets(
     excludedNoYear: 0,
     withMacroEntity: 0,
     withPeriod: 0,
+    rareEntityMarketsAdded: 0,
   };
 
   // Step 1: Fetch from DB with keyword pre-filter
@@ -482,6 +507,102 @@ export async function fetchEligibleMacroMarkets(
   }
 
   stats.afterYearFilter = result.length;
+
+  // Step 6: Rare entity extended lookback (v2.4.3)
+  // Check which rare entities have no markets and refetch with extended lookback
+  if (rareEntityLookbackHours > lookbackHours) {
+    // Find which rare entities already have markets
+    const foundRareEntities = new Set<string>();
+    for (const m of result) {
+      for (const entity of m.signals.entities) {
+        if (RARE_MACRO_ENTITIES.has(entity)) {
+          foundRareEntities.add(entity);
+        }
+      }
+    }
+
+    // Find missing rare entities
+    const missingRareEntities = [...RARE_MACRO_ENTITIES].filter(e => !foundRareEntities.has(e));
+
+    if (missingRareEntities.length > 0) {
+      // Build keywords for missing rare entities
+      const rareKeywords: string[] = [];
+      for (const entity of missingRareEntities) {
+        // Map entity to keywords used in titles
+        if (entity === 'GDP') {
+          rareKeywords.push('gdp');
+        } else if (entity === 'UNEMPLOYMENT_RATE') {
+          rareKeywords.push('unemployment', 'jobless');
+        }
+      }
+
+      if (rareKeywords.length > 0) {
+        // Track existing market IDs to avoid duplicates
+        const existingIds = new Set(result.map(m => m.market.id));
+
+        // Fetch with extended lookback
+        const extendedMarkets = await marketRepo.listEligibleMarkets(venue as Venue, {
+          lookbackHours: rareEntityLookbackHours,
+          limit,
+          titleKeywords: rareKeywords,
+        });
+
+        // Process extended markets through same pipeline
+        const sportsKeywords = venue === 'polymarket'
+          ? [...SPORTS_TITLE_KEYWORDS, ...POLYMARKET_ESPORTS_KEYWORDS]
+          : SPORTS_TITLE_KEYWORDS;
+
+        for (const market of extendedMarkets) {
+          // Skip if already in result
+          if (existingIds.has(market.id)) continue;
+
+          // Apply keyword filter
+          if (!hasKeywordToken(market.title, rareKeywords)) continue;
+
+          // Apply sports filter
+          if (excludeSports) {
+            if (venue === 'kalshi' && isKalshiSportsMarket(market.metadata, KALSHI_SPORTS_PREFIXES)) continue;
+            if (hasSportsTitleKeyword(market.title, sportsKeywords)) continue;
+          }
+
+          // Apply topic filter
+          const fingerprint = buildFingerprint(market.title, market.closeTime, { metadata: market.metadata });
+          if (!matchesMacroTopic(market, fingerprint)) continue;
+
+          // Check if it has a missing rare entity
+          const hasRareEntity = [...(fingerprint.macroEntities || [])].some(e => missingRareEntities.includes(e));
+          if (!hasRareEntity) continue;
+
+          // Apply year filter
+          const period = fingerprint.period || extractPeriod(market.title, market.closeTime);
+          let year: number | undefined;
+          if (period.year) {
+            year = period.year;
+          } else if (market.closeTime) {
+            year = market.closeTime.getFullYear();
+          }
+          if (!year || year < minYear || year > maxYear) continue;
+
+          // Add to result
+          const periodKey = buildPeriodKey(period);
+          const signals: MacroSignals = {
+            entities: fingerprint.macroEntities || new Set(),
+            period,
+            periodKey,
+            intent: fingerprint.intent,
+            fingerprint,
+          };
+
+          result.push({ market, signals });
+          existingIds.add(market.id);
+          stats.rareEntityMarketsAdded++;
+
+          if (signals.entities.size > 0) stats.withMacroEntity++;
+          if (periodKey) stats.withPeriod++;
+        }
+      }
+    }
+  }
 
   return { markets: result, stats };
 }

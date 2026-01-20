@@ -10,6 +10,8 @@ export {
   MACRO_KEYWORDS,
   MACRO_ENTITIES,
   PERIOD_COMPATIBILITY_SCORES,
+  RARE_MACRO_ENTITIES,
+  RARE_ENTITY_DEFAULT_LOOKBACK_HOURS,
   // Types
   type MacroSignals,
   type FetchMacroMarketsOptions,

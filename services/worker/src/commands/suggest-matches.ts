@@ -26,6 +26,8 @@ import {
   buildPeriodKey,
   isPeriodCompatible,
   periodCompatibilityScore,
+  RARE_MACRO_ENTITIES,
+  RARE_ENTITY_DEFAULT_LOOKBACK_HOURS,
   type PeriodCompatibilityKind,
 } from '../matching/index.js';
 
@@ -263,6 +265,8 @@ export interface SuggestMatchesOptions {
   // Guardrail for cross-granularity period matches (v2.4.3)
   // Limits year↔month, quarter↔month matches to prevent explosion
   maxCrossGranularityPerLeft?: number;
+  // Extended lookback for rare entities like GDP, UNEMPLOYMENT_RATE (v2.4.3)
+  rareEntityLookbackHours?: number;
 }
 
 export interface SuggestMatchesResult {
@@ -982,6 +986,8 @@ interface FetchMarketsOptions {
   // Macro year window (v2.4.1)
   macroMinYear?: number;
   macroMaxYear?: number;
+  // Rare entity extended lookback (v2.4.3)
+  rareEntityLookbackHours?: number;
 }
 
 /**
@@ -996,6 +1002,8 @@ interface FetchMarketsStats {
   macroExcludedYearLow: number;
   macroExcludedYearHigh: number;
   macroExcludedNoYear: number;
+  // Rare entity extended lookback (v2.4.3)
+  rareEntityMarketsAdded: number;
 }
 
 /**
@@ -1017,6 +1025,7 @@ async function fetchEligibleMarkets(
     excludeTitleKeywords,
     macroMinYear,
     macroMaxYear,
+    rareEntityLookbackHours,
   } = options;
 
   // Step 1: Fetch from DB with keyword filter
@@ -1099,6 +1108,84 @@ async function fetchEligibleMarkets(
     afterMacroYearFilter = markets.length;
   }
 
+  // Step 6: Rare entity extended lookback (v2.4.3)
+  // For macro topic, check if rare entities are missing and refetch with extended lookback
+  let rareEntityMarketsAdded = 0;
+
+  if (topic === 'macro' && rareEntityLookbackHours && rareEntityLookbackHours > lookbackHours) {
+    // Find which rare entities already have markets
+    const foundRareEntities = new Set<string>();
+    for (const market of markets) {
+      const fp = buildFingerprint(market.title, market.closeTime, { metadata: market.metadata });
+      for (const entity of fp.macroEntities || []) {
+        if (RARE_MACRO_ENTITIES.has(entity)) {
+          foundRareEntities.add(entity);
+        }
+      }
+    }
+
+    // Find missing rare entities
+    const missingRareEntities = [...RARE_MACRO_ENTITIES].filter(e => !foundRareEntities.has(e));
+
+    if (missingRareEntities.length > 0) {
+      // Build keywords for missing rare entities
+      const rareKeywords: string[] = [];
+      for (const entity of missingRareEntities) {
+        if (entity === 'GDP') rareKeywords.push('gdp');
+        else if (entity === 'UNEMPLOYMENT_RATE') rareKeywords.push('unemployment', 'jobless');
+      }
+
+      if (rareKeywords.length > 0) {
+        const existingIds = new Set(markets.map(m => m.id));
+
+        // Fetch with extended lookback
+        const extendedMarkets = await marketRepo.listEligibleMarkets(venue as Venue, {
+          lookbackHours: rareEntityLookbackHours,
+          limit,
+          titleKeywords: rareKeywords,
+        });
+
+        // Process extended markets through same filters
+        const polyKeywords = venue === 'polymarket' ? [...excludeTitleKeywords, ...POLYMARKET_ESPORTS_KEYWORDS] : excludeTitleKeywords;
+
+        for (const market of extendedMarkets) {
+          if (existingIds.has(market.id)) continue;
+
+          // Apply keyword filter
+          if (!hasKeywordToken(market.title, rareKeywords)) continue;
+
+          // Apply sports filter
+          if (excludeSports) {
+            if (venue === 'kalshi' && isKalshiSportsMarket(market.metadata, excludeKalshiPrefixes)) continue;
+            if (hasSportsTitleKeyword(market.title, polyKeywords)) continue;
+          }
+
+          // Apply topic filter
+          const fp = buildFingerprint(market.title, market.closeTime, { metadata: market.metadata });
+          if (!matchesTopic(market, fp, 'macro')) continue;
+
+          // Check if it has a missing rare entity
+          const hasRareEntity = [...(fp.macroEntities || [])].some(e => missingRareEntities.includes(e));
+          if (!hasRareEntity) continue;
+
+          // Apply year filter
+          const period = extractPeriod(market.title, market.closeTime);
+          let year: number | undefined;
+          if (period.year) year = period.year;
+          else if (market.closeTime) year = market.closeTime.getFullYear();
+
+          if (!year) continue;
+          if (macroMinYear && year < macroMinYear) continue;
+          if (macroMaxYear && year > macroMaxYear) continue;
+
+          markets.push(market);
+          existingIds.add(market.id);
+          rareEntityMarketsAdded++;
+        }
+      }
+    }
+  }
+
   return {
     markets,
     stats: {
@@ -1110,6 +1197,7 @@ async function fetchEligibleMarkets(
       macroExcludedYearLow,
       macroExcludedYearHigh,
       macroExcludedNoYear,
+      rareEntityMarketsAdded,
     },
   };
 }
@@ -1426,6 +1514,8 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     maxSuggestionsPerLeft = parseInt(process.env.MAX_SUGGESTIONS_PER_LEFT || '5', 10),
     // Guardrail for cross-granularity period matches (v2.4.3) - limits year↔month explosion
     maxCrossGranularityPerLeft = parseInt(process.env.MAX_CROSS_GRANULARITY_PER_LEFT || '2', 10),
+    // Extended lookback for rare entities (v2.4.3) - ENV overridable
+    rareEntityLookbackHours = parseInt(process.env.RARE_ENTITY_LOOKBACK_HOURS || String(RARE_ENTITY_DEFAULT_LOOKBACK_HOURS), 10),
   } = options;
 
   // Handle debug mode - uses the same unified pipeline as full run
@@ -1491,6 +1581,9 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
   console.log(`[matching] Sports exclusion: ${excludeSports ? 'enabled' : 'disabled'} (prefixes: ${excludeKalshiPrefixes.length}, keywords: ${excludeTitleKeywords.length})`);
   console.log(`[matching] Max suggestions per left market: ${maxSuggestionsPerLeft}`);
   console.log(`[matching] Max cross-granularity per left (v2.4.3): ${maxCrossGranularityPerLeft}`);
+  if (topic === 'macro') {
+    console.log(`[matching] Rare entity extended lookback (v2.4.3): ${rareEntityLookbackHours}h`);
+  }
 
   try {
     // Fetch eligible markets from both venues using unified pipeline
@@ -1506,12 +1599,16 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       excludeTitleKeywords,
       macroMinYear,
       macroMaxYear,
+      rareEntityLookbackHours,
     });
     result.leftCount = leftMarkets.length;
     if (topic === 'macro') {
       console.log(`[matching] ${fromVenue}: ${leftStats.total} -> ${leftStats.afterKeywordFilter} (kw) -> ${leftStats.afterSportsFilter} (sports) -> ${leftStats.afterTopicFilter} (topic) -> ${leftStats.afterMacroYearFilter} (year)`);
       if (leftStats.macroExcludedYearLow > 0 || leftStats.macroExcludedYearHigh > 0 || leftStats.macroExcludedNoYear > 0) {
         console.log(`[matching]   year filter: excluded ${leftStats.macroExcludedYearLow} (year<${macroMinYear}), ${leftStats.macroExcludedYearHigh} (year>${macroMaxYear}), ${leftStats.macroExcludedNoYear} (no year)`);
+      }
+      if (leftStats.rareEntityMarketsAdded > 0) {
+        console.log(`[matching]   rare entity lookback (v2.4.3): +${leftStats.rareEntityMarketsAdded} markets added`);
       }
     } else {
       console.log(`[matching] ${fromVenue}: ${leftStats.total} -> ${leftStats.afterKeywordFilter} (kw) -> ${leftStats.afterSportsFilter} (sports) -> ${leftStats.afterTopicFilter} (topic)`);
@@ -1529,12 +1626,16 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       excludeTitleKeywords,
       macroMinYear,
       macroMaxYear,
+      rareEntityLookbackHours,
     });
     result.rightCount = rightMarkets.length;
     if (topic === 'macro') {
       console.log(`[matching] ${toVenue}: ${rightStats.total} -> ${rightStats.afterKeywordFilter} (kw) -> ${rightStats.afterSportsFilter} (sports) -> ${rightStats.afterTopicFilter} (topic) -> ${rightStats.afterMacroYearFilter} (year)`);
       if (rightStats.macroExcludedYearLow > 0 || rightStats.macroExcludedYearHigh > 0 || rightStats.macroExcludedNoYear > 0) {
         console.log(`[matching]   year filter: excluded ${rightStats.macroExcludedYearLow} (year<${macroMinYear}), ${rightStats.macroExcludedYearHigh} (year>${macroMaxYear}), ${rightStats.macroExcludedNoYear} (no year)`);
+      }
+      if (rightStats.rareEntityMarketsAdded > 0) {
+        console.log(`[matching]   rare entity lookback (v2.4.3): +${rightStats.rareEntityMarketsAdded} markets added`);
       }
     } else {
       console.log(`[matching] ${toVenue}: ${rightStats.total} -> ${rightStats.afterKeywordFilter} (kw) -> ${rightStats.afterSportsFilter} (sports) -> ${rightStats.afterTopicFilter} (topic)`);
