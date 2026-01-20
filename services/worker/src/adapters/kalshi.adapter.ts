@@ -1,4 +1,3 @@
-import * as crypto from 'node:crypto';
 import {
   type Venue,
   type MarketDTO,
@@ -201,51 +200,6 @@ export class KalshiAdapter implements VenueAdapter {
     }
 
     return (await response.json()) as KalshiOrderbook;
-  }
-
-  /**
-   * Fetch with Kalshi API authentication (RSA-PSS signature)
-   */
-  private async fetchWithAuth(
-    url: string,
-    method: string,
-    path: string
-  ): Promise<Response> {
-    if (!this.auth) {
-      throw new Error('Auth required but not configured');
-    }
-
-    const timestamp = Date.now().toString();
-    // Remove query parameters from path for signature (Kalshi requirement)
-    const pathWithoutQuery = path.split('?')[0];
-    const message = timestamp + method + pathWithoutQuery;
-
-
-    // Sign with RSA-PSS SHA256
-    const signature = crypto.sign('sha256', Buffer.from(message), {
-      key: this.auth.privateKeyPem,
-      padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
-      saltLength: crypto.constants.RSA_PSS_SALTLEN_DIGEST,
-    });
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
-
-    try {
-      return await fetch(url, {
-        method,
-        signal: controller.signal,
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'KALSHI-ACCESS-KEY': this.auth.apiKeyId,
-          'KALSHI-ACCESS-TIMESTAMP': timestamp,
-          'KALSHI-ACCESS-SIGNATURE': signature.toString('base64'),
-        },
-      });
-    } finally {
-      clearTimeout(timeout);
-    }
   }
 
   /**
