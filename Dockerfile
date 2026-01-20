@@ -11,7 +11,7 @@ COPY packages/core/package.json ./packages/core/
 COPY packages/db/package.json ./packages/db/
 COPY services/worker/package.json ./services/worker/
 
-# Install dependencies
+# Install all dependencies (including dev for build)
 RUN pnpm install --frozen-lockfile
 
 # Copy source code
@@ -24,31 +24,15 @@ COPY services/worker/ ./services/worker/
 RUN pnpm --filter @data-module/db db:generate
 RUN pnpm build
 
-# Production stage
-FROM node:20-alpine AS runner
+# Production stage - single stage with all deps
+FROM node:20-alpine
 
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 
 WORKDIR /app
 
-# Copy package files for install
-COPY --from=builder /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
-COPY --from=builder /app/packages/core/package.json ./packages/core/
-COPY --from=builder /app/packages/db/package.json ./packages/db/
-COPY --from=builder /app/services/worker/package.json ./services/worker/
-
-# Install production dependencies
-RUN pnpm install --frozen-lockfile --prod
-
-# Copy built code
-COPY --from=builder /app/packages/core/dist ./packages/core/dist
-COPY --from=builder /app/packages/db/dist ./packages/db/dist
-COPY --from=builder /app/packages/db/prisma ./packages/db/prisma
-COPY --from=builder /app/services/worker/dist ./services/worker/dist
-
-# Copy generated Prisma client from builder
-COPY --from=builder /app/node_modules/.pnpm/@prisma+client*/node_modules/@prisma/client ./node_modules/@prisma/client
-COPY --from=builder /app/node_modules/.pnpm/@prisma+client*/node_modules/.prisma ./node_modules/.prisma
+# Copy everything from builder
+COPY --from=builder /app ./
 
 # Set environment
 ENV NODE_ENV=production

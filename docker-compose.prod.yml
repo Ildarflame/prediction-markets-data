@@ -52,7 +52,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-datamodule}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-datamodule}?schema=public
-    command: ["npx", "prisma", "migrate", "deploy", "--schema", "packages/db/prisma/schema.prisma"]
+    command: ["pnpm", "--filter", "@data-module/db", "db:migrate:deploy"]
     restart: "no"
 
 volumes:
