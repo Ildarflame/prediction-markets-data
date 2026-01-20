@@ -1,7 +1,10 @@
 # Build stage
-FROM node:20-alpine AS builder
+FROM node:20-slim AS builder
 
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+
+# Install OpenSSL for Prisma
+RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -11,7 +14,7 @@ COPY packages/core/package.json ./packages/core/
 COPY packages/db/package.json ./packages/db/
 COPY services/worker/package.json ./services/worker/
 
-# Install all dependencies (including dev for build)
+# Install all dependencies
 RUN pnpm install --frozen-lockfile
 
 # Copy source code
@@ -24,10 +27,13 @@ COPY services/worker/ ./services/worker/
 RUN pnpm --filter @data-module/db db:generate
 RUN pnpm build
 
-# Production stage - single stage with all deps
-FROM node:20-alpine
+# Production stage
+FROM node:20-slim
 
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+
+# Install OpenSSL for Prisma runtime
+RUN apt-get update && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
