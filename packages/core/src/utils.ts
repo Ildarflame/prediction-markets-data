@@ -28,8 +28,23 @@ export function slugify(text: string): string {
 }
 
 /**
+ * Convert price to bucket for float-safe comparison
+ */
+export function priceToBucket(price: number, epsilon: number): number {
+  return Math.round(price / epsilon);
+}
+
+/**
+ * Convert timestamp to bucket (minute-based)
+ */
+export function tsToBucket(ts: Date, intervalSeconds: number): number {
+  return Math.floor(ts.getTime() / (intervalSeconds * 1000));
+}
+
+/**
  * Check if a new quote should be recorded based on dedup rules
  * Returns true if the quote should be written
+ * Uses bucket comparison for float-safe price comparison
  */
 export function shouldRecordQuote(
   newPrice: number,
@@ -49,13 +64,60 @@ export function shouldRecordQuote(
     return true;
   }
 
-  // Check if price changed enough
-  const priceChange = Math.abs(newPrice - lastPrice);
-  if (priceChange >= config.epsilon) {
+  // Float-safe price comparison using buckets
+  const newBucket = priceToBucket(newPrice, config.epsilon);
+  const lastBucket = priceToBucket(lastPrice, config.epsilon);
+  if (newBucket !== lastBucket) {
     return true;
   }
 
   return false;
+}
+
+/**
+ * In-memory deduplicator for a single ingestion cycle
+ * Prevents duplicate quotes within the same run
+ */
+export class QuoteDeduplicator {
+  private seen = new Set<string>();
+  private readonly epsilon: number;
+  private readonly intervalSeconds: number;
+
+  constructor(config: DedupConfig = DEFAULT_DEDUP_CONFIG) {
+    this.epsilon = config.epsilon;
+    this.intervalSeconds = config.minIntervalSeconds;
+  }
+
+  /**
+   * Check if this quote was already seen in this cycle
+   * Returns true if it's a duplicate (should skip)
+   */
+  isDuplicate(outcomeId: number, price: number, ts: Date): boolean {
+    const priceBucket = priceToBucket(price, this.epsilon);
+    const timeBucket = tsToBucket(ts, this.intervalSeconds);
+    const key = `${outcomeId}:${timeBucket}:${priceBucket}`;
+
+    if (this.seen.has(key)) {
+      return true;
+    }
+
+    this.seen.add(key);
+    return false;
+  }
+
+  /**
+   * Reset for new cycle
+   */
+  clear(): void {
+    this.seen.clear();
+  }
+
+  /**
+   * Get count of seen quotes
+   */
+  get size(): number {
+    return this.seen.size;
+  }
 }
 
 /**

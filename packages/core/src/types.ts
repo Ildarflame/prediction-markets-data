@@ -21,7 +21,9 @@ export interface MarketDTO {
   title: string;
   category?: string;
   status: MarketStatus;
+  statusMeta?: Record<string, unknown>;
   closeTime?: Date;
+  sourceUpdatedAt?: Date;
   outcomes: OutcomeDTO[];
   metadata?: Record<string, unknown>;
 }
