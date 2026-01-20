@@ -31,6 +31,13 @@ enum OutcomeSide {
   other
 }
 
+// Market link status for matching
+enum LinkStatus {
+  suggested
+  confirmed
+  rejected
+}
+
 // Market represents a tradeable prediction market
 model Market {
   id              Int          @id @default(autoincrement())
@@ -46,7 +53,9 @@ model Market {
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz
 
-  outcomes Outcome[]
+  outcomes   Outcome[]
+  leftLinks  MarketLink[] @relation("LeftMarketLinks")
+  rightLinks MarketLink[] @relation("RightMarketLinks")
 
   @@unique([venue, externalId])
   @@index([status, closeTime])
@@ -143,4 +152,26 @@ model IngestionRun {
 
   @@index([venue, jobName, startedAt(sort: Desc)])
   @@map("ingestion_runs")
+}
+
+// MarketLink stores matched market pairs between venues
+model MarketLink {
+  id            Int        @id @default(autoincrement())
+  leftVenue     Venue      @map("left_venue")
+  leftMarketId  Int        @map("left_market_id")
+  rightVenue    Venue      @map("right_venue")
+  rightMarketId Int        @map("right_market_id")
+  status        LinkStatus @default(suggested)
+  score         Float
+  reason        String?
+  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  leftMarket  Market @relation("LeftMarketLinks", fields: [leftMarketId], references: [id], onDelete: Cascade)
+  rightMarket Market @relation("RightMarketLinks", fields: [rightMarketId], references: [id], onDelete: Cascade)
+
+  @@unique([leftVenue, leftMarketId, rightVenue, rightMarketId])
+  @@index([status, score(sort: Desc)])
+  @@index([leftVenue, rightVenue])
+  @@map("market_links")
 }
