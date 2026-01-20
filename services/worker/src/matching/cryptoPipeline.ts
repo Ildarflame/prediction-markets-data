@@ -53,12 +53,14 @@ export const CRYPTO_ENTITIES_EXTENDED = [
 /**
  * STRICT keywords - used for DB query (title ILIKE)
  * Must be specific to the asset, no false positives
+ * NOTE: "eth" removed from ETHEREUM - too many false positives (Hegseth, Kenneth, etc.)
+ *       The extractor uses tokenization and handles "eth" correctly
  */
 export const CRYPTO_KEYWORDS_STRICT: Record<string, string[]> = {
   BITCOIN: ['bitcoin', 'btc'],
-  ETHEREUM: ['ethereum', 'eth'],
+  ETHEREUM: ['ethereum'],  // "eth" matches names like "Hegseth"
   // Extended (v2.5.1+)
-  SOLANA: ['solana', 'sol'],
+  SOLANA: ['solana'],  // "sol" is too common (solution, solve, etc.)
   XRP: ['xrp', 'ripple'],
   DOGECOIN: ['dogecoin', 'doge'],
 };
