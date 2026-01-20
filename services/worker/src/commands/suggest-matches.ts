@@ -362,7 +362,7 @@ function fuzzyTitleScore(titleA: string, titleB: string): number {
 
 // Minimum text similarity threshold (jaccard + fuzzy) to prevent false positives
 // when entities match but titles are completely different (e.g., "Trump Greenland" vs "Trump pardon")
-const MIN_TEXT_SIMILARITY = 0.10;
+const MIN_TEXT_SIMILARITY = 0.15;
 
 /**
  * Calculate weighted match score using multiple signals

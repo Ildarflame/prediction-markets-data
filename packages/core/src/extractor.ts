@@ -212,6 +212,7 @@ export function extractEntities(title: string): string[] {
 /**
  * Extract numbers from market title
  * Handles: 100k -> 100000, 3% -> 3, 175+ -> 175, $50,000 -> 50000
+ * Excludes numbers that are part of dates (e.g., "Feb 1" should not extract "1")
  */
 export function extractNumbers(title: string): number[] {
   const numbers: number[] = [];
@@ -227,11 +228,27 @@ export function extractNumbers(title: string): number[] {
     'trillion': 1_000_000_000_000,
   };
 
+  // Pattern to detect date contexts (month names followed by numbers)
+  // Used to exclude numbers that are part of dates
+  const dateContextPattern = /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}\b/gi;
+  const dateContexts = new Set<number>();
+  let dateMatch;
+  while ((dateMatch = dateContextPattern.exec(title)) !== null) {
+    // Mark the position of the number in the date context
+    const numStartInDate = dateMatch.index + dateMatch[0].lastIndexOf(' ') + 1;
+    dateContexts.add(numStartInDate);
+  }
+
   // Extract with main pattern
   const mainPattern = /\$?([\d,]+(?:\.\d+)?)\s*([kmbt](?:illion|housand)?)?/gi;
   let match;
 
   while ((match = mainPattern.exec(title)) !== null) {
+    // Skip if this number is part of a date context
+    if (dateContexts.has(match.index) || dateContexts.has(match.index + 1)) {
+      continue;
+    }
+
     let numStr = match[1].replace(/,/g, '');
     let num = parseFloat(numStr);
 
@@ -244,8 +261,19 @@ export function extractNumbers(title: string): number[] {
       num *= mult;
     }
 
-    // Skip very small numbers that are likely noise (years handled separately)
-    if (num >= 1 && num < 1900 || num > 2100) {
+    // Skip very small numbers (1-31) that are likely date days, unless they have $ or multiplier
+    const hasDollar = title[match.index] === '$';
+    const hasMultiplier = !!match[2];
+    if (num >= 1 && num <= 31 && !hasDollar && !hasMultiplier) {
+      continue;  // Skip likely date day numbers
+    }
+
+    // Skip years (handled separately in date extraction)
+    if (num >= 1900 && num <= 2100) {
+      continue;
+    }
+
+    if (num >= 1) {
       numbers.push(num);
     }
   }
