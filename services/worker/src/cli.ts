@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches } from './commands/index.js';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
 const program = new Command();
@@ -262,6 +262,55 @@ program
       }
     } catch (error) {
       console.error('Reconcile error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Suggest matches command
+program
+  .command('suggest-matches')
+  .description('Find potential market matches between venues')
+  .requiredOption('--from <venue>', `Source venue (${getSupportedVenues().join(', ')})`)
+  .requiredOption('--to <venue>', `Target venue (${getSupportedVenues().join(', ')})`)
+  .option('--min-score <number>', 'Minimum match score (0-1)', '0.75')
+  .option('--top-k <number>', 'Top K matches per source market', '10')
+  .option('--lookback-hours <hours>', 'Include closed markets within N hours', '24')
+  .option('--limit-left <number>', 'Max source markets to process', '2000')
+  .action(async (opts) => {
+    const supportedVenues = getSupportedVenues();
+
+    if (!supportedVenues.includes(opts.from)) {
+      console.error(`Invalid --from venue: ${opts.from}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    if (!supportedVenues.includes(opts.to)) {
+      console.error(`Invalid --to venue: ${opts.to}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    if (opts.from === opts.to) {
+      console.error('--from and --to must be different venues');
+      process.exit(1);
+    }
+
+    try {
+      const result = await runSuggestMatches({
+        fromVenue: opts.from as Venue,
+        toVenue: opts.to as Venue,
+        minScore: parseFloat(opts.minScore),
+        topK: parseInt(opts.topK, 10),
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+        limitLeft: parseInt(opts.limitLeft, 10),
+      });
+
+      if (result.errors.length > 0) {
+        process.exit(1);
+      }
+    } catch (error) {
+      console.error('Suggest matches error:', error);
       process.exit(1);
     } finally {
       await disconnect();
