@@ -221,7 +221,9 @@ export class KalshiAdapter implements VenueAdapter {
     }
 
     const timestamp = Date.now().toString();
-    const message = timestamp + method + path;
+    // Remove query parameters from path for signature (Kalshi requirement)
+    const pathWithoutQuery = path.split('?')[0];
+    const message = timestamp + method + pathWithoutQuery;
 
     // Sign with RSA-PSS SHA256
     const signature = crypto.sign('sha256', Buffer.from(message), {
