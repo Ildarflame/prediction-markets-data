@@ -12,61 +12,62 @@ import {
 } from '@data-module/core';
 import { getClient, type Prisma } from '@data-module/db';
 
-// Keyword patterns for DB scan (ILIKE patterns)
+// Keyword patterns for DB scan (simple substring matching)
+// Each keyword will be searched case-insensitively via Prisma `contains`
 const ENTITY_KEYWORDS: Record<string, string[]> = {
   NFP: [
-    '%nfp%',
-    '%nonfarm%',
-    '%non-farm%',
-    '%payroll%',
-    '%jobs added%',
-    '%jobs report%',
-    '%employment situation%',
+    'nfp',
+    'nonfarm',
+    'non-farm',
+    'payroll',
+    'jobs added',
+    'jobs report',
+    'employment situation',
   ],
   JOBLESS_CLAIMS: [
-    '%jobless%claim%',
-    '%initial claim%',
-    '%unemployment claim%',
-    '%weekly claim%',
-    '%continuing claim%',
+    'jobless claims',
+    'initial claims',
+    'unemployment claims',
+    'weekly claims',
+    'continuing claims',
+    'initial jobless',
   ],
   PMI: [
-    '%pmi%',
-    '%purchasing manager%',
-    '%ism manufacturing%',
-    '%ism services%',
+    'pmi',
+    'purchasing manager',
+    'ism manufacturing',
+    'ism services',
   ],
   PCE: [
-    '%pce%',
-    '%personal consumption%',
-    '%core pce%',
+    'pce',
+    'personal consumption',
+    'core pce',
   ],
   CPI: [
-    '%cpi%',
-    '%consumer price%',
-    '%inflation%',
+    'cpi',
+    'consumer price',
+    'inflation',
   ],
   GDP: [
-    '%gdp%',
-    '%gross domestic%',
+    'gdp',
+    'gross domestic',
   ],
   UNEMPLOYMENT_RATE: [
-    '%unemployment rate%',
-    '%jobless rate%',
-    '%unemployment%',
+    'unemployment rate',
+    'jobless rate',
   ],
   FED_RATE: [
-    '%fed rate%',
-    '%fed fund%',
-    '%federal fund%',
-    '%rate cut%',
-    '%rate hike%',
-    '%interest rate%',
+    'fed rate',
+    'fed fund',
+    'federal fund',
+    'rate cut',
+    'rate hike',
+    'interest rate',
   ],
   FOMC: [
-    '%fomc%',
-    '%federal reserve%',
-    '%fed meeting%',
+    'fomc',
+    'federal reserve',
+    'fed meeting',
   ],
 };
 
@@ -115,7 +116,7 @@ export async function runMacroAudit(options: MacroAuditOptions): Promise<MacroAu
 
   // Build OR conditions for all keywords
   const orConditions: Prisma.MarketWhereInput[] = keywords.map(kw => ({
-    title: { contains: kw.replace(/%/g, ''), mode: 'insensitive' as const },
+    title: { contains: kw, mode: 'insensitive' as const },
   }));
 
   const foundMarkets = await prisma.market.findMany({
