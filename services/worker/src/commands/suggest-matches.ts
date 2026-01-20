@@ -268,6 +268,9 @@ export interface SuggestMatchesOptions {
   maxCrossGranularityPerLeft?: number;
   // Extended lookback for rare entities like GDP, UNEMPLOYMENT_RATE (v2.4.3)
   rareEntityLookbackHours?: number;
+  // Right-side cap per entity-period bucket (v2.4.5)
+  // Limits many-to-one explosion (e.g., 882 CPI Kalshi → 65 CPI Polymarket)
+  maxPerRightPerEntityPeriod?: number;
 }
 
 export interface SuggestMatchesResult {
@@ -287,6 +290,8 @@ export interface SuggestMatchesResult {
   droppedByCapTotal: number;
   // Cross-granularity guardrail stats (v2.4.3)
   droppedByCrossGranularityCap: number;
+  // Right-side cap stats (v2.4.5)
+  droppedByRightCap: number;
   errors: string[];
 }
 
@@ -410,6 +415,44 @@ function computeMatchTier(periodKind: PeriodCompatibilityKind | undefined): Matc
   }
   // exact, month_in_quarter, quarter_in_year are STRONG
   return 'STRONG';
+}
+
+/**
+ * Build right-side cap bucket key (v2.4.5)
+ *
+ * Used to limit many-to-one suggestions per right market per entity-period.
+ * The bucket is based on the RIGHT market's period (normalized to year for loose matches).
+ *
+ * Format: rightId:entity:periodBucket
+ * Where periodBucket is:
+ * - YYYY-MM for month periods
+ * - YYYY-Qn for quarter periods
+ * - YYYY for year periods (and for month_in_year matches)
+ */
+function buildRightCapKey(
+  rightId: number,
+  entity: string,
+  rightPeriod: MacroPeriod | undefined,
+  periodKind: PeriodCompatibilityKind | undefined
+): string {
+  let bucket = 'unknown';
+
+  if (rightPeriod?.year) {
+    if (rightPeriod.type === 'month' && rightPeriod.month) {
+      // For month_in_year, bucket by year only to properly cap
+      if (periodKind === 'month_in_year') {
+        bucket = String(rightPeriod.year);
+      } else {
+        bucket = `${rightPeriod.year}-${String(rightPeriod.month).padStart(2, '0')}`;
+      }
+    } else if (rightPeriod.type === 'quarter' && rightPeriod.quarter) {
+      bucket = `${rightPeriod.year}-Q${rightPeriod.quarter}`;
+    } else if (rightPeriod.type === 'year') {
+      bucket = String(rightPeriod.year);
+    }
+  }
+
+  return `${rightId}:${entity}:${bucket}`;
 }
 
 /**
@@ -1558,6 +1601,8 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     maxCrossGranularityPerLeft = parseInt(process.env.MAX_CROSS_GRANULARITY_PER_LEFT || '2', 10),
     // Extended lookback for rare entities (v2.4.3) - ENV overridable
     rareEntityLookbackHours = parseInt(process.env.RARE_ENTITY_LOOKBACK_HOURS || String(RARE_ENTITY_DEFAULT_LOOKBACK_HOURS), 10),
+    // Right-side cap per entity-period bucket (v2.4.5) - controls many-to-one explosion
+    maxPerRightPerEntityPeriod = parseInt(process.env.MAX_PER_RIGHT_PER_ENTITY_PERIOD || '8', 10),
   } = options;
 
   // v2.4.5: Use topic-specific keywords for DB query filtering
@@ -1594,6 +1639,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       savedTopKTotal: 0,
       droppedByCapTotal: 0,
       droppedByCrossGranularityCap: 0,
+      droppedByRightCap: 0,
       errors: [],
     };
   }
@@ -1617,6 +1663,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     savedTopKTotal: 0,
     droppedByCapTotal: 0,
     droppedByCrossGranularityCap: 0,
+    droppedByRightCap: 0,
     errors: [],
   };
 
@@ -1634,6 +1681,9 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
   console.log(`[matching] Sports exclusion: ${excludeSports ? 'enabled' : 'disabled'} (prefixes: ${excludeKalshiPrefixes.length}, keywords: ${excludeTitleKeywords.length})`);
   console.log(`[matching] Max suggestions per left market: ${maxSuggestionsPerLeft}`);
   console.log(`[matching] Max cross-granularity per left (v2.4.3): ${maxCrossGranularityPerLeft}`);
+  if (topic === 'macro') {
+    console.log(`[matching] Max per right market per entity-period (v2.4.5): ${maxPerRightPerEntityPeriod}`);
+  }
   if (topic === 'macro') {
     console.log(`[matching] Rare entity extended lookback (v2.4.3): ${rareEntityLookbackHours}h`);
   }
@@ -1751,6 +1801,10 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
         }
       }
     }
+
+    // v2.4.5: Right-side cap tracker (per entity-period bucket)
+    // Tracks how many suggestions we've saved for each (rightId, entity, periodBucket)
+    const rightCapTracker = new Map<string, number>();
 
     for (const leftMarket of leftMarkets) {
       // Skip if already has confirmed link
@@ -1882,9 +1936,54 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       result.droppedByCapTotal += Math.max(0, scores.length - effectiveCap);
       result.droppedByCrossGranularityCap += crossGranularityDropped;
 
-      // Save suggestions
+      // Save suggestions (with v2.4.5 right-side cap)
       for (const candidate of topCandidates) {
         try {
+          // v2.4.5: Check right-side cap per entity-period bucket
+          if (isMacroTopic && maxPerRightPerEntityPeriod > 0) {
+            const rightIndexed = index.markets.get(candidate.rightId);
+            if (rightIndexed?.fingerprint.macroEntities?.size) {
+              let cappedForAllEntities = true;
+
+              // Check cap for each matching entity
+              for (const entity of rightIndexed.fingerprint.macroEntities) {
+                // Only check entities that overlap with left
+                if (!leftFingerprint.macroEntities?.has(entity)) continue;
+
+                const capKey = buildRightCapKey(
+                  candidate.rightId,
+                  entity,
+                  rightIndexed.fingerprint.period,
+                  candidate.periodKind
+                );
+                const currentCount = rightCapTracker.get(capKey) || 0;
+
+                if (currentCount < maxPerRightPerEntityPeriod) {
+                  cappedForAllEntities = false;
+                }
+              }
+
+              if (cappedForAllEntities && rightIndexed.fingerprint.macroEntities.size > 0) {
+                // All matching entities have hit the cap - skip this suggestion
+                result.droppedByRightCap++;
+                continue;
+              }
+
+              // Increment caps for all matching entities
+              for (const entity of rightIndexed.fingerprint.macroEntities) {
+                if (!leftFingerprint.macroEntities?.has(entity)) continue;
+
+                const capKey = buildRightCapKey(
+                  candidate.rightId,
+                  entity,
+                  rightIndexed.fingerprint.period,
+                  candidate.periodKind
+                );
+                rightCapTracker.set(capKey, (rightCapTracker.get(capKey) || 0) + 1);
+              }
+            }
+          }
+
           // Warn if reason is missing
           if (!candidate.reason) {
             console.warn(`[matching] Warning: empty reason for match ${leftMarket.id} -> ${candidate.rightId}`);
@@ -1968,6 +2067,9 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     console.log(`  Saved (top-${Math.min(topK, maxSuggestionsPerLeft)} cap): ${result.savedTopKTotal}`);
     console.log(`  Dropped by cap: ${result.droppedByCapTotal}`);
     console.log(`  Dropped by cross-granularity guardrail (v2.4.3): ${result.droppedByCrossGranularityCap}`);
+    if (isMacroTopic && result.droppedByRightCap > 0) {
+      console.log(`  Dropped by right-side cap (v2.4.5): ${result.droppedByRightCap}`);
+    }
     console.log(`  Suggestions created: ${result.suggestionsCreated}`);
     console.log(`  Suggestions updated: ${result.suggestionsUpdated}`);
     console.log(`  Markets with no entities: ${noEntityCount}`);
