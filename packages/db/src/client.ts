@@ -27,6 +27,5 @@ export async function disconnect(): Promise<void> {
   }
 }
 
-// Re-export PrismaClient and types
-export { PrismaClient };
-export type { Prisma } from '@prisma/client';
+// Re-export PrismaClient and Prisma namespace (includes DbNull etc.)
+export { PrismaClient, Prisma } from '@prisma/client';

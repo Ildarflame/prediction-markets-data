@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -480,13 +480,16 @@ program
     }
   });
 
-// Macro audit command (v2.4.6)
+// Macro audit command (v2.4.7)
 program
   .command('macro:audit')
-  .description('Fact-check macro entity detection in DB (v2.4.6)')
+  .description('Two-phase fact-check: DB scan + pipeline scan (v2.4.7)')
   .requiredOption('--venue <venue>', `Venue to audit (${getSupportedVenues().join(', ')})`)
-  .requiredOption('--entity <entity>', 'Entity to audit (NFP, JOBLESS_CLAIMS, PMI, PCE, CPI, GDP, etc.)')
-  .option('--limit <number>', 'Max markets to analyze', '200')
+  .requiredOption('--entity <entity>', `Entity to audit (${getSupportedEntities().join(', ')})`)
+  .option('--all-time', 'Disable lookback filter (scan entire DB history)', false)
+  .option('--include-resolved', 'Include resolved/archived markets in pipeline', false)
+  .option('--db-limit <number>', 'Limit for DB fact scan', '2000')
+  .option('--lookback-hours <number>', 'Lookback hours for window mode', '720')
   .action(async (opts) => {
     const supportedVenues = getSupportedVenues();
 
@@ -499,10 +502,46 @@ program
       await runMacroAudit({
         venue: opts.venue as Venue,
         entity: opts.entity,
-        limit: parseInt(opts.limit, 10),
+        allTime: opts.allTime,
+        includeResolved: opts.includeResolved,
+        dbLimit: parseInt(opts.dbLimit, 10),
+        lookbackHours: parseInt(opts.lookbackHours, 10),
       });
     } catch (error) {
       console.error('Macro audit error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Macro audit-pack command (v2.4.7)
+program
+  .command('macro:audit-pack')
+  .description('Batch audit multiple entities with compact table output (v2.4.7)')
+  .requiredOption('--venue <venue>', `Venue to audit (${getSupportedVenues().join(', ')})`)
+  .option('--entities <list>', 'Comma-separated entities (default: all)', '')
+  .option('--all-time', 'Disable lookback filter', false)
+  .option('--include-resolved', 'Include resolved/archived markets', false)
+  .action(async (opts) => {
+    const supportedVenues = getSupportedVenues();
+
+    if (!supportedVenues.includes(opts.venue)) {
+      console.error(`Invalid --venue: ${opts.venue}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    const entities = opts.entities ? opts.entities.split(',').map((e: string) => e.trim()) : undefined;
+
+    try {
+      await runAuditPack({
+        venue: opts.venue as Venue,
+        entities,
+        allTime: opts.allTime,
+        includeResolved: opts.includeResolved,
+      });
+    } catch (error) {
+      console.error('Audit pack error:', error);
       process.exit(1);
     } finally {
       await disconnect();

@@ -1,4 +1,4 @@
-export { getClient, disconnect, PrismaClient, type Prisma } from './client.js';
+export { getClient, disconnect, PrismaClient, Prisma } from './client.js';
 export * from './repositories/index.js';
 
 // Re-export Prisma types

@@ -2083,7 +2083,8 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
 
     // Macro coverage report (only for topic=macro)
     if (isMacroTopic) {
-      console.log(`\n[macro-coverage] Macro Entity Coverage Report:`);
+      console.log(`\n[macro-coverage] Macro Entity Coverage Report (eligible window only):`);
+      console.log(`[NOTE] Counts show eligible markets in current window. Use macro:audit --all-time for full DB scan.`);
       console.log(`${'Entity'.padEnd(15)} | ${'Left'.padStart(6)} | ${'Right'.padStart(6)} | ${'Matched'.padStart(8)} | ${'Rate'.padStart(6)}`);
       console.log('-'.repeat(50));
 

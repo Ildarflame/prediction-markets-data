@@ -385,6 +385,7 @@ export class MarketRepository {
         id: market.id,
         title: market.title,
         category: market.category,
+        status: market.status,
         closeTime: market.closeTime,
         venue: market.venue,
         metadata: market.metadata as Record<string, unknown> | null,
@@ -402,6 +403,7 @@ export interface EligibleMarket {
   id: number;
   title: string;
   category: string | null;
+  status: string;
   closeTime: Date | null;
   venue: Venue;
   metadata?: Record<string, unknown> | null;
