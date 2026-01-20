@@ -33,21 +33,22 @@ enum OutcomeSide {
 
 // Market represents a tradeable prediction market
 model Market {
-  id         Int          @id @default(autoincrement())
-  venue      Venue
-  externalId String       @map("external_id")
-  title      String
-  category   String?
-  status     MarketStatus @default(active)
-  closeTime  DateTime?    @map("close_time") @db.Timestamptz
-  metadata   Json?        @db.JsonB
-  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt  DateTime     @updatedAt @map("updated_at") @db.Timestamptz
+  id              Int          @id @default(autoincrement())
+  venue           Venue
+  externalId      String       @map("external_id")
+  title           String
+  category        String?
+  status          MarketStatus @default(active)
+  statusMeta      Json?        @map("status_meta") @db.JsonB // Resolution info, status reason
+  closeTime       DateTime?    @map("close_time") @db.Timestamptz
+  sourceUpdatedAt DateTime?    @map("source_updated_at") @db.Timestamptz // Last update from source
+  metadata        Json?        @db.JsonB
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz
 
   outcomes Outcome[]
 
   @@unique([venue, externalId])
-  @@index([venue, externalId])
   @@index([status, closeTime])
   @@map("markets")
 }
@@ -81,6 +82,7 @@ model Quote {
   impliedProb Float    @map("implied_prob")
   liquidity   Float?
   volume      Float?
+  raw         Json?    @db.JsonB // Raw data from source for debugging
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   outcome Outcome @relation(fields: [outcomeId], references: [id], onDelete: Cascade)
@@ -98,6 +100,7 @@ model LatestQuote {
   impliedProb Float    @map("implied_prob")
   liquidity   Float?
   volume      Float?
+  raw         Json?    @db.JsonB // Raw data from source for debugging
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   outcome Outcome @relation(fields: [outcomeId], references: [id], onDelete: Cascade)
@@ -126,17 +129,18 @@ model IngestionState {
 
 // IngestionRun is an audit log of each ingestion execution
 model IngestionRun {
-  id            Int      @id @default(autoincrement())
+  id            Int       @id @default(autoincrement())
   venue         Venue
-  startedAt     DateTime @map("started_at") @db.Timestamptz
+  jobName       String    @default("ingest") @map("job_name") // 'markets', 'quotes', 'ingest'
+  startedAt     DateTime  @map("started_at") @db.Timestamptz
   finishedAt    DateTime? @map("finished_at") @db.Timestamptz
-  ok            Boolean  @default(false)
-  fetchedCounts Json?    @map("fetched_counts") @db.JsonB
-  writtenCounts Json?    @map("written_counts") @db.JsonB
-  warningsJson  Json?    @map("warnings_json") @db.JsonB
-  errorText     String?  @map("error_text")
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  ok            Boolean   @default(false)
+  fetchedCounts Json?     @map("fetched_counts") @db.JsonB
+  writtenCounts Json?     @map("written_counts") @db.JsonB
+  warningsJson  Json?     @map("warnings_json") @db.JsonB
+  errorText     String?   @map("error_text")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  @@index([venue, startedAt(sort: Desc)])
+  @@index([venue, jobName, startedAt(sort: Desc)])
   @@map("ingestion_runs")
 }
