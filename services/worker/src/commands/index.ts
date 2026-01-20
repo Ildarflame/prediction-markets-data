@@ -9,3 +9,4 @@ export { runKalshiReport, type KalshiReportOptions } from './kalshi-report.js';
 export { runKalshiSmoke, runKalshiDiscoverSeries, type KalshiSmokeOptions, type KalshiSmokeResult, KNOWN_POLITICAL_TICKERS } from './kalshi-smoke.js';
 export { runOverlapReport, type OverlapReportOptions, type OverlapReportResult, DEFAULT_OVERLAP_KEYWORDS } from './overlap-report.js';
 export { runMetaSample, type MetaSampleOptions } from './meta-sample.js';
+export { runMacroOverlap, type MacroOverlapOptions } from './macro-overlap.js';

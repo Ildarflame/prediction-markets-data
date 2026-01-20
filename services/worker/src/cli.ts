@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -337,6 +337,48 @@ program
       }
     } catch (error) {
       console.error('Suggest matches error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Macro overlap report command
+program
+  .command('macro:overlap')
+  .description('Show macro period overlap between venues (v2.4.1)')
+  .option('--from <venue>', `Source venue (${getSupportedVenues().join(', ')})`, 'kalshi')
+  .option('--to <venue>', `Target venue (${getSupportedVenues().join(', ')})`, 'polymarket')
+  .option('--lookback-hours <hours>', 'Include markets within N hours', '720')
+  .option('--limit-left <number>', 'Max source markets', '10000')
+  .option('--limit-right <number>', 'Max target markets', '50000')
+  .option('--macro-min-year <year>', 'Min year for macro markets')
+  .option('--macro-max-year <year>', 'Max year for macro markets')
+  .action(async (opts) => {
+    const supportedVenues = getSupportedVenues();
+
+    if (!supportedVenues.includes(opts.from)) {
+      console.error(`Invalid --from venue: ${opts.from}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    if (!supportedVenues.includes(opts.to)) {
+      console.error(`Invalid --to venue: ${opts.to}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    try {
+      await runMacroOverlap({
+        fromVenue: opts.from as Venue,
+        toVenue: opts.to as Venue,
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+        limitLeft: parseInt(opts.limitLeft, 10),
+        limitRight: parseInt(opts.limitRight, 10),
+        macroMinYear: opts.macroMinYear ? parseInt(opts.macroMinYear, 10) : undefined,
+        macroMaxYear: opts.macroMaxYear ? parseInt(opts.macroMaxYear, 10) : undefined,
+      });
+    } catch (error) {
+      console.error('Macro overlap report error:', error);
       process.exit(1);
     } finally {
       await disconnect();
