@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -722,6 +722,85 @@ program
       }
     } catch (error) {
       console.error('Crypto truth audit error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Crypto quality review commands (v2.5.3)
+program
+  .command('crypto:best')
+  .description('Show best high-score crypto matches for quality review (v2.5.3)')
+  .option('--min-score <number>', 'Minimum score filter', '0.90')
+  .option('--limit <number>', 'Maximum results', '50')
+  .option('--from <venue>', 'Source venue', 'kalshi')
+  .option('--to <venue>', 'Target venue', 'polymarket')
+  .option('--lookback-hours <hours>', 'Lookback hours', '720')
+  .action(async (opts) => {
+    try {
+      await runCryptoQuality({
+        mode: 'best',
+        minScore: parseFloat(opts.minScore),
+        limit: parseInt(opts.limit, 10),
+        fromVenue: opts.from as Venue,
+        toVenue: opts.to as Venue,
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+      });
+    } catch (error) {
+      console.error('Crypto best error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+program
+  .command('crypto:worst')
+  .description('Show worst low-score crypto matches for quality review (v2.5.3)')
+  .option('--max-score <number>', 'Maximum score filter', '0.60')
+  .option('--limit <number>', 'Maximum results', '50')
+  .option('--from <venue>', 'Source venue', 'kalshi')
+  .option('--to <venue>', 'Target venue', 'polymarket')
+  .option('--lookback-hours <hours>', 'Lookback hours', '720')
+  .action(async (opts) => {
+    try {
+      await runCryptoQuality({
+        mode: 'worst',
+        maxScore: parseFloat(opts.maxScore),
+        limit: parseInt(opts.limit, 10),
+        fromVenue: opts.from as Venue,
+        toVenue: opts.to as Venue,
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+      });
+    } catch (error) {
+      console.error('Crypto worst error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+program
+  .command('crypto:sample')
+  .description('Show random sample of crypto matches for quality review (v2.5.3)')
+  .option('--limit <number>', 'Maximum results', '30')
+  .option('--seed <number>', 'Random seed for reproducibility', '42')
+  .option('--from <venue>', 'Source venue', 'kalshi')
+  .option('--to <venue>', 'Target venue', 'polymarket')
+  .option('--lookback-hours <hours>', 'Lookback hours', '720')
+  .action(async (opts) => {
+    try {
+      await runCryptoQuality({
+        mode: 'sample',
+        seed: parseInt(opts.seed, 10),
+        limit: parseInt(opts.limit, 10),
+        fromVenue: opts.from as Venue,
+        toVenue: opts.to as Venue,
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+      });
+    } catch (error) {
+      console.error('Crypto sample error:', error);
       process.exit(1);
     } finally {
       await disconnect();
