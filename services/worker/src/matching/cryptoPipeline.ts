@@ -51,16 +51,58 @@ export const CRYPTO_ENTITIES_EXTENDED = [
 // ============================================================
 
 /**
- * STRICT keywords - used for DB query (title ILIKE)
- * Must be specific to the asset, no false positives
- * NOTE: "eth" removed from ETHEREUM - too many false positives (Hegseth, Kenneth, etc.)
- *       The extractor uses tokenization and handles "eth" correctly
+ * FULL NAME keywords - used for DB query (ILIKE contains)
+ * Safe from false positives
+ */
+export const CRYPTO_FULLNAME_KEYWORDS: Record<string, string[]> = {
+  BITCOIN: ['bitcoin'],
+  ETHEREUM: ['ethereum'],
+  SOLANA: ['solana'],
+  XRP: ['xrp', 'ripple'],
+  DOGECOIN: ['dogecoin'],
+};
+
+/**
+ * TICKER keywords - need word-boundary regex matching (v2.5.2)
+ * These are short and would cause false positives with simple contains:
+ * - "eth" matches "Hegseth", "Kenneth"
+ * - "sol" matches "solution", "solve"
+ * - "btc" is generally safe but we use regex for consistency
+ */
+export const CRYPTO_TICKER_KEYWORDS: Record<string, string[]> = {
+  BITCOIN: ['btc'],
+  ETHEREUM: ['eth'],
+  SOLANA: ['sol'],
+  XRP: [],  // xrp is specific enough
+  DOGECOIN: ['doge'],
+};
+
+/**
+ * Generate PostgreSQL regex pattern for word-boundary ticker matching
+ * Pattern: (^|[^a-z0-9])\$?ticker([^a-z0-9]|$)
+ *
+ * Matches:
+ * - "ETH price" (word boundary before)
+ * - "$ETH" (with dollar sign)
+ * - "ETH!" (word boundary after)
+ * - "ETH" at start or end of string
+ *
+ * Does NOT match:
+ * - "Hegseth" (no word boundary)
+ * - "ETHXYZ" (no word boundary after)
+ */
+export function getCryptoTickerRegex(ticker: string): string {
+  return `(^|[^a-z0-9])\\$?${ticker}([^a-z0-9]|$)`;
+}
+
+/**
+ * STRICT keywords - backward compatible (used by diagnostic commands)
+ * Combines full names + tickers for simple use cases
  */
 export const CRYPTO_KEYWORDS_STRICT: Record<string, string[]> = {
   BITCOIN: ['bitcoin', 'btc'],
-  ETHEREUM: ['ethereum'],  // "eth" matches names like "Hegseth"
-  // Extended (v2.5.1+)
-  SOLANA: ['solana'],  // "sol" is too common (solution, solve, etc.)
+  ETHEREUM: ['ethereum'],  // "eth" removed - use regex instead
+  SOLANA: ['solana'],  // "sol" removed - use regex instead
   XRP: ['xrp', 'ripple'],
   DOGECOIN: ['dogecoin', 'doge'],
 };
@@ -73,6 +115,7 @@ export const CRYPTO_KEYWORDS_BROAD = ['crypto', 'token', 'coin', 'price'];
 
 /**
  * Get all strict keywords for DB query (flattened)
+ * For backward compatibility - use getCryptoDBPatterns for new code
  */
 export function getCryptoStrictKeywords(entities: readonly string[] = CRYPTO_ENTITIES_V1): string[] {
   const keywords: string[] = [];
@@ -83,6 +126,36 @@ export function getCryptoStrictKeywords(entities: readonly string[] = CRYPTO_ENT
     }
   }
   return keywords;
+}
+
+/**
+ * Get DB search patterns for crypto (v2.5.2)
+ * Returns fullNameKeywords (ILIKE) and tickerPatterns (regex)
+ */
+export function getCryptoDBPatterns(entities: readonly string[] = CRYPTO_ENTITIES_V1): {
+  fullNameKeywords: string[];
+  tickerPatterns: string[];
+} {
+  const fullNameKeywords: string[] = [];
+  const tickerPatterns: string[] = [];
+
+  for (const entity of entities) {
+    // Add full name keywords
+    const fullNames = CRYPTO_FULLNAME_KEYWORDS[entity];
+    if (fullNames) {
+      fullNameKeywords.push(...fullNames);
+    }
+
+    // Add ticker regex patterns
+    const tickers = CRYPTO_TICKER_KEYWORDS[entity];
+    if (tickers) {
+      for (const ticker of tickers) {
+        tickerPatterns.push(getCryptoTickerRegex(ticker));
+      }
+    }
+  }
+
+  return { fullNameKeywords, tickerPatterns };
 }
 
 // ============================================================
@@ -305,26 +378,14 @@ function isKalshiSportsMarket(metadata: Record<string, unknown> | null | undefin
 }
 
 // ============================================================
-// Token-based Keyword Filter
-// ============================================================
-
-function hasKeywordToken(title: string, keywords: string[]): boolean {
-  const tokens = new Set(tokenizeForEntities(title));
-  for (const kw of keywords) {
-    if (tokens.has(kw.toLowerCase())) {
-      return true;
-    }
-  }
-  return false;
-}
-
-// ============================================================
 // Fetch Crypto Markets
 // ============================================================
 
 /**
- * Fetch eligible crypto markets using unified pipeline
+ * Fetch eligible crypto markets using unified pipeline (v2.5.2)
  * This is the SAME pipeline used by suggest-matches --topic crypto
+ *
+ * v2.5.2: Now uses regex-based DB search for tickers to find "$ETH", "ETH price" etc.
  */
 export async function fetchEligibleCryptoMarkets(
   marketRepo: MarketRepository,
@@ -346,20 +407,21 @@ export async function fetchEligibleCryptoMarkets(
     withSettleDate: 0,
   };
 
-  // Get strict keywords for DB query
-  const strictKeywords = getCryptoStrictKeywords(entities);
+  // v2.5.2: Use new regex-based DB search for tickers
+  const { fullNameKeywords, tickerPatterns } = getCryptoDBPatterns(entities);
 
-  // Step 1: Fetch from DB with keyword pre-filter
-  let markets = await marketRepo.listEligibleMarkets(venue as Venue, {
+  // Step 1: Fetch from DB with regex patterns for tickers
+  let markets = await marketRepo.listEligibleMarketsCrypto(venue as Venue, {
     lookbackHours,
     limit,
-    titleKeywords: strictKeywords,
+    fullNameKeywords,
+    tickerPatterns,
     orderBy: 'closeTime',
   });
   stats.total = markets.length;
 
-  // Step 2: Apply token-based keyword post-filter (remove "Hegseth" etc.)
-  markets = markets.filter(m => hasKeywordToken(m.title, strictKeywords));
+  // Step 2: No post-filter needed - regex already handles word boundaries
+  // (keeping stat for consistency)
   stats.afterKeywordFilter = markets.length;
 
   // Step 3: Apply sports filtering

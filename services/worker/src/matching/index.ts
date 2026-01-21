@@ -30,13 +30,15 @@ export {
   collectSamplesByEntity,
 } from './macroPipeline.js';
 
-// Crypto Pipeline (v2.5.0)
+// Crypto Pipeline (v2.5.0, v2.5.2)
 export {
   // Constants
   CRYPTO_ENTITIES_V1,
   CRYPTO_ENTITIES_EXTENDED,
   CRYPTO_KEYWORDS_STRICT,
   CRYPTO_KEYWORDS_BROAD,
+  CRYPTO_FULLNAME_KEYWORDS,
+  CRYPTO_TICKER_KEYWORDS,
   // Types
   type CryptoEntityV1,
   type CryptoSignals,
@@ -46,6 +48,8 @@ export {
   type CryptoScoreResult,
   // Functions
   getCryptoStrictKeywords,
+  getCryptoTickerRegex,
+  getCryptoDBPatterns,
   extractSettleDate,
   settleDateDayDiff,
   extractCryptoEntity,

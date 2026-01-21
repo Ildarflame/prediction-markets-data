@@ -30,6 +30,13 @@ import {
   RARE_MACRO_ENTITIES,
   RARE_ENTITY_DEFAULT_LOOKBACK_HOURS,
   type PeriodCompatibilityKind,
+  // Crypto Pipeline (v2.5.2)
+  CRYPTO_ENTITIES_V1,
+  fetchEligibleCryptoMarkets,
+  buildCryptoIndex,
+  findCryptoCandidates,
+  cryptoMatchScore,
+  type CryptoMarket,
 } from '../matching/index.js';
 
 /**
@@ -1573,6 +1580,282 @@ const MATCHING_KEYWORDS = [
   'ukraine', 'russia', 'china', 'war',
 ];
 
+// ============================================================
+// v2.5.2: Crypto-specific matching function
+// ============================================================
+
+interface CryptoSuggestMatchesOptions {
+  fromVenue: CoreVenue;
+  toVenue: CoreVenue;
+  minScore: number;
+  topK: number;
+  lookbackHours: number;
+  limitLeft: number;
+  limitRight: number;
+  maxSuggestionsPerLeft: number;
+  excludeSports: boolean;
+  marketRepo: MarketRepository;
+  linkRepo: MarketLinkRepository;
+  result: SuggestMatchesResult;
+}
+
+/**
+ * Crypto-specific matching flow (v2.5.2)
+ *
+ * Uses dedicated crypto pipeline:
+ * - fetchEligibleCryptoMarkets with regex-based DB search for tickers
+ * - buildCryptoIndex keyed by entity + settleDate
+ * - findCryptoCandidates with ±1 day window
+ * - cryptoMatchScore with hard gates (entity match, date within ±1 day)
+ */
+async function runCryptoSuggestMatches(options: CryptoSuggestMatchesOptions): Promise<SuggestMatchesResult> {
+  const {
+    fromVenue,
+    toVenue,
+    minScore,
+    topK,
+    lookbackHours,
+    limitLeft,
+    limitRight,
+    maxSuggestionsPerLeft,
+    excludeSports,
+    marketRepo,
+    linkRepo,
+    result,
+  } = options;
+
+  console.log(`[crypto-matching] Starting suggest-matches v2.5.2: ${fromVenue} -> ${toVenue}`);
+  console.log(`[crypto-matching] minScore=${minScore}, topK=${topK}, lookbackHours=${lookbackHours}`);
+  console.log(`[crypto-matching] limitLeft=${limitLeft}, limitRight=${limitRight}, maxSuggestionsPerLeft=${maxSuggestionsPerLeft}`);
+  console.log(`[crypto-matching] Entities: ${CRYPTO_ENTITIES_V1.join(', ')}`);
+  console.log(`[crypto-matching] Sports exclusion: ${excludeSports ? 'enabled' : 'disabled'}`);
+
+  try {
+    // Fetch crypto markets from both venues
+    console.log(`[crypto-matching] Fetching crypto markets from ${fromVenue}...`);
+    const { markets: leftMarkets, stats: leftStats } = await fetchEligibleCryptoMarkets(marketRepo, {
+      venue: fromVenue,
+      lookbackHours,
+      limit: limitLeft,
+      entities: CRYPTO_ENTITIES_V1,
+      excludeSports,
+    });
+    result.leftCount = leftMarkets.length;
+    console.log(`[crypto-matching] ${fromVenue}: ${leftStats.total} DB -> ${leftStats.afterSportsFilter} (sports) -> ${leftStats.withCryptoEntity} (entity) [${leftStats.withSettleDate} with date]`);
+
+    console.log(`[crypto-matching] Fetching crypto markets from ${toVenue}...`);
+    const { markets: rightMarkets, stats: rightStats } = await fetchEligibleCryptoMarkets(marketRepo, {
+      venue: toVenue,
+      lookbackHours,
+      limit: limitRight,
+      entities: CRYPTO_ENTITIES_V1,
+      excludeSports,
+    });
+    result.rightCount = rightMarkets.length;
+    console.log(`[crypto-matching] ${toVenue}: ${rightStats.total} DB -> ${rightStats.afterSportsFilter} (sports) -> ${rightStats.withCryptoEntity} (entity) [${rightStats.withSettleDate} with date]`);
+
+    if (leftMarkets.length === 0 || rightMarkets.length === 0) {
+      console.log(`[crypto-matching] No markets to match`);
+      return result;
+    }
+
+    // Build crypto index for right markets
+    console.log(`[crypto-matching] Building crypto index for ${toVenue}...`);
+    const cryptoIndex = buildCryptoIndex(rightMarkets);
+    console.log(`[crypto-matching] Index built: ${cryptoIndex.size} unique entity+date keys`);
+
+    // Get set of markets that already have confirmed links
+    const confirmedLeft = new Set<number>();
+    for (const { market } of leftMarkets) {
+      const hasConfirmed = await linkRepo.hasConfirmedLink(fromVenue as Venue, market.id);
+      if (hasConfirmed) {
+        confirmedLeft.add(market.id);
+      }
+    }
+    console.log(`[crypto-matching] ${confirmedLeft.size} markets from ${fromVenue} already have confirmed links`);
+
+    // Crypto coverage tracking
+    const cryptoStats = {
+      leftByEntity: new Map<string, number>(),
+      rightByEntity: new Map<string, number>(),
+      matchedByEntity: new Map<string, number>(),
+      leftBySettleDate: new Map<string, number>(),
+      rightBySettleDate: new Map<string, number>(),
+    };
+
+    // Build right-side entity counts
+    for (const { signals } of rightMarkets) {
+      if (signals.entity) {
+        cryptoStats.rightByEntity.set(signals.entity, (cryptoStats.rightByEntity.get(signals.entity) || 0) + 1);
+      }
+      if (signals.settleDate) {
+        cryptoStats.rightBySettleDate.set(signals.settleDate, (cryptoStats.rightBySettleDate.get(signals.settleDate) || 0) + 1);
+      }
+    }
+
+    // Process each left market
+    console.log(`[crypto-matching] Processing matches...`);
+    let processed = 0;
+    const effectiveCap = Math.min(topK, maxSuggestionsPerLeft);
+
+    for (const leftCrypto of leftMarkets) {
+      const leftMarket = leftCrypto.market;
+
+      // Skip if already has confirmed link
+      if (confirmedLeft.has(leftMarket.id)) {
+        result.skippedConfirmed++;
+        continue;
+      }
+
+      // Track left-side entity
+      if (leftCrypto.signals.entity) {
+        cryptoStats.leftByEntity.set(leftCrypto.signals.entity, (cryptoStats.leftByEntity.get(leftCrypto.signals.entity) || 0) + 1);
+      }
+      if (leftCrypto.signals.settleDate) {
+        cryptoStats.leftBySettleDate.set(leftCrypto.signals.settleDate, (cryptoStats.leftBySettleDate.get(leftCrypto.signals.settleDate) || 0) + 1);
+      }
+
+      // Find candidates using crypto index (same entity, settleDate ±1 day)
+      const candidates = findCryptoCandidates(leftCrypto, cryptoIndex, true);
+      result.candidatesConsidered += candidates.length;
+
+      // Score candidates
+      const scores: Array<{ rightMarket: CryptoMarket; score: number; reason: string }> = [];
+
+      for (const rightCrypto of candidates) {
+        // Skip self-match
+        if (rightCrypto.market.id === leftMarket.id) continue;
+
+        // Calculate crypto score (includes hard gates)
+        const scoreResult = cryptoMatchScore(leftCrypto, rightCrypto);
+
+        // null means gate failed
+        if (!scoreResult) {
+          result.skippedDateGate++; // entity or date gate
+          continue;
+        }
+
+        if (scoreResult.score >= minScore) {
+          scores.push({
+            rightMarket: rightCrypto,
+            score: scoreResult.score,
+            reason: scoreResult.reason,
+          });
+        }
+      }
+
+      // Sort by score and take top-k
+      scores.sort((a, b) => b.score - a.score);
+      const topCandidates = scores.slice(0, effectiveCap);
+
+      // Track stats
+      result.generatedPairsTotal += scores.length;
+      result.savedTopKTotal += topCandidates.length;
+      result.droppedByCapTotal += Math.max(0, scores.length - effectiveCap);
+
+      // Save suggestions
+      for (const candidate of topCandidates) {
+        try {
+          const upsertResult = await linkRepo.upsertSuggestion(
+            fromVenue as Venue,
+            leftMarket.id,
+            toVenue as Venue,
+            candidate.rightMarket.market.id,
+            candidate.score,
+            candidate.reason
+          );
+
+          if (upsertResult.created) {
+            result.suggestionsCreated++;
+          } else {
+            result.suggestionsUpdated++;
+          }
+
+          // Track matched entities
+          if (leftCrypto.signals.entity) {
+            cryptoStats.matchedByEntity.set(
+              leftCrypto.signals.entity,
+              (cryptoStats.matchedByEntity.get(leftCrypto.signals.entity) || 0) + 1
+            );
+          }
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          result.errors.push(`Failed to save suggestion for ${leftMarket.id}: ${errMsg}`);
+        }
+      }
+
+      processed++;
+      if (processed % 100 === 0) {
+        console.log(`[crypto-matching] Processed ${processed}/${leftMarkets.length - confirmedLeft.size} markets...`);
+      }
+    }
+
+    // Print summary
+    console.log(`\n[crypto-matching] Suggest-matches v2.5.2 complete:`);
+    console.log(`  Left markets (${fromVenue}): ${result.leftCount}`);
+    console.log(`  Right markets (${toVenue}): ${result.rightCount}`);
+    console.log(`  Skipped (already confirmed): ${result.skippedConfirmed}`);
+    console.log(`  Skipped (entity/date gate): ${result.skippedDateGate}`);
+    console.log(`  Candidates considered: ${result.candidatesConsidered}`);
+    console.log(`  Generated pairs (score >= ${minScore}): ${result.generatedPairsTotal}`);
+    console.log(`  Saved (top-${effectiveCap} cap): ${result.savedTopKTotal}`);
+    console.log(`  Dropped by cap: ${result.droppedByCapTotal}`);
+    console.log(`  Suggestions created: ${result.suggestionsCreated}`);
+    console.log(`  Suggestions updated: ${result.suggestionsUpdated}`);
+
+    if (result.errors.length > 0) {
+      console.log(`  Errors: ${result.errors.length}`);
+    }
+
+    // Crypto coverage report
+    console.log(`\n[crypto-coverage] Crypto Entity Coverage Report:`);
+    console.log(`${'Entity'.padEnd(12)} | ${'Left'.padStart(6)} | ${'Right'.padStart(6)} | ${'Matched'.padStart(8)} | ${'Rate'.padStart(6)}`);
+    console.log('-'.repeat(48));
+
+    let totalLeft = 0;
+    let totalMatched = 0;
+
+    for (const entity of CRYPTO_ENTITIES_V1) {
+      const left = cryptoStats.leftByEntity.get(entity) || 0;
+      const right = cryptoStats.rightByEntity.get(entity) || 0;
+      const matched = cryptoStats.matchedByEntity.get(entity) || 0;
+      const rate = left > 0 ? ((matched / left) * 100).toFixed(1) + '%' : 'N/A';
+
+      console.log(`${entity.padEnd(12)} | ${String(left).padStart(6)} | ${String(right).padStart(6)} | ${String(matched).padStart(8)} | ${rate.padStart(6)}`);
+
+      totalLeft += left;
+      totalMatched += matched;
+    }
+
+    console.log('-'.repeat(48));
+    const totalRate = totalLeft > 0 ? ((totalMatched / totalLeft) * 100).toFixed(1) + '%' : 'N/A';
+    console.log(`${'TOTAL'.padEnd(12)} | ${String(totalLeft).padStart(6)} | ${String('').padStart(6)} | ${String(totalMatched).padStart(8)} | ${totalRate.padStart(6)}`);
+
+    // Top settle dates with overlap
+    console.log(`\n[crypto-coverage] Top SettleDates with overlap:`);
+    const leftDates = [...cryptoStats.leftBySettleDate.entries()].sort((a, b) => b[1] - a[1]);
+    const rightDatesSet = new Set(cryptoStats.rightBySettleDate.keys());
+    let shownDates = 0;
+    for (const [date, leftCount] of leftDates) {
+      if (rightDatesSet.has(date) && shownDates < 10) {
+        const rightCount = cryptoStats.rightBySettleDate.get(date) || 0;
+        console.log(`  ${date}: ${leftCount} ${fromVenue} × ${rightCount} ${toVenue}`);
+        shownDates++;
+      }
+    }
+    if (shownDates === 0) {
+      console.log(`  No date overlap found`);
+    }
+
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    result.errors.push(`Crypto matching error: ${errMsg}`);
+    console.error(`[crypto-matching] Error: ${errMsg}`);
+  }
+
+  return result;
+}
+
 export async function runSuggestMatches(options: SuggestMatchesOptions): Promise<SuggestMatchesResult> {
   // Defaults for macro year window
   const currentYear = new Date().getFullYear();
@@ -1669,6 +1952,26 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     droppedByRightCap: 0,
     errors: [],
   };
+
+  // ============================================================
+  // v2.5.2: Crypto-specific matching path
+  // ============================================================
+  if (topic === 'crypto') {
+    return await runCryptoSuggestMatches({
+      fromVenue,
+      toVenue,
+      minScore,
+      topK,
+      lookbackHours,
+      limitLeft,
+      limitRight,
+      maxSuggestionsPerLeft,
+      excludeSports,
+      marketRepo,
+      linkRepo,
+      result,
+    });
+  }
 
   // v2.4.5: Use closeTime ordering for macro to include old active markets
   const orderBy = topic === 'macro' ? 'closeTime' as const : 'id' as const;

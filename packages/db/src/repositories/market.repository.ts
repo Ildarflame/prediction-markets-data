@@ -394,6 +394,131 @@ export class MarketRepository {
 
     return eligible;
   }
+
+  /**
+   * List eligible crypto markets with token-safe regex patterns (v2.5.2)
+   *
+   * Uses PostgreSQL regex (~*) for word-boundary matching of tickers:
+   * - "eth" matches "ETH price" and "$ETH" but NOT "Hegseth"
+   * - "btc" matches "BTC price" and "$BTC" but NOT "BTCXYZ"
+   * - "sol" matches "SOL price" and "$SOL" but NOT "solution"
+   *
+   * @param venue - Venue to search
+   * @param options.lookbackHours - Hours to look back for closed markets
+   * @param options.limit - Maximum markets to return
+   * @param options.fullNameKeywords - Full name keywords (use ILIKE contains)
+   * @param options.tickerPatterns - Ticker regex patterns for word-boundary matching
+   * @param options.orderBy - Sort order ('closeTime' recommended for crypto)
+   */
+  async listEligibleMarketsCrypto(
+    venue: Venue,
+    options: {
+      lookbackHours?: number;
+      limit?: number;
+      /** Full name keywords like 'bitcoin', 'ethereum' (ILIKE contains) */
+      fullNameKeywords?: string[];
+      /** Ticker regex patterns like '(^|[^a-z0-9])\\$?eth([^a-z0-9]|$)' */
+      tickerPatterns?: string[];
+      orderBy?: 'id' | 'closeTime';
+    } = {}
+  ): Promise<EligibleMarket[]> {
+    const {
+      lookbackHours = 720,
+      limit = 5000,
+      fullNameKeywords = [],
+      tickerPatterns = [],
+      orderBy = 'closeTime',
+    } = options;
+
+    const lookbackCutoff = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
+
+    // Build raw SQL for regex matching
+    // PostgreSQL ~* is case-insensitive regex match
+    const conditions: string[] = [];
+    const params: any[] = [venue, lookbackCutoff];
+    let paramIndex = 3;
+
+    // Add full name keywords (ILIKE)
+    for (const kw of fullNameKeywords) {
+      conditions.push(`title ILIKE $${paramIndex}`);
+      params.push(`%${kw}%`);
+      paramIndex++;
+    }
+
+    // Add ticker regex patterns (~*)
+    for (const pattern of tickerPatterns) {
+      conditions.push(`title ~* $${paramIndex}`);
+      params.push(pattern);
+      paramIndex++;
+    }
+
+    if (conditions.length === 0) {
+      // No keywords/patterns - return empty
+      return [];
+    }
+
+    const keywordCondition = conditions.join(' OR ');
+    const orderByClause = orderBy === 'closeTime' ? 'close_time DESC NULLS LAST' : 'id DESC';
+
+    // Raw query for regex support
+    const query = `
+      SELECT m.id, m.title, m.category, m.status, m.close_time as "closeTime", m.venue, m.metadata
+      FROM "Market" m
+      WHERE m.venue = $1
+        AND (m.status = 'active' OR (m.status = 'closed' AND m.close_time >= $2))
+        AND (${keywordCondition})
+      ORDER BY ${orderByClause}
+      LIMIT ${limit}
+    `;
+
+    const markets = await this.prisma.$queryRawUnsafe<Array<{
+      id: number;
+      title: string;
+      category: string | null;
+      status: string;
+      closeTime: Date | null;
+      venue: Venue;
+      metadata: Record<string, unknown> | null;
+    }>>(query, ...params);
+
+    // Get outcomes for binary market filtering
+    const marketIds = markets.map(m => m.id);
+    if (marketIds.length === 0) return [];
+
+    const outcomes = await this.prisma.outcome.findMany({
+      where: { marketId: { in: marketIds } },
+      select: { marketId: true, side: true },
+    });
+
+    // Group outcomes by market
+    const outcomesByMarket = new Map<number, string[]>();
+    for (const o of outcomes) {
+      if (!outcomesByMarket.has(o.marketId)) {
+        outcomesByMarket.set(o.marketId, []);
+      }
+      outcomesByMarket.get(o.marketId)!.push(o.side);
+    }
+
+    // Filter to binary markets (2 outcomes, yes/no sides)
+    const eligible: EligibleMarket[] = [];
+    for (const market of markets) {
+      const sides = outcomesByMarket.get(market.id) || [];
+      if (sides.length !== 2) continue;
+      if (!sides.includes('yes') || !sides.includes('no')) continue;
+
+      eligible.push({
+        id: market.id,
+        title: market.title,
+        category: market.category,
+        status: market.status,
+        closeTime: market.closeTime,
+        venue: market.venue,
+        metadata: market.metadata,
+      });
+    }
+
+    return eligible;
+  }
 }
 
 /**
