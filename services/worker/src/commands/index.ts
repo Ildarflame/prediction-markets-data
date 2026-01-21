@@ -66,6 +66,7 @@ export { runKalshiIngestionDiag, type IngestionDiagOptions, type IngestionDiagRe
 // Crypto intraday commands (v2.6.3)
 export { runIntradayBest, type IntradayBestOptions, type IntradayBestResult, type IntradayBestMatch } from './crypto-intraday-best.js';
 
-// Link hygiene commands (v2.6.2)
+// Link hygiene commands (v2.6.2, v2.6.4)
 export { runLinksStats, type LinksStatsResult } from './links-stats.js';
 export { runLinksCleanup, type LinksCleanupOptions, type LinksCleanupResult } from './links-cleanup.js';
+export { runLinksBackfill, type LinksBackfillOptions, type LinksBackfillResult } from './links-backfill.js';
