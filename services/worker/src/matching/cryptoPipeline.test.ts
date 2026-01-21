@@ -568,3 +568,154 @@ describe('extractCryptoComparator (v2.6.1)', () => {
     assert.strictEqual(result.source, ComparatorSource.UNKNOWN);
   });
 });
+
+// ============================================================
+// v2.6.4: Intraday Matching Tests
+// ============================================================
+
+import {
+  calculateTimeBucket,
+  intradayMatchScore,
+  extractIntradayDirection,
+  type IntradayMarket,
+  type IntradaySignals,
+} from './cryptoPipeline.js';
+
+// Helper to create an IntradayMarket for testing
+function makeIntradayMarket(
+  id: number,
+  title: string,
+  entity: string,
+  timeBucket: string | null,
+  closeTime: Date | null = null,
+  direction: 'UP' | 'DOWN' | null = null
+): IntradayMarket {
+  const signals: IntradaySignals = {
+    entity,
+    timeBucket,
+    closeTime,
+    marketType: CryptoMarketType.INTRADAY_UPDOWN,
+    direction,
+  };
+  return {
+    market: {
+      id,
+      title,
+      category: null,
+      status: 'active',
+      closeTime,
+      venue: 'kalshi',
+      metadata: null,
+    },
+    signals,
+  };
+}
+
+describe('calculateTimeBucket (v2.6.4)', () => {
+  it('should bucket to 15m intervals', () => {
+    const closeTime = new Date('2026-01-21T14:23:00.000Z');
+    const result = calculateTimeBucket(closeTime, '15m');
+    assert.strictEqual(result, '2026-01-21T14:15:00.000Z');
+  });
+
+  it('should bucket to 1h intervals', () => {
+    const closeTime = new Date('2026-01-21T14:45:00.000Z');
+    const result = calculateTimeBucket(closeTime, '1h');
+    assert.strictEqual(result, '2026-01-21T14:00:00.000Z');
+  });
+
+  it('should return null for null closeTime', () => {
+    const result = calculateTimeBucket(null, '15m');
+    assert.strictEqual(result, null);
+  });
+
+  it('should handle exact bucket boundaries', () => {
+    const closeTime = new Date('2026-01-21T14:00:00.000Z');
+    const result = calculateTimeBucket(closeTime, '1h');
+    assert.strictEqual(result, '2026-01-21T14:00:00.000Z');
+  });
+});
+
+describe('intradayMatchScore (v2.6.4)', () => {
+  describe('hard gates', () => {
+    it('should reject when entities do not match', () => {
+      const left = makeIntradayMarket(1, 'BTC Up next 15 min', 'BITCOIN', '2026-01-21T14:00:00.000Z');
+      const right = makeIntradayMarket(2, 'ETH Up next 15 min', 'ETHEREUM', '2026-01-21T14:00:00.000Z');
+
+      const result = intradayMatchScore(left, right);
+      assert.strictEqual(result, null, 'Should return null for entity mismatch');
+    });
+
+    it('should reject when time buckets do not match', () => {
+      const left = makeIntradayMarket(1, 'BTC Up next 15 min', 'BITCOIN', '2026-01-21T14:00:00.000Z');
+      const right = makeIntradayMarket(2, 'BTC Up next 15 min', 'BITCOIN', '2026-01-21T15:00:00.000Z');
+
+      const result = intradayMatchScore(left, right);
+      assert.strictEqual(result, null, 'Should return null for time bucket mismatch');
+    });
+
+    it('should reject when entity is null', () => {
+      const left = makeIntradayMarket(1, 'BTC Up next 15 min', null as any, '2026-01-21T14:00:00.000Z');
+      const right = makeIntradayMarket(2, 'BTC Up next 15 min', 'BITCOIN', '2026-01-21T14:00:00.000Z');
+
+      const result = intradayMatchScore(left, right);
+      assert.strictEqual(result, null, 'Should return null when entity is null');
+    });
+
+    it('should reject when timeBucket is null', () => {
+      const left = makeIntradayMarket(1, 'BTC Up next 15 min', 'BITCOIN', null);
+      const right = makeIntradayMarket(2, 'BTC Up next 15 min', 'BITCOIN', '2026-01-21T14:00:00.000Z');
+
+      const result = intradayMatchScore(left, right);
+      assert.strictEqual(result, null, 'Should return null when timeBucket is null');
+    });
+  });
+
+  describe('scoring', () => {
+    it('should return high score for exact entity + bucket match', () => {
+      const left = makeIntradayMarket(1, 'BTC Up or Down next 15 min', 'BITCOIN', '2026-01-21T14:00:00.000Z');
+      const right = makeIntradayMarket(2, 'Bitcoin Up or Down next 15 min', 'BITCOIN', '2026-01-21T14:00:00.000Z');
+
+      const result = intradayMatchScore(left, right);
+      assert.ok(result !== null, 'Should return a score');
+      // entity 0.6 + time 0.3 + some text = at least 0.9
+      assert.ok(result.score >= 0.9, `Score should be >= 0.9, got ${result.score}`);
+    });
+
+    it('should track direction match', () => {
+      const left = makeIntradayMarket(1, 'BTC Up next 15 min', 'BITCOIN', '2026-01-21T14:00:00.000Z', null, 'UP');
+      const right = makeIntradayMarket(2, 'Bitcoin goes Up', 'BITCOIN', '2026-01-21T14:00:00.000Z', null, 'UP');
+
+      const result = intradayMatchScore(left, right);
+      assert.ok(result !== null, 'Should return a score');
+      assert.ok(result.directionMatch, 'Direction should match');
+    });
+  });
+});
+
+describe('extractIntradayDirection (v2.6.4)', () => {
+  it('should extract UP from "up" alone', () => {
+    const result = extractIntradayDirection('BTC goes up next 15 min');
+    assert.strictEqual(result, 'UP');
+  });
+
+  it('should extract DOWN from "down" alone', () => {
+    const result = extractIntradayDirection('ETH goes down next 15 min');
+    assert.strictEqual(result, 'DOWN');
+  });
+
+  it('should return null for "up or down" pattern', () => {
+    const result = extractIntradayDirection('BTC Up or Down next 15 min');
+    assert.strictEqual(result, null);
+  });
+
+  it('should extract DOWN from "falls"', () => {
+    const result = extractIntradayDirection('Bitcoin falls in next hour');
+    assert.strictEqual(result, 'DOWN');
+  });
+
+  it('should extract UP from "rises"', () => {
+    const result = extractIntradayDirection('Ethereum rises today');
+    assert.strictEqual(result, 'UP');
+  });
+});

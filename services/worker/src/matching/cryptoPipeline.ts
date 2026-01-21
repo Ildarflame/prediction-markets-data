@@ -1538,13 +1538,18 @@ export interface IntradayMarket {
 export function extractIntradayDirection(title: string): 'UP' | 'DOWN' | null {
   const lower = title.toLowerCase();
 
+  // v2.6.4: Check for "up or down" / "down or up" patterns first - these are neutral
+  if (/\bup\s+or\s+down\b/i.test(lower) || /\bdown\s+or\s+up\b/i.test(lower)) {
+    return null;
+  }
+
   // Check for explicit UP patterns
-  if (/\bup\b(?!\s+or\s+down)/i.test(lower) || /\bgo\s+up\b/i.test(lower) || /\brises?\b/i.test(lower)) {
+  if (/\bup\b/i.test(lower) || /\bgo\s+up\b/i.test(lower) || /\brises?\b/i.test(lower)) {
     return 'UP';
   }
 
   // Check for explicit DOWN patterns
-  if (/\bdown\b(?!\s+or\s+up)/i.test(lower) || /\bgo\s+down\b/i.test(lower) || /\bfalls?\b/i.test(lower) || /\bdrops?\b/i.test(lower)) {
+  if (/\bdown\b/i.test(lower) || /\bgo\s+down\b/i.test(lower) || /\bfalls?\b/i.test(lower) || /\bdrops?\b/i.test(lower)) {
     return 'DOWN';
   }
 
