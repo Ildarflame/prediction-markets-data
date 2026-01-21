@@ -1581,7 +1581,7 @@ const MATCHING_KEYWORDS = [
 ];
 
 // ============================================================
-// v2.5.2: Crypto-specific matching function
+// v2.5.3: Crypto-specific matching function with dedup/caps
 // ============================================================
 
 interface CryptoSuggestMatchesOptions {
@@ -1594,19 +1594,39 @@ interface CryptoSuggestMatchesOptions {
   limitRight: number;
   maxSuggestionsPerLeft: number;
   excludeSports: boolean;
+  /** v2.5.3: Max suggestions per right market per (entity, settleKey) */
+  maxPerRight: number;
+  /** v2.5.3: Winner gap - if top1 - top2 >= gap, keep only top1 */
+  winnerGap: number;
   marketRepo: MarketRepository;
   linkRepo: MarketLinkRepository;
   result: SuggestMatchesResult;
 }
 
 /**
- * Crypto-specific matching flow (v2.5.2)
+ * v2.5.3 Dedup stats for crypto matching
+ */
+interface CryptoDedupStats {
+  generatedPairs: number;
+  savedTopK: number;
+  droppedByLeftCap: number;
+  droppedByRightCap: number;
+  droppedByWinnerGap: number;
+}
+
+/**
+ * Crypto-specific matching flow (v2.5.3)
  *
  * Uses dedicated crypto pipeline:
  * - fetchEligibleCryptoMarkets with regex-based DB search for tickers
  * - buildCryptoIndex keyed by entity + settleDate
  * - findCryptoCandidates with ±1 day window
  * - cryptoMatchScore with hard gates (entity match, date within ±1 day)
+ *
+ * v2.5.3 Dedup/caps:
+ * - --max-per-left: limit suggestions per left market (default 3)
+ * - --max-per-right: limit per (rightId, entity, settleKey) (default 5)
+ * - --winner-gap: if top1 - top2 >= gap, keep only top1 (default 0.08)
  */
 async function runCryptoSuggestMatches(options: CryptoSuggestMatchesOptions): Promise<SuggestMatchesResult> {
   const {
@@ -1619,14 +1639,17 @@ async function runCryptoSuggestMatches(options: CryptoSuggestMatchesOptions): Pr
     limitRight,
     maxSuggestionsPerLeft,
     excludeSports,
+    maxPerRight,
+    winnerGap,
     marketRepo,
     linkRepo,
     result,
   } = options;
 
-  console.log(`[crypto-matching] Starting suggest-matches v2.5.2: ${fromVenue} -> ${toVenue}`);
+  console.log(`[crypto-matching] Starting suggest-matches v2.5.3: ${fromVenue} -> ${toVenue}`);
   console.log(`[crypto-matching] minScore=${minScore}, topK=${topK}, lookbackHours=${lookbackHours}`);
   console.log(`[crypto-matching] limitLeft=${limitLeft}, limitRight=${limitRight}, maxSuggestionsPerLeft=${maxSuggestionsPerLeft}`);
+  console.log(`[crypto-matching] maxPerRight=${maxPerRight}, winnerGap=${winnerGap} (v2.5.3 dedup)`);
   console.log(`[crypto-matching] Entities: ${CRYPTO_ENTITIES_V1.join(', ')}`);
   console.log(`[crypto-matching] Sports exclusion: ${excludeSports ? 'enabled' : 'disabled'}`);
 
@@ -1693,6 +1716,19 @@ async function runCryptoSuggestMatches(options: CryptoSuggestMatchesOptions): Pr
       }
     }
 
+    // v2.5.3: Track right-side usage for dedup
+    // Key: "rightId|entity|settleKey" -> count of suggestions using this right market
+    const rightUsage = new Map<string, number>();
+
+    // v2.5.3: Dedup stats
+    const dedupStats: CryptoDedupStats = {
+      generatedPairs: 0,
+      savedTopK: 0,
+      droppedByLeftCap: 0,
+      droppedByRightCap: 0,
+      droppedByWinnerGap: 0,
+    };
+
     // Process each left market
     console.log(`[crypto-matching] Processing matches...`);
     let processed = 0;
@@ -1720,7 +1756,7 @@ async function runCryptoSuggestMatches(options: CryptoSuggestMatchesOptions): Pr
       result.candidatesConsidered += candidates.length;
 
       // Score candidates
-      const scores: Array<{ rightMarket: CryptoMarket; score: number; reason: string }> = [];
+      const scores: Array<{ rightMarket: CryptoMarket; score: number; reason: string; entity: string; settleKey: string }> = [];
 
       for (const rightCrypto of candidates) {
         // Skip self-match
@@ -1736,25 +1772,64 @@ async function runCryptoSuggestMatches(options: CryptoSuggestMatchesOptions): Pr
         }
 
         if (scoreResult.score >= minScore) {
+          // v2.5.3: Build settle key for right-side cap
+          const entity = rightCrypto.signals.entity || 'UNKNOWN';
+          const settleKey = rightCrypto.signals.settlePeriod || rightCrypto.signals.settleDate || 'UNKNOWN';
+
           scores.push({
             rightMarket: rightCrypto,
             score: scoreResult.score,
             reason: scoreResult.reason,
+            entity,
+            settleKey,
           });
         }
       }
 
-      // Sort by score and take top-k
+      // Sort by score descending
       scores.sort((a, b) => b.score - a.score);
-      const topCandidates = scores.slice(0, effectiveCap);
 
-      // Track stats
+      // v2.5.3: Apply winner-gap logic
+      // If top1 - top2 >= winnerGap, keep only top1
+      let winnowedScores = scores;
+      if (scores.length >= 2 && winnerGap > 0) {
+        const gap = scores[0].score - scores[1].score;
+        if (gap >= winnerGap) {
+          dedupStats.droppedByWinnerGap += scores.length - 1;
+          winnowedScores = [scores[0]];
+        }
+      }
+
+      // Track generated pairs before any caps
+      dedupStats.generatedPairs += winnowedScores.length;
+
+      // Apply left cap
+      const afterLeftCap = winnowedScores.slice(0, effectiveCap);
+      dedupStats.droppedByLeftCap += winnowedScores.length - afterLeftCap.length;
+
+      // v2.5.3: Apply right-side cap per (rightId, entity, settleKey)
+      const finalCandidates: typeof afterLeftCap = [];
+      for (const candidate of afterLeftCap) {
+        const rightKey = `${candidate.rightMarket.market.id}|${candidate.entity}|${candidate.settleKey}`;
+        const currentUsage = rightUsage.get(rightKey) || 0;
+
+        if (currentUsage < maxPerRight) {
+          finalCandidates.push(candidate);
+          rightUsage.set(rightKey, currentUsage + 1);
+        } else {
+          dedupStats.droppedByRightCap++;
+        }
+      }
+
+      dedupStats.savedTopK += finalCandidates.length;
+
+      // Track stats (legacy)
       result.generatedPairsTotal += scores.length;
-      result.savedTopKTotal += topCandidates.length;
-      result.droppedByCapTotal += Math.max(0, scores.length - effectiveCap);
+      result.savedTopKTotal += finalCandidates.length;
+      result.droppedByCapTotal += Math.max(0, scores.length - finalCandidates.length);
 
       // Save suggestions
-      for (const candidate of topCandidates) {
+      for (const candidate of finalCandidates) {
         try {
           const upsertResult = await linkRepo.upsertSuggestion(
             fromVenue as Venue,
@@ -1791,15 +1866,18 @@ async function runCryptoSuggestMatches(options: CryptoSuggestMatchesOptions): Pr
     }
 
     // Print summary
-    console.log(`\n[crypto-matching] Suggest-matches v2.5.2 complete:`);
+    console.log(`\n[crypto-matching] Suggest-matches v2.5.3 complete:`);
     console.log(`  Left markets (${fromVenue}): ${result.leftCount}`);
     console.log(`  Right markets (${toVenue}): ${result.rightCount}`);
     console.log(`  Skipped (already confirmed): ${result.skippedConfirmed}`);
     console.log(`  Skipped (entity/date gate): ${result.skippedDateGate}`);
     console.log(`  Candidates considered: ${result.candidatesConsidered}`);
-    console.log(`  Generated pairs (score >= ${minScore}): ${result.generatedPairsTotal}`);
-    console.log(`  Saved (top-${effectiveCap} cap): ${result.savedTopKTotal}`);
-    console.log(`  Dropped by cap: ${result.droppedByCapTotal}`);
+    console.log(`  Generated pairs (score >= ${minScore}): ${dedupStats.generatedPairs}`);
+    console.log(`  [v2.5.3 Dedup Stats]`);
+    console.log(`    Dropped by winner-gap (>=${winnerGap}): ${dedupStats.droppedByWinnerGap}`);
+    console.log(`    Dropped by left-cap (max ${effectiveCap}): ${dedupStats.droppedByLeftCap}`);
+    console.log(`    Dropped by right-cap (max ${maxPerRight}/key): ${dedupStats.droppedByRightCap}`);
+    console.log(`    Saved after dedup: ${dedupStats.savedTopK}`);
     console.log(`  Suggestions created: ${result.suggestionsCreated}`);
     console.log(`  Suggestions updated: ${result.suggestionsUpdated}`);
 
@@ -1957,6 +2035,10 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
   // v2.5.2: Crypto-specific matching path
   // ============================================================
   if (topic === 'crypto') {
+    // v2.5.3: Crypto dedup/caps options (ENV overridable)
+    const cryptoMaxPerRight = parseInt(process.env.CRYPTO_MAX_PER_RIGHT || '5', 10);
+    const cryptoWinnerGap = parseFloat(process.env.CRYPTO_WINNER_GAP || '0.08');
+
     return await runCryptoSuggestMatches({
       fromVenue,
       toVenue,
@@ -1965,8 +2047,10 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       lookbackHours,
       limitLeft,
       limitRight,
-      maxSuggestionsPerLeft,
+      maxSuggestionsPerLeft: parseInt(process.env.CRYPTO_MAX_PER_LEFT || '3', 10),
       excludeSports,
+      maxPerRight: cryptoMaxPerRight,
+      winnerGap: cryptoWinnerGap,
       marketRepo,
       linkRepo,
       result,

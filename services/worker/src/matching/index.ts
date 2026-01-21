@@ -30,7 +30,7 @@ export {
   collectSamplesByEntity,
 } from './macroPipeline.js';
 
-// Crypto Pipeline (v2.5.0, v2.5.2)
+// Crypto Pipeline (v2.5.3)
 export {
   // Constants
   CRYPTO_ENTITIES_V1,
@@ -39,6 +39,8 @@ export {
   CRYPTO_KEYWORDS_BROAD,
   CRYPTO_FULLNAME_KEYWORDS,
   CRYPTO_TICKER_KEYWORDS,
+  // Enums (v2.5.3)
+  CryptoDateType,
   // Types
   type CryptoEntityV1,
   type CryptoSignals,
@@ -46,6 +48,8 @@ export {
   type FetchCryptoMarketsOptions,
   type FetchCryptoMarketsStats,
   type CryptoScoreResult,
+  type SettleDateResult,
+  type CryptoNumberResult,
   // Functions
   getCryptoStrictKeywords,
   getCryptoTickerRegex,
@@ -54,6 +58,9 @@ export {
   settleDateDayDiff,
   extractCryptoEntity,
   extractCryptoSignals,
+  extractCryptoNumbers,
+  areDateTypesCompatible,
+  arePeriodsEqual,
   fetchEligibleCryptoMarkets,
   buildCryptoIndex,
   findCryptoCandidates,

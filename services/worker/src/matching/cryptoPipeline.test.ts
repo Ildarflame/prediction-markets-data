@@ -1,5 +1,5 @@
 /**
- * Unit tests for cryptoPipeline.ts
+ * Unit tests for cryptoPipeline.ts (v2.5.3)
  * Run with: npx tsx --test services/worker/src/matching/cryptoPipeline.test.ts
  */
 import { describe, it } from 'node:test';
@@ -8,27 +8,41 @@ import {
   cryptoMatchScore,
   extractCryptoEntity,
   extractSettleDate,
+  extractCryptoNumbers,
   settleDateDayDiff,
   getCryptoTickerRegex,
+  areDateTypesCompatible,
+  arePeriodsEqual,
+  CryptoDateType,
   type CryptoMarket,
   type CryptoSignals,
 } from './cryptoPipeline.js';
 import { buildFingerprint, MarketIntent, type MarketFingerprint } from '@data-module/core';
 
-// Helper to create a CryptoMarket for testing
+// Helper to create a CryptoMarket for testing (v2.5.3)
 function makeCryptoMarket(
   id: number,
   title: string,
   entity: string,
   settleDate: string,
-  numbers: number[] = []
+  numbers: number[] = [],
+  options: {
+    dateType?: CryptoDateType;
+    settlePeriod?: string | null;
+    numberContext?: 'price' | 'threshold' | 'unknown';
+    comparator?: string | null;
+  } = {}
 ): CryptoMarket {
   const fingerprint = buildFingerprint(title, null);
   const signals: CryptoSignals = {
     entity,
     settleDate,
     settleDateParsed: null,
+    dateType: options.dateType || CryptoDateType.DAY_EXACT,
+    settlePeriod: options.settlePeriod ?? null,
     numbers,
+    numberContext: options.numberContext || 'unknown',
+    comparator: options.comparator ?? fingerprint.comparator,
     intent: fingerprint.intent,
     fingerprint,
   };
@@ -72,12 +86,31 @@ describe('cryptoMatchScore', () => {
       assert.strictEqual(result, null, 'Should return null when left entity is null');
     });
 
-    it('should reject when date is null', () => {
-      const left = makeCryptoMarket(1, 'Bitcoin above $100k', 'BITCOIN', null as any, [100000]);
-      const right = makeCryptoMarket(2, 'Bitcoin above $100k', 'BITCOIN', '2026-01-21', [100000]);
+    it('should reject when date types are incompatible (v2.5.3)', () => {
+      const left = makeCryptoMarket(1, 'Bitcoin above $100k', 'BITCOIN', '2026-01-21', [100000], {
+        dateType: CryptoDateType.DAY_EXACT,
+      });
+      const right = makeCryptoMarket(2, 'Bitcoin above $100k end of Jan', 'BITCOIN', '2026-01-31', [100000], {
+        dateType: CryptoDateType.MONTH_END,
+        settlePeriod: '2026-01',
+      });
 
       const result = cryptoMatchScore(left, right);
-      assert.strictEqual(result, null, 'Should return null when date is null');
+      assert.strictEqual(result, null, 'Should return null when date types are incompatible');
+    });
+
+    it('should reject MONTH_END when periods do not match (v2.5.3)', () => {
+      const left = makeCryptoMarket(1, 'Bitcoin end of Jan', 'BITCOIN', '2026-01-31', [100000], {
+        dateType: CryptoDateType.MONTH_END,
+        settlePeriod: '2026-01',
+      });
+      const right = makeCryptoMarket(2, 'Bitcoin end of Feb', 'BITCOIN', '2026-02-28', [100000], {
+        dateType: CryptoDateType.MONTH_END,
+        settlePeriod: '2026-02',
+      });
+
+      const result = cryptoMatchScore(left, right);
+      assert.strictEqual(result, null, 'Should return null when MONTH_END periods do not match');
     });
   });
 
@@ -119,6 +152,36 @@ describe('cryptoMatchScore', () => {
       const result = cryptoMatchScore(left, right);
       assert.ok(result !== null, 'Should return a score result');
       assert.strictEqual(result!.numberScore, 0, 'Number score should be 0 when one side has no numbers');
+    });
+
+    it('should accept same MONTH_END periods with high score (v2.5.3)', () => {
+      const left = makeCryptoMarket(1, 'Bitcoin end of January 2026', 'BITCOIN', '2026-01-31', [100000], {
+        dateType: CryptoDateType.MONTH_END,
+        settlePeriod: '2026-01',
+      });
+      const right = makeCryptoMarket(2, 'BTC end of Jan 2026', 'BITCOIN', '2026-01-31', [100000], {
+        dateType: CryptoDateType.MONTH_END,
+        settlePeriod: '2026-01',
+      });
+
+      const result = cryptoMatchScore(left, right);
+      assert.ok(result !== null, 'Should return a score result');
+      assert.strictEqual(result!.dateScore, 1.0, 'Date score should be 1.0 for matching MONTH_END');
+    });
+
+    it('should accept same QUARTER periods with high score (v2.5.3)', () => {
+      const left = makeCryptoMarket(1, 'Bitcoin Q1 2026', 'BITCOIN', '2026-03-31', [100000], {
+        dateType: CryptoDateType.QUARTER,
+        settlePeriod: '2026-Q1',
+      });
+      const right = makeCryptoMarket(2, 'BTC first quarter 2026', 'BITCOIN', '2026-03-31', [100000], {
+        dateType: CryptoDateType.QUARTER,
+        settlePeriod: '2026-Q1',
+      });
+
+      const result = cryptoMatchScore(left, right);
+      assert.ok(result !== null, 'Should return a score result');
+      assert.strictEqual(result!.dateScore, 1.0, 'Date score should be 1.0 for matching QUARTER');
     });
   });
 });
@@ -209,20 +272,133 @@ describe('getCryptoTickerRegex', () => {
   });
 });
 
-describe('extractSettleDate', () => {
-  it('should extract date from title with explicit date', () => {
+describe('extractSettleDate (v2.5.3)', () => {
+  it('should extract DAY_EXACT date from title', () => {
     const result = extractSettleDate('Bitcoin price on Jan 21, 2026', null);
     assert.strictEqual(result.date, '2026-01-21');
+    assert.strictEqual(result.dateType, CryptoDateType.DAY_EXACT);
+    assert.strictEqual(result.settlePeriod, null);
   });
 
-  it('should fall back to closeTime when no date in title', () => {
+  it('should extract MONTH_END from "end of January 2026"', () => {
+    const result = extractSettleDate('Bitcoin end of January 2026', null);
+    assert.strictEqual(result.dateType, CryptoDateType.MONTH_END);
+    assert.strictEqual(result.settlePeriod, '2026-01');
+    assert.strictEqual(result.date, '2026-01-31'); // Last day of January
+  });
+
+  it('should extract QUARTER from "Q1 2026"', () => {
+    const result = extractSettleDate('Bitcoin price Q1 2026', null);
+    assert.strictEqual(result.dateType, CryptoDateType.QUARTER);
+    assert.strictEqual(result.settlePeriod, '2026-Q1');
+    assert.strictEqual(result.date, '2026-03-31'); // End of Q1
+  });
+
+  it('should extract QUARTER from "first quarter 2026"', () => {
+    const result = extractSettleDate('Bitcoin first quarter 2026 prediction', null);
+    assert.strictEqual(result.dateType, CryptoDateType.QUARTER);
+    assert.strictEqual(result.settlePeriod, '2026-Q1');
+  });
+
+  it('should fall back to CLOSE_TIME when no date in title', () => {
     const closeTime = new Date('2026-03-15T00:00:00Z');
     const result = extractSettleDate('Bitcoin price prediction', closeTime);
     assert.strictEqual(result.date, '2026-03-15');
+    assert.strictEqual(result.dateType, CryptoDateType.CLOSE_TIME);
   });
 
-  it('should return null when no date available', () => {
+  it('should return UNKNOWN when no date available', () => {
     const result = extractSettleDate('Bitcoin price prediction', null);
     assert.strictEqual(result.date, null);
+    assert.strictEqual(result.dateType, CryptoDateType.UNKNOWN);
+  });
+});
+
+describe('extractCryptoNumbers (v2.5.3)', () => {
+  it('should extract $ prefixed numbers as price', () => {
+    const result = extractCryptoNumbers('Bitcoin above $79,000 on Jan 21');
+    assert.ok(result.numbers.includes(79000), 'Should extract $79,000');
+    assert.strictEqual(result.context, 'price');
+  });
+
+  it('should extract numbers with k/m suffixes', () => {
+    const result = extractCryptoNumbers('Bitcoin above 100k');
+    assert.ok(result.numbers.includes(100000), 'Should extract 100k as 100000');
+  });
+
+  it('should NOT extract day numbers from dates', () => {
+    const result = extractCryptoNumbers('Bitcoin on Jan 21');
+    assert.ok(!result.numbers.includes(21), 'Should NOT include 21 (day)');
+  });
+
+  it('should NOT extract year numbers from dates', () => {
+    const result = extractCryptoNumbers('Bitcoin in January 2026');
+    assert.ok(!result.numbers.includes(2026), 'Should NOT include 2026 (year)');
+  });
+
+  it('should extract numbers in comparator context', () => {
+    const result = extractCryptoNumbers('Bitcoin above 100000');
+    assert.ok(result.numbers.includes(100000), 'Should extract 100000 with comparator');
+    assert.strictEqual(result.context, 'threshold');
+  });
+
+  it('should extract multiple prices from range', () => {
+    const result = extractCryptoNumbers('Bitcoin between $99,000 and $101,000');
+    assert.ok(result.numbers.includes(99000), 'Should extract $99,000');
+    assert.ok(result.numbers.includes(101000), 'Should extract $101,000');
+  });
+});
+
+describe('areDateTypesCompatible (v2.5.3)', () => {
+  it('DAY_EXACT should be compatible with DAY_EXACT', () => {
+    assert.ok(areDateTypesCompatible(CryptoDateType.DAY_EXACT, CryptoDateType.DAY_EXACT));
+  });
+
+  it('DAY_EXACT should be compatible with CLOSE_TIME', () => {
+    assert.ok(areDateTypesCompatible(CryptoDateType.DAY_EXACT, CryptoDateType.CLOSE_TIME));
+  });
+
+  it('MONTH_END should be compatible with MONTH_END', () => {
+    assert.ok(areDateTypesCompatible(CryptoDateType.MONTH_END, CryptoDateType.MONTH_END));
+  });
+
+  it('QUARTER should be compatible with QUARTER', () => {
+    assert.ok(areDateTypesCompatible(CryptoDateType.QUARTER, CryptoDateType.QUARTER));
+  });
+
+  it('DAY_EXACT should NOT be compatible with MONTH_END', () => {
+    assert.ok(!areDateTypesCompatible(CryptoDateType.DAY_EXACT, CryptoDateType.MONTH_END));
+  });
+
+  it('DAY_EXACT should NOT be compatible with QUARTER', () => {
+    assert.ok(!areDateTypesCompatible(CryptoDateType.DAY_EXACT, CryptoDateType.QUARTER));
+  });
+
+  it('MONTH_END should NOT be compatible with QUARTER', () => {
+    assert.ok(!areDateTypesCompatible(CryptoDateType.MONTH_END, CryptoDateType.QUARTER));
+  });
+});
+
+describe('arePeriodsEqual (v2.5.3)', () => {
+  it('should match same month periods', () => {
+    assert.ok(arePeriodsEqual('2026-01', '2026-01'));
+  });
+
+  it('should not match different month periods', () => {
+    assert.ok(!arePeriodsEqual('2026-01', '2026-02'));
+  });
+
+  it('should match same quarter periods', () => {
+    assert.ok(arePeriodsEqual('2026-Q1', '2026-Q1'));
+  });
+
+  it('should not match different quarter periods', () => {
+    assert.ok(!arePeriodsEqual('2026-Q1', '2026-Q2'));
+  });
+
+  it('should return false for null periods', () => {
+    assert.ok(!arePeriodsEqual(null, '2026-01'));
+    assert.ok(!arePeriodsEqual('2026-01', null));
+    assert.ok(!arePeriodsEqual(null, null));
   });
 });
