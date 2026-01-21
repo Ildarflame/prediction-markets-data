@@ -1,7 +1,8 @@
 /**
- * crypto:intraday:best - Show best high-score intraday crypto matches (v2.6.3)
+ * crypto:intraday:best - Show best high-score intraday crypto matches (v2.6.4)
  *
- * Queries market_links for crypto_intraday suggestions with high scores
+ * Queries market_links for crypto_intraday suggestions with high scores.
+ * v2.6.4: Added --apply for safe auto-confirm of high-quality matches.
  */
 
 import { type Venue } from '@data-module/core';
@@ -19,6 +20,10 @@ export interface IntradayBestOptions {
   fromVenue?: Venue;
   /** Target venue */
   toVenue?: Venue;
+  /** v2.6.4: Auto-confirm high-quality matches */
+  apply?: boolean;
+  /** v2.6.4: Minimum score for auto-confirm (default 0.90) */
+  applyMinScore?: number;
 }
 
 export interface IntradayBestMatch {
@@ -42,6 +47,7 @@ export interface IntradayBestResult {
 
 /**
  * Run crypto:intraday:best command
+ * v2.6.4: Added --apply for safe auto-confirm
  */
 export async function runIntradayBest(options: IntradayBestOptions): Promise<IntradayBestResult> {
   const {
@@ -49,13 +55,18 @@ export async function runIntradayBest(options: IntradayBestOptions): Promise<Int
     limit = 50,
     fromVenue = 'kalshi',
     toVenue = 'polymarket',
+    apply = false,
+    applyMinScore = 0.90,
   } = options;
 
   console.log(`\n${'='.repeat(80)}`);
-  console.log(`[crypto:intraday:best] v2.6.3`);
+  console.log(`[crypto:intraday:best] v2.6.4`);
   console.log(`${'='.repeat(80)}`);
   console.log(`From: ${fromVenue} -> To: ${toVenue}`);
   console.log(`Min score: ${minScore} | Limit: ${limit}`);
+  if (apply) {
+    console.log(`Apply mode: ON (auto-confirm score >= ${applyMinScore})`);
+  }
   console.log(`${'='.repeat(80)}\n`);
 
   const prisma = getClient();
@@ -156,6 +167,33 @@ export async function runIntradayBest(options: IntradayBestOptions): Promise<Int
   console.log(`\n[Status Breakdown]`);
   for (const [status, count] of statusCounts) {
     console.log(`  ${status}: ${count}`);
+  }
+
+  // v2.6.4: Auto-confirm logic
+  if (apply) {
+    const toConfirm = matches.filter(m => m.score >= applyMinScore && m.status === 'suggested');
+    console.log(`\n[Apply Mode]`);
+    console.log(`  Candidates for auto-confirm (score >= ${applyMinScore}, status=suggested): ${toConfirm.length}`);
+
+    if (toConfirm.length === 0) {
+      console.log(`  No matches to confirm.`);
+    } else {
+      let confirmed = 0;
+      for (const m of toConfirm) {
+        try {
+          await prisma.marketLink.update({
+            where: { id: m.id },
+            data: { status: 'confirmed' },
+          });
+          confirmed++;
+          console.log(`  ✓ Confirmed link #${m.id} (score=${m.score.toFixed(3)})`);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`  ✗ Failed to confirm link #${m.id}: ${msg}`);
+        }
+      }
+      console.log(`\n  Auto-confirmed: ${confirmed}/${toConfirm.length}`);
+    }
   }
 
   console.log(`${'='.repeat(80)}\n`);

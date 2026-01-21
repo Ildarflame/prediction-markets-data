@@ -1140,14 +1140,16 @@ program
     }
   });
 
-// crypto:intraday:best - Show best intraday matches from market_links (v2.6.3)
+// crypto:intraday:best - Show best intraday matches from market_links (v2.6.4)
 program
   .command('crypto:intraday:best')
-  .description('Show best high-score INTRADAY crypto matches (v2.6.3)')
+  .description('Show best high-score INTRADAY crypto matches (v2.6.4, --apply to auto-confirm)')
   .option('--min-score <number>', 'Minimum score filter', '0.85')
   .option('--limit <number>', 'Maximum results', '50')
   .option('--from <venue>', 'Source venue', 'kalshi')
   .option('--to <venue>', 'Target venue', 'polymarket')
+  .option('--apply', 'Auto-confirm high-quality matches (score >= apply-min-score)', false)
+  .option('--apply-min-score <number>', 'Minimum score for auto-confirm', '0.90')
   .action(async (opts) => {
     const supportedVenues = getSupportedVenues();
     if (!supportedVenues.includes(opts.from)) {
@@ -1165,6 +1167,8 @@ program
         limit: parseInt(opts.limit, 10),
         fromVenue: opts.from as Venue,
         toVenue: opts.to as Venue,
+        apply: opts.apply,
+        applyMinScore: parseFloat(opts.applyMinScore),
       });
     } catch (error) {
       console.error('Crypto intraday best error:', error);

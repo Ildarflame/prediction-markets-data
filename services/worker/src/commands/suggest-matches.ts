@@ -1659,6 +1659,7 @@ interface CryptoDedupStats {
 
 /**
  * v2.6.2: Options for intraday crypto matching
+ * v2.6.4: Added winnerGap for quality dedup
  */
 interface IntradaySuggestMatchesOptions {
   fromVenue: CoreVenue;
@@ -1674,6 +1675,8 @@ interface IntradaySuggestMatchesOptions {
   maxPerRight: number;
   /** Time bucket size for intraday matching */
   slotSize: IntradaySlotSize;
+  /** v2.6.4: Minimum gap between winner and 2nd place (default 0.10) */
+  winnerGap: number;
   /** v2.6.2: Algorithm version for tracking (e.g., "crypto_intraday@2.6.2") */
   algoVersion: string;
   marketRepo: MarketRepository;
@@ -1705,15 +1708,16 @@ async function runIntradaySuggestMatches(options: IntradaySuggestMatchesOptions)
     excludeSports,
     maxPerRight,
     slotSize,
+    winnerGap,
     algoVersion,
     marketRepo,
     linkRepo,
     result,
   } = options;
 
-  console.log(`[intraday-matching] Starting suggest-matches v2.6.3: ${fromVenue} -> ${toVenue}`);
+  console.log(`[intraday-matching] Starting suggest-matches v2.6.4: ${fromVenue} -> ${toVenue}`);
   console.log(`[intraday-matching] minScore=${minScore}, topK=${topK}, lookbackHours=${lookbackHours}`);
-  console.log(`[intraday-matching] limitLeft=${limitLeft}, limitRight=${limitRight}, maxSuggestionsPerLeft=${maxSuggestionsPerLeft}`);
+  console.log(`[intraday-matching] limitLeft=${limitLeft}, limitRight=${limitRight}, maxPerLeft=${maxSuggestionsPerLeft}, winnerGap=${winnerGap}`);
   console.log(`[intraday-matching] maxPerRight=${maxPerRight}, slotSize=${slotSize}, algoVersion=${algoVersion}`);
   console.log(`[intraday-matching] Sports exclusion: ${excludeSports ? 'enabled' : 'disabled'}`);
 
@@ -1848,9 +1852,25 @@ async function runIntradaySuggestMatches(options: IntradaySuggestMatchesOptions)
       // Track generated pairs
       result.generatedPairsTotal += scores.length;
 
+      // v2.6.4: Apply winnerGap dedup - skip 2nd place+ if gap to winner is < winnerGap
+      // This reduces noise by only keeping a single clear winner OR multiple close matches
+      let afterWinnerGap = scores;
+      if (scores.length >= 2 && winnerGap > 0) {
+        const winner = scores[0];
+        afterWinnerGap = [winner];
+        for (let i = 1; i < scores.length; i++) {
+          const gap = winner.score - scores[i].score;
+          if (gap < winnerGap) {
+            // Close enough to winner, keep it
+            afterWinnerGap.push(scores[i]);
+          }
+          // else: too far from winner, skip
+        }
+      }
+
       // Apply left cap
-      const afterLeftCap = scores.slice(0, effectiveCap);
-      result.droppedByCapTotal += Math.max(0, scores.length - afterLeftCap.length);
+      const afterLeftCap = afterWinnerGap.slice(0, effectiveCap);
+      result.droppedByCapTotal += Math.max(0, afterWinnerGap.length - afterLeftCap.length);
 
       // Apply right-side cap
       const finalCandidates: typeof afterLeftCap = [];
@@ -1907,13 +1927,14 @@ async function runIntradaySuggestMatches(options: IntradaySuggestMatchesOptions)
     }
 
     // Print summary
-    console.log(`\n[intraday-matching] Suggest-matches v2.6.2 complete:`);
+    console.log(`\n[intraday-matching] Suggest-matches v2.6.4 complete:`);
     console.log(`  Left markets (${fromVenue}): ${result.leftCount}`);
     console.log(`  Right markets (${toVenue}): ${result.rightCount}`);
     console.log(`  Skipped (already confirmed): ${result.skippedConfirmed}`);
     console.log(`  Skipped (entity/bucket gate): ${result.skippedDateGate}`);
     console.log(`  Candidates considered: ${result.candidatesConsidered}`);
     console.log(`  Generated pairs (score >= ${minScore}): ${result.generatedPairsTotal}`);
+    console.log(`  After winnerGap (gap < ${winnerGap}): retained close matches`);
     console.log(`  Dropped by left-cap (max ${effectiveCap}): ${result.droppedByCapTotal}`);
     console.log(`  Dropped by right-cap (max ${maxPerRight}): ${result.droppedByRightCap}`);
     console.log(`  Saved after dedup: ${result.savedTopKTotal}`);
@@ -2511,7 +2532,9 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       };
       const intradaySlotSize = slotSizeMap[bucketMinutes] || '15m';
       const intradayMaxPerRight = parseInt(process.env.INTRADAY_MAX_PER_RIGHT || '3', 10);
-      const intradayMaxPerLeft = parseInt(process.env.INTRADAY_MAX_PER_LEFT || '3', 10);
+      // v2.6.4: maxPerLeft=2 to reduce noise, winnerGap=0.10 for dedup
+      const intradayMaxPerLeft = parseInt(process.env.INTRADAY_MAX_PER_LEFT || '2', 10);
+      const intradayWinnerGap = parseFloat(process.env.INTRADAY_WINNER_GAP || '0.10');
 
       return await runIntradaySuggestMatches({
         fromVenue,
@@ -2525,7 +2548,8 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
         excludeSports,
         maxPerRight: intradayMaxPerRight,
         slotSize: intradaySlotSize,
-        algoVersion: 'crypto_intraday@2.6.3',
+        winnerGap: intradayWinnerGap,
+        algoVersion: 'crypto_intraday@2.6.4',
         marketRepo,
         linkRepo,
         result,
