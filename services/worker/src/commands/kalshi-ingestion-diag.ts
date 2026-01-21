@@ -1,12 +1,14 @@
 /**
- * Kalshi Ingestion Diagnostics (v2.6.2)
+ * Kalshi Ingestion Diagnostics (v2.6.3)
  *
  * Diagnoses Kalshi ingestion health and identifies stuck/failing states.
+ * v2.6.3: Added NAPI error detection and batch configuration hints.
  */
 
 import {
   getClient,
   IngestionRepository,
+  isNapiOrMemoryError,
   type Venue,
 } from '@data-module/db';
 
@@ -52,6 +54,16 @@ export interface IngestionDiagResult {
     stuckMinutes: number;
     maxFailuresInRow: number;
   };
+  /** v2.6.3: NAPI/memory error detection */
+  napiErrorsDetected: boolean;
+  napiErrorCount: number;
+  batchConfig: {
+    dbBatch: number;
+    quoteBatch: number;
+    latestBatch: number;
+    minBatch: number;
+    engineType: string;
+  };
 }
 
 // ============================================================
@@ -66,8 +78,17 @@ export async function runKalshiIngestionDiag(
   const prisma = getClient();
   const ingestionRepo = new IngestionRepository(prisma);
 
+  // v2.6.3: Read batch configuration
+  const batchConfig = {
+    dbBatch: parseInt(process.env.KALSHI_DB_BATCH || '200', 10),
+    quoteBatch: parseInt(process.env.KALSHI_QUOTE_BATCH || '500', 10),
+    latestBatch: parseInt(process.env.KALSHI_LATEST_BATCH || '100', 10),
+    minBatch: parseInt(process.env.KALSHI_DB_MIN_BATCH || '10', 10),
+    engineType: process.env.PRISMA_CLIENT_ENGINE_TYPE || 'library',
+  };
+
   console.log('================================================================================');
-  console.log(`[kalshi:ingestion:diag] Ingestion Diagnostics v2.6.2`);
+  console.log(`[kalshi:ingestion:diag] Ingestion Diagnostics v2.6.3`);
   console.log('================================================================================');
   console.log(`Venue: ${venue}`);
   console.log(`Thresholds: STUCK if age > ${KALSHI_STUCK_THRESHOLD_MIN}m OR failures > ${KALSHI_MAX_FAILURES_IN_ROW}`);
@@ -88,6 +109,15 @@ export async function runKalshiIngestionDiag(
 
   // Get recent runs
   const recentRuns = await ingestionRepo.getRecentRunsDetailed(venue, showRuns);
+
+  // v2.6.3: Detect NAPI/memory errors in recent runs
+  let napiErrorCount = 0;
+  for (const run of recentRuns) {
+    if (run.errorText && isNapiOrMemoryError(new Error(run.errorText))) {
+      napiErrorCount++;
+    }
+  }
+  const napiErrorsDetected = napiErrorCount > 0;
 
   // Calculate metrics
   const now = new Date();
@@ -132,6 +162,28 @@ export async function runKalshiIngestionDiag(
   console.log(`  Failures in row: ${failuresInRow}`);
   console.log(`  Last error: ${marketsState?.lastError?.substring(0, 100) || 'none'}${marketsState?.lastError && marketsState.lastError.length > 100 ? '...' : ''}`);
   console.log('');
+
+  // v2.6.3: Print batch configuration
+  console.log('[Batch Configuration (v2.6.3)]');
+  console.log(`  KALSHI_DB_BATCH: ${batchConfig.dbBatch}`);
+  console.log(`  KALSHI_QUOTE_BATCH: ${batchConfig.quoteBatch}`);
+  console.log(`  KALSHI_LATEST_BATCH: ${batchConfig.latestBatch}`);
+  console.log(`  KALSHI_DB_MIN_BATCH: ${batchConfig.minBatch}`);
+  console.log(`  PRISMA_CLIENT_ENGINE_TYPE: ${batchConfig.engineType}`);
+  console.log('');
+
+  // v2.6.3: NAPI error detection and hints
+  if (napiErrorsDetected) {
+    console.log('[⚠ NAPI/Memory Errors Detected]');
+    console.log(`  Found ${napiErrorCount} NAPI/memory-related errors in recent runs.`);
+    console.log('');
+    console.log('  Recommended actions:');
+    console.log('  1. Reduce batch sizes (try KALSHI_DB_BATCH=100, KALSHI_QUOTE_BATCH=200)');
+    console.log('  2. Set PRISMA_CLIENT_ENGINE_TYPE=binary to use binary engine');
+    console.log('  3. Enable verbose logging: KALSHI_VERBOSE=true');
+    console.log('  4. Check system memory and restart if needed');
+    console.log('');
+  }
 
   // Print error categories
   console.log('[Error Categories (last 50 failed runs)]');
@@ -198,5 +250,9 @@ export async function runKalshiIngestionDiag(
       stuckMinutes: KALSHI_STUCK_THRESHOLD_MIN,
       maxFailuresInRow: KALSHI_MAX_FAILURES_IN_ROW,
     },
+    // v2.6.3: NAPI error detection
+    napiErrorsDetected,
+    napiErrorCount,
+    batchConfig,
   };
 }

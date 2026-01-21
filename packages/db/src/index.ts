@@ -1,5 +1,6 @@
 export { getClient, disconnect, PrismaClient, Prisma } from './client.js';
 export * from './repositories/index.js';
+export * from './utils/chunked-processor.js';
 
 // Re-export Prisma types
 export type {

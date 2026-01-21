@@ -63,6 +63,9 @@ export { runCryptoEligibleExplain, type EligibleExplainOptions, type EligibleExp
 // Kalshi ingestion diagnostics (v2.6.2)
 export { runKalshiIngestionDiag, type IngestionDiagOptions, type IngestionDiagResult } from './kalshi-ingestion-diag.js';
 
+// Crypto intraday commands (v2.6.3)
+export { runIntradayBest, type IntradayBestOptions, type IntradayBestResult, type IntradayBestMatch } from './crypto-intraday-best.js';
+
 // Link hygiene commands (v2.6.2)
 export { runLinksStats, type LinksStatsResult } from './links-stats.js';
 export { runLinksCleanup, type LinksCleanupOptions, type LinksCleanupResult } from './links-cleanup.js';

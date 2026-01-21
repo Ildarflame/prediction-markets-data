@@ -1,7 +1,8 @@
 /**
- * links:stats - Show market link statistics (v2.6.2)
+ * links:stats - Show market link statistics (v2.6.3)
  *
  * Displays counts by status, algoVersion, and topic
+ * v2.6.3: Added topic field support
  */
 
 import { getClient, MarketLinkRepository } from '@data-module/db';
@@ -18,7 +19,7 @@ export interface LinksStatsResult {
  */
 export async function runLinksStats(): Promise<LinksStatsResult> {
   console.log(`\n${'='.repeat(60)}`);
-  console.log(`[links:stats] Market Link Statistics (v2.6.2)`);
+  console.log(`[links:stats] Market Link Statistics (v2.6.3)`);
   console.log(`${'='.repeat(60)}\n`);
 
   const prisma = getClient();

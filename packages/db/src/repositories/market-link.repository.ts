@@ -28,6 +28,7 @@ export class MarketLinkRepository {
    * If pair exists and status != confirmed, update score/reason
    * If pair exists and status == confirmed, skip
    * v2.6.2: Added algoVersion parameter
+   * v2.6.3: Added topic parameter (derived from algoVersion if not provided)
    */
   async upsertSuggestion(
     leftVenue: Venue,
@@ -36,8 +37,12 @@ export class MarketLinkRepository {
     rightMarketId: number,
     score: number,
     reason: string | null,
-    algoVersion?: string | null
+    algoVersion?: string | null,
+    topic?: string | null
   ): Promise<UpsertSuggestionResult> {
+    // v2.6.3: Derive topic from algoVersion if not provided
+    const effectiveTopic = topic ?? (algoVersion?.split('@')[0] || null);
+
     // Check if exists
     const existing = await this.prisma.marketLink.findUnique({
       where: {
@@ -63,6 +68,7 @@ export class MarketLinkRepository {
           score,
           reason,
           algoVersion,
+          topic: effectiveTopic,
           status: 'suggested', // Reset to suggested if was rejected
         },
       });
@@ -80,6 +86,7 @@ export class MarketLinkRepository {
         score,
         reason,
         algoVersion,
+        topic: effectiveTopic,
         status: 'suggested',
       },
     });
@@ -235,29 +242,45 @@ export class MarketLinkRepository {
       count: c._count.algoVersion,
     })).sort((a, b) => b.count - a.count);
 
-    // Derive topic from algoVersion (e.g., "crypto_daily@2.6.2" -> "crypto_daily")
-    const topicCounts = new Map<string, number>();
-    for (const v of byAlgoVersion) {
-      const topic = v.algoVersion?.split('@')[0] || 'unknown';
-      topicCounts.set(topic, (topicCounts.get(topic) || 0) + v.count);
+    // v2.6.3: Count by actual topic field (with fallback to algoVersion-derived topic)
+    const topicCounts = await this.prisma.marketLink.groupBy({
+      by: ['topic'],
+      _count: { topic: true },
+    });
+
+    // Build topic counts map, also derive from algoVersion for null topics
+    const topicMap = new Map<string, number>();
+    for (const t of topicCounts) {
+      if (t.topic) {
+        topicMap.set(t.topic, (topicMap.get(t.topic) || 0) + t._count.topic);
+      }
     }
 
-    const byTopic = [...topicCounts.entries()].map(([topic, count]) => ({ topic, count })).sort((a, b) => b.count - a.count);
+    // For records without topic field, mark as legacy
+    // v2.6.3+ all new records will have topic set
+    const nullTopicCount = topicCounts.find(t => t.topic === null)?._count.topic || 0;
+    if (nullTopicCount > 0) {
+      topicMap.set('legacy (no topic)', nullTopicCount);
+    }
+
+    const byTopic = [...topicMap.entries()].map(([topic, count]) => ({ topic, count })).sort((a, b) => b.count - a.count);
 
     return { byStatus, byAlgoVersion, byTopic, total };
   }
 
   /**
    * v2.6.2: Delete old suggestions matching criteria
+   * v2.6.3: Added topic filter
    * Returns count of deleted links
    */
   async cleanupSuggestions(options: {
     olderThanDays: number;
     status?: LinkStatus | 'all';
     algoVersion?: string;
+    topic?: string;
     dryRun?: boolean;
   }): Promise<{ count: number; matches: MarketLink[] }> {
-    const { olderThanDays, status = 'suggested', algoVersion, dryRun = false } = options;
+    const { olderThanDays, status = 'suggested', algoVersion, topic, dryRun = false } = options;
 
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
@@ -272,6 +295,10 @@ export class MarketLinkRepository {
 
     if (algoVersion) {
       whereClause.algoVersion = algoVersion;
+    }
+
+    if (topic) {
+      whereClause.topic = topic;
     }
 
     // Get matching links first

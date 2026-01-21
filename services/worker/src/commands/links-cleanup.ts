@@ -10,6 +10,8 @@ export interface LinksCleanupOptions {
   olderThanDays: number;
   status: 'suggested' | 'rejected' | 'all';
   algoVersion?: string;
+  /** v2.6.3: Filter by topic */
+  topic?: string;
   dryRun: boolean;
 }
 
@@ -22,15 +24,16 @@ export interface LinksCleanupResult {
  * Run links:cleanup command
  */
 export async function runLinksCleanup(options: LinksCleanupOptions): Promise<LinksCleanupResult> {
-  const { olderThanDays, status, algoVersion, dryRun } = options;
+  const { olderThanDays, status, algoVersion, topic, dryRun } = options;
 
   console.log(`\n${'='.repeat(60)}`);
-  console.log(`[links:cleanup] Delete Old Suggestions (v2.6.2)`);
+  console.log(`[links:cleanup] Delete Old Suggestions (v2.6.3)`);
   console.log(`${'='.repeat(60)}`);
   console.log(`Options:`);
   console.log(`  olderThanDays: ${olderThanDays}`);
   console.log(`  status: ${status}`);
   console.log(`  algoVersion: ${algoVersion || '(any)'}`);
+  console.log(`  topic: ${topic || '(any)'}`);
   console.log(`  dryRun: ${dryRun}`);
   console.log(`${'='.repeat(60)}\n`);
 
@@ -41,6 +44,7 @@ export async function runLinksCleanup(options: LinksCleanupOptions): Promise<Lin
     olderThanDays,
     status: status === 'all' ? 'all' : status as LinkStatus,
     algoVersion,
+    topic,
     dryRun,
   });
 

@@ -1,11 +1,19 @@
 import type { PrismaClient, Quote, LatestQuote, Venue } from '@prisma/client';
 import type { DedupConfig } from '@data-module/core';
 import { shouldRecordQuote, QuoteDeduplicator, DEFAULT_DEDUP_CONFIG } from '@data-module/core';
+import { processInChunks, chunkArray } from '../utils/chunked-processor.js';
 
 export interface InsertQuotesResult {
   inserted: number;
   skipped: number;
   skippedInCycle: number;
+  /** v2.6.3: Chunked processing stats */
+  stats?: {
+    batches: number;
+    retries: number;
+    batchSizeReductions: number;
+    timeMs: number;
+  };
 }
 
 export interface QuoteInput {
@@ -30,10 +38,13 @@ export class QuoteRepository {
   /**
    * Insert quotes with deduplication
    * Uses latest_quotes table for dedup check + in-cycle deduplicator
+   *
+   * v2.6.3: Uses chunked processing with automatic batch size reduction
+   * on NAPI/memory errors. Also batches latest quote upserts.
    */
   async insertQuotesWithDedup(
     quotes: QuoteInput[],
-    batchSize = 1000
+    batchSize = parseInt(process.env.KALSHI_QUOTE_BATCH || '500', 10)
   ): Promise<InsertQuotesResult> {
     let inserted = 0;
     let skipped = 0;
@@ -43,13 +54,31 @@ export class QuoteRepository {
     const cycleDedup = new QuoteDeduplicator(this.dedupConfig);
 
     // Get current latest quotes for all outcomes
+    // v2.6.3: Chunk the outcome IDs query too for large datasets
     const outcomeIds = [...new Set(quotes.map((q) => q.outcomeId))];
-    const latestQuotes = await this.prisma.latestQuote.findMany({
-      where: {
-        outcomeId: { in: outcomeIds },
-      },
-    });
-    const latestMap = new Map(latestQuotes.map((lq) => [lq.outcomeId, lq]));
+    const latestMap = new Map<number, LatestQuote>();
+
+    // Fetch latest quotes in chunks to avoid large IN queries
+    const outcomeChunks = chunkArray(outcomeIds, 1000);
+    for (const chunk of outcomeChunks) {
+      const latestQuotes = await this.prisma.latestQuote.findMany({
+        where: {
+          outcomeId: { in: chunk },
+        },
+        // v2.6.3: Don't load raw field when checking for dedup
+        select: {
+          outcomeId: true,
+          ts: true,
+          price: true,
+          impliedProb: true,
+          liquidity: true,
+          volume: true,
+        },
+      });
+      for (const lq of latestQuotes) {
+        latestMap.set(lq.outcomeId, lq as LatestQuote);
+      }
+    }
 
     // Filter quotes based on dedup rules
     const quotesToInsert: QuoteInput[] = [];
@@ -84,51 +113,86 @@ export class QuoteRepository {
       }
     }
 
-    // Batch insert quotes
-    for (let i = 0; i < quotesToInsert.length; i += batchSize) {
-      const batch = quotesToInsert.slice(i, i + batchSize);
+    // v2.6.3: Use chunked processor for quote insertion
+    const insertStats = await processInChunks(
+      quotesToInsert,
+      async (batch) => {
+        await this.prisma.quote.createMany({
+          data: batch.map((q) => ({
+            outcomeId: q.outcomeId,
+            ts: q.ts,
+            price: q.price,
+            impliedProb: q.impliedProb,
+            liquidity: q.liquidity,
+            volume: q.volume,
+            raw: q.raw as object | undefined,
+          })),
+          skipDuplicates: true,
+        });
+        inserted += batch.length;
+      },
+      {
+        batchSize,
+        minBatchSize: parseInt(process.env.KALSHI_DB_MIN_BATCH || '50', 10),
+        maxRetries: 3,
+        logPrefix: '[quote-insert]',
+        verbose: process.env.KALSHI_VERBOSE === 'true',
+      }
+    );
 
-      await this.prisma.quote.createMany({
-        data: batch.map((q) => ({
-          outcomeId: q.outcomeId,
-          ts: q.ts,
-          price: q.price,
-          impliedProb: q.impliedProb,
-          liquidity: q.liquidity,
-          volume: q.volume,
-          raw: q.raw as object | undefined,
-        })),
-        skipDuplicates: true,
-      });
+    // v2.6.3: Batch upsert latest quotes instead of individual upserts
+    const latestUpdatesList = [...latestUpdates.entries()];
+    const latestBatchSize = parseInt(process.env.KALSHI_LATEST_BATCH || '100', 10);
 
-      inserted += batch.length;
-    }
+    await processInChunks(
+      latestUpdatesList,
+      async (batch) => {
+        // Use transaction for batch of latest quote upserts
+        await this.prisma.$transaction(
+          batch.map(([outcomeId, quote]) =>
+            this.prisma.latestQuote.upsert({
+              where: { outcomeId },
+              create: {
+                outcomeId,
+                ts: quote.ts,
+                price: quote.price,
+                impliedProb: quote.impliedProb,
+                liquidity: quote.liquidity,
+                volume: quote.volume,
+                raw: quote.raw as object | undefined,
+              },
+              update: {
+                ts: quote.ts,
+                price: quote.price,
+                impliedProb: quote.impliedProb,
+                liquidity: quote.liquidity,
+                volume: quote.volume,
+                raw: quote.raw as object | undefined,
+              },
+            })
+          )
+        );
+      },
+      {
+        batchSize: latestBatchSize,
+        minBatchSize: 10,
+        maxRetries: 3,
+        logPrefix: '[latest-upsert]',
+        verbose: process.env.KALSHI_VERBOSE === 'true',
+      }
+    );
 
-    // Upsert latest quotes
-    for (const [outcomeId, quote] of latestUpdates) {
-      await this.prisma.latestQuote.upsert({
-        where: { outcomeId },
-        create: {
-          outcomeId,
-          ts: quote.ts,
-          price: quote.price,
-          impliedProb: quote.impliedProb,
-          liquidity: quote.liquidity,
-          volume: quote.volume,
-          raw: quote.raw as object | undefined,
-        },
-        update: {
-          ts: quote.ts,
-          price: quote.price,
-          impliedProb: quote.impliedProb,
-          liquidity: quote.liquidity,
-          volume: quote.volume,
-          raw: quote.raw as object | undefined,
-        },
-      });
-    }
-
-    return { inserted, skipped, skippedInCycle };
+    return {
+      inserted,
+      skipped,
+      skippedInCycle,
+      stats: {
+        batches: insertStats.batches,
+        retries: insertStats.retries,
+        batchSizeReductions: insertStats.batchSizeReductions,
+        timeMs: insertStats.timeMs,
+      },
+    };
   }
 
   /**

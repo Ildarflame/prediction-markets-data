@@ -1,5 +1,6 @@
 import type { PrismaClient, Market, Outcome, Venue, MarketStatus } from '@prisma/client';
 import type { MarketDTO } from '@data-module/core';
+import { processInChunks } from '../utils/chunked-processor.js';
 
 export interface MarketWithOutcomes extends Market {
   outcomes: Outcome[];
@@ -8,6 +9,14 @@ export interface MarketWithOutcomes extends Market {
 export interface UpsertMarketsResult {
   created: number;
   updated: number;
+  /** v2.6.3: Chunked processing stats */
+  stats?: {
+    batches: number;
+    retries: number;
+    batchSizeReductions: number;
+    timeMs: number;
+    errors: string[];
+  };
 }
 
 /**
@@ -18,19 +27,19 @@ export class MarketRepository {
 
   /**
    * Upsert markets and their outcomes in batches
+   *
+   * v2.6.3: Uses chunked processing with automatic batch size reduction
+   * on NAPI/memory errors to prevent crashes on large datasets (70k+ markets)
    */
   async upsertMarkets(
     venue: Venue,
     markets: MarketDTO[],
-    batchSize = 100
+    batchSize = parseInt(process.env.KALSHI_DB_BATCH || '200', 10)
   ): Promise<UpsertMarketsResult> {
     let created = 0;
     let updated = 0;
 
-    // Process in batches
-    for (let i = 0; i < markets.length; i += batchSize) {
-      const batch = markets.slice(i, i + batchSize);
-
+    const processBatch = async (batch: MarketDTO[]): Promise<void> => {
       await this.prisma.$transaction(async (tx) => {
         for (const market of batch) {
           const existing = await tx.market.findUnique({
@@ -40,6 +49,8 @@ export class MarketRepository {
                 externalId: market.externalId,
               },
             },
+            // v2.6.3: Only select id, don't load metadata to reduce memory
+            select: { id: true },
           });
 
           if (existing) {
@@ -108,9 +119,28 @@ export class MarketRepository {
           }
         }
       });
-    }
+    };
 
-    return { created, updated };
+    // v2.6.3: Use chunked processor with automatic retry and batch size reduction
+    const stats = await processInChunks(markets, processBatch, {
+      batchSize,
+      minBatchSize: parseInt(process.env.KALSHI_DB_MIN_BATCH || '10', 10),
+      maxRetries: 3,
+      logPrefix: '[market-upsert]',
+      verbose: process.env.KALSHI_VERBOSE === 'true',
+    });
+
+    return {
+      created,
+      updated,
+      stats: {
+        batches: stats.batches,
+        retries: stats.retries,
+        batchSizeReductions: stats.batchSizeReductions,
+        timeMs: stats.timeMs,
+        errors: stats.errors,
+      },
+    };
   }
 
   /**

@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit, runCryptoTruthDateAudit, runCryptoTypeAudit, runCryptoEthDebug, runCryptoSeriesAudit, runCryptoEligibleExplain, runKalshiIngestionDiag, runLinksStats, runLinksCleanup } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit, runCryptoTruthDateAudit, runCryptoTypeAudit, runCryptoEthDebug, runCryptoSeriesAudit, runCryptoEligibleExplain, runKalshiIngestionDiag, runLinksStats, runLinksCleanup, runIntradayBest } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -1064,6 +1064,116 @@ program
     }
   });
 
+// ============================================================
+// Crypto Intraday Commands (v2.6.3)
+// Convenience shortcuts for crypto:* commands with --topic crypto_intraday
+// ============================================================
+
+// crypto:intraday:counts (shortcut for crypto:counts --topic crypto_intraday)
+program
+  .command('crypto:intraday:counts')
+  .description('Diagnostic counts for INTRADAY crypto markets per venue (v2.6.3)')
+  .requiredOption('--venue <venue>', `Venue to audit (${getSupportedVenues().join(', ')})`)
+  .option('--lookback-hours <number>', 'Lookback hours', '720')
+  .option('--limit <number>', 'DB limit', '5000')
+  .option('--slot-size <size>', 'Time bucket size: 15m, 30m, 1h, 2h, 4h', '15m')
+  .action(async (opts) => {
+    const supportedVenues = getSupportedVenues();
+    if (!supportedVenues.includes(opts.venue)) {
+      console.error(`Invalid --venue: ${opts.venue}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    try {
+      // Set slot size for intraday matching
+      process.env.INTRADAY_SLOT_SIZE = opts.slotSize;
+      await runCryptoCounts({
+        venue: opts.venue as Venue,
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+        limit: parseInt(opts.limit, 10),
+        includeResolved: false,
+        allTime: false,
+        topic: 'crypto_intraday',
+      });
+    } catch (error) {
+      console.error('Crypto intraday counts error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// crypto:intraday:overlap (shortcut for crypto:overlap --topic crypto_intraday)
+program
+  .command('crypto:intraday:overlap')
+  .description('Cross-venue overlap report for INTRADAY crypto markets (v2.6.3)')
+  .requiredOption('--from <venue>', `Source venue (${getSupportedVenues().join(', ')})`)
+  .requiredOption('--to <venue>', `Target venue (${getSupportedVenues().join(', ')})`)
+  .option('--lookback-hours <number>', 'Lookback hours', '720')
+  .option('--limit <number>', 'DB limit per venue', '5000')
+  .option('--slot-size <size>', 'Time bucket size: 15m, 30m, 1h, 2h, 4h', '15m')
+  .action(async (opts) => {
+    const supportedVenues = getSupportedVenues();
+    if (!supportedVenues.includes(opts.from)) {
+      console.error(`Invalid --from: ${opts.from}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+    if (!supportedVenues.includes(opts.to)) {
+      console.error(`Invalid --to: ${opts.to}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    try {
+      process.env.INTRADAY_SLOT_SIZE = opts.slotSize;
+      await runCryptoOverlap({
+        fromVenue: opts.from as Venue,
+        toVenue: opts.to as Venue,
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+        limit: parseInt(opts.limit, 10),
+        topic: 'crypto_intraday',
+      });
+    } catch (error) {
+      console.error('Crypto intraday overlap error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// crypto:intraday:best - Show best intraday matches from market_links (v2.6.3)
+program
+  .command('crypto:intraday:best')
+  .description('Show best high-score INTRADAY crypto matches (v2.6.3)')
+  .option('--min-score <number>', 'Minimum score filter', '0.85')
+  .option('--limit <number>', 'Maximum results', '50')
+  .option('--from <venue>', 'Source venue', 'kalshi')
+  .option('--to <venue>', 'Target venue', 'polymarket')
+  .action(async (opts) => {
+    const supportedVenues = getSupportedVenues();
+    if (!supportedVenues.includes(opts.from)) {
+      console.error(`Invalid --from: ${opts.from}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+    if (!supportedVenues.includes(opts.to)) {
+      console.error(`Invalid --to: ${opts.to}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    try {
+      await runIntradayBest({
+        minScore: parseFloat(opts.minScore),
+        limit: parseInt(opts.limit, 10),
+        fromVenue: opts.from as Venue,
+        toVenue: opts.to as Venue,
+      });
+    } catch (error) {
+      console.error('Crypto intraday best error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
 // List suggestions command
 program
   .command('list-suggestions')
@@ -1215,10 +1325,10 @@ program
     }
   });
 
-// Link hygiene commands (v2.6.2)
+// Link hygiene commands (v2.6.3)
 program
   .command('links:stats')
-  .description('Show market link statistics by status, topic, and algoVersion (v2.6.2)')
+  .description('Show market link statistics by status, topic, and algoVersion (v2.6.3)')
   .action(async () => {
     try {
       await runLinksStats();
@@ -1232,10 +1342,11 @@ program
 
 program
   .command('links:cleanup')
-  .description('Delete old market link suggestions (v2.6.2)')
+  .description('Delete old market link suggestions (v2.6.3)')
   .option('--older-than-days <days>', 'Delete links older than N days', '30')
   .option('--status <status>', 'Filter by status: suggested, rejected, all', 'suggested')
   .option('--algo-version <version>', 'Filter by algoVersion (e.g., "crypto_daily@2.6.0")')
+  .option('--topic <topic>', 'Filter by topic (e.g., "crypto_daily", "crypto_intraday", "macro")')
   .option('--dry-run', 'Preview without actually deleting', false)
   .action(async (opts) => {
     const validStatuses = ['suggested', 'rejected', 'all'];
@@ -1249,6 +1360,7 @@ program
         olderThanDays: parseInt(opts.olderThanDays, 10),
         status: opts.status as 'suggested' | 'rejected' | 'all',
         algoVersion: opts.algoVersion,
+        topic: opts.topic,
         dryRun: opts.dryRun,
       });
     } catch (error) {

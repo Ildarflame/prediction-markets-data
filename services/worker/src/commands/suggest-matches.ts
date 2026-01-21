@@ -1711,7 +1711,7 @@ async function runIntradaySuggestMatches(options: IntradaySuggestMatchesOptions)
     result,
   } = options;
 
-  console.log(`[intraday-matching] Starting suggest-matches v2.6.2: ${fromVenue} -> ${toVenue}`);
+  console.log(`[intraday-matching] Starting suggest-matches v2.6.3: ${fromVenue} -> ${toVenue}`);
   console.log(`[intraday-matching] minScore=${minScore}, topK=${topK}, lookbackHours=${lookbackHours}`);
   console.log(`[intraday-matching] limitLeft=${limitLeft}, limitRight=${limitRight}, maxSuggestionsPerLeft=${maxSuggestionsPerLeft}`);
   console.log(`[intraday-matching] maxPerRight=${maxPerRight}, slotSize=${slotSize}, algoVersion=${algoVersion}`);
@@ -2497,9 +2497,19 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     // - crypto: excludeIntraday=false (backward compatible, includes all)
     const excludeIntraday = topic === 'crypto_daily';
 
-    // v2.6.2: Separate intraday pipeline for INTRADAY_UPDOWN markets
+    // v2.6.3: Separate intraday pipeline for INTRADAY_UPDOWN markets
+    // Uses time bucket matching with configurable slot size (default 15m)
     if (topic === 'crypto_intraday') {
-      const intradaySlotSize = (process.env.INTRADAY_SLOT_SIZE || '1h') as IntradaySlotSize;
+      // v2.6.3: Use CRYPTO_INTRADAY_BUCKET_MIN for slot size (default 15 minutes)
+      const bucketMinutes = parseInt(process.env.CRYPTO_INTRADAY_BUCKET_MIN || '15', 10);
+      const slotSizeMap: Record<number, IntradaySlotSize> = {
+        15: '15m',
+        30: '30m',
+        60: '1h',
+        120: '2h',
+        240: '4h',
+      };
+      const intradaySlotSize = slotSizeMap[bucketMinutes] || '15m';
       const intradayMaxPerRight = parseInt(process.env.INTRADAY_MAX_PER_RIGHT || '3', 10);
       const intradayMaxPerLeft = parseInt(process.env.INTRADAY_MAX_PER_LEFT || '3', 10);
 
@@ -2515,7 +2525,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
         excludeSports,
         maxPerRight: intradayMaxPerRight,
         slotSize: intradaySlotSize,
-        algoVersion: 'crypto_intraday@2.6.2',
+        algoVersion: 'crypto_intraday@2.6.3',
         marketRepo,
         linkRepo,
         result,
