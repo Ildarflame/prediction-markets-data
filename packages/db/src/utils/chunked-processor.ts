@@ -1,14 +1,15 @@
 /**
- * Chunked processor for safe batch database operations (v2.6.3)
+ * Chunked processor for safe batch database operations (v2.6.4)
  *
- * Handles NAPI string conversion errors by automatically reducing batch size
- * and retrying. Prevents OOM and Prisma NAPI crashes on large datasets.
+ * Handles NAPI string conversion errors and transaction timeouts by
+ * automatically reducing batch size and retrying.
+ * Prevents OOM, Prisma NAPI crashes, and transaction timeouts on large datasets.
  */
 
 export interface ChunkedProcessorOptions {
-  /** Initial batch size (default from ENV or 300) */
+  /** Initial batch size (default from ENV or 50) */
   batchSize: number;
-  /** Minimum batch size before giving up (default 10) */
+  /** Minimum batch size before skipping (default 5) */
   minBatchSize: number;
   /** Maximum retries per batch (default 3) */
   maxRetries: number;
@@ -24,16 +25,23 @@ export interface ChunkedProcessorStats {
   batches: number;
   retries: number;
   batchSizeReductions: number;
+  /** v2.6.4: Count of batches that were skipped due to persistent errors */
+  skippedBatches: number;
+  /** v2.6.4: Items in skipped batches */
+  skippedItems: number;
   errors: string[];
   timeMs: number;
+  /** v2.6.4: Final batch size after all reductions */
+  finalBatchSize: number;
 }
 
 const DEFAULT_OPTIONS: ChunkedProcessorOptions = {
-  batchSize: parseInt(process.env.KALSHI_DB_BATCH || '300', 10),
-  minBatchSize: parseInt(process.env.KALSHI_DB_MIN_BATCH || '10', 10),
+  // v2.6.4: Much smaller default batch sizes to prevent transaction timeouts
+  batchSize: parseInt(process.env.KALSHI_DB_BATCH || '50', 10),
+  minBatchSize: parseInt(process.env.KALSHI_DB_MIN_BATCH || '5', 10),
   maxRetries: 3,
   logPrefix: '[chunked]',
-  verbose: process.env.CHUNKED_VERBOSE === 'true',
+  verbose: process.env.KALSHI_VERBOSE === 'true',
 };
 
 /**
@@ -59,6 +67,38 @@ export function isNapiOrMemoryError(error: unknown): boolean {
 }
 
 /**
+ * v2.6.4: Check if error is a transaction timeout/closed error
+ * These occur when Prisma transactions take too long or are interrupted
+ */
+export function isTransactionError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+
+  const message = error.message.toLowerCase();
+  const txPatterns = [
+    'transaction already closed',
+    'transaction expired',
+    'transaction timeout',
+    'interactive transaction',
+    'commit cannot be executed',
+    'rollback cannot be executed',
+    'can\'t execute query',
+    'connection closed',
+    'connection reset',
+    'econnreset',
+    'socket hang up',
+  ];
+
+  return txPatterns.some(pattern => message.includes(pattern));
+}
+
+/**
+ * v2.6.4: Check if error is retryable (NAPI, memory, or transaction)
+ */
+export function isRetryableError(error: unknown): boolean {
+  return isNapiOrMemoryError(error) || isTransactionError(error);
+}
+
+/**
  * Process items in chunks with automatic batch size reduction on NAPI errors
  *
  * @param items - Array of items to process
@@ -80,8 +120,11 @@ export async function processInChunks<T>(
     batches: 0,
     retries: 0,
     batchSizeReductions: 0,
+    skippedBatches: 0,
+    skippedItems: 0,
     errors: [],
     timeMs: 0,
+    finalBatchSize: opts.batchSize,
   };
 
   if (items.length === 0) {
@@ -114,9 +157,9 @@ export async function processInChunks<T>(
         stats.batches++;
         index += batch.length;
 
-        // Gradually restore batch size after successful processing
-        if (currentBatchSize < opts.batchSize && stats.batches % 5 === 0) {
-          const newSize = Math.min(currentBatchSize * 2, opts.batchSize);
+        // v2.6.4: More conservative batch size restoration (every 10 batches, +50% instead of 2x)
+        if (currentBatchSize < opts.batchSize && stats.batches % 10 === 0) {
+          const newSize = Math.min(Math.floor(currentBatchSize * 1.5), opts.batchSize);
           if (newSize > currentBatchSize) {
             if (opts.verbose) {
               console.log(`${opts.logPrefix} Restoring batch size: ${currentBatchSize} -> ${newSize}`);
@@ -128,52 +171,64 @@ export async function processInChunks<T>(
         attempts++;
         stats.retries++;
 
-        const isNapi = isNapiOrMemoryError(error);
+        // v2.6.4: Check for both NAPI and transaction errors
+        const isRetryable = isRetryableError(error);
+        const isTxError = isTransactionError(error);
         const errorMsg = error instanceof Error ? error.message : String(error);
 
-        if (isNapi && currentBatchSize > opts.minBatchSize) {
+        if (isRetryable && currentBatchSize > opts.minBatchSize) {
           // Reduce batch size and retry
           const newBatchSize = Math.max(Math.floor(currentBatchSize / 2), opts.minBatchSize);
+          const errorType = isTxError ? 'Transaction' : 'NAPI/Memory';
           console.warn(
-            `${opts.logPrefix} NAPI/Memory error, reducing batch size: ${currentBatchSize} -> ${newBatchSize}`
+            `${opts.logPrefix} ${errorType} error, reducing batch size: ${currentBatchSize} -> ${newBatchSize}`
           );
           console.warn(`${opts.logPrefix} Error: ${errorMsg.slice(0, 200)}`);
 
           currentBatchSize = newBatchSize;
           stats.batchSizeReductions++;
+          stats.finalBatchSize = currentBatchSize;
 
-          // Re-slice batch with new size
-          const smallerBatch = items.slice(index, index + currentBatchSize);
-          if (smallerBatch.length < batch.length) {
-            // Will retry with smaller batch
-            continue;
-          }
+          // Reset attempts counter when reducing batch size
+          attempts = 0;
+
+          // Re-slice batch with new size - will retry from current index
+          continue;
         }
 
         if (attempts >= opts.maxRetries) {
-          const fullError = `Batch ${stats.batches + 1} failed after ${attempts} attempts: ${errorMsg}`;
+          const fullError = `Batch ${stats.batches + 1} failed after ${attempts} attempts: ${errorMsg.slice(0, 300)}`;
           stats.errors.push(fullError);
           console.error(`${opts.logPrefix} ${fullError}`);
 
+          // v2.6.4: Track skipped batches
+          stats.skippedBatches++;
+          stats.skippedItems += batch.length;
+
           // Skip this batch and continue with next
           index += batch.length;
-          console.warn(`${opts.logPrefix} Skipping batch, continuing with next...`);
+          console.warn(`${opts.logPrefix} Skipping ${batch.length} items, continuing with next batch...`);
           break;
         }
 
-        // Wait before retry
-        await new Promise(resolve => setTimeout(resolve, 100 * attempts));
+        // v2.6.4: Longer wait before retry for transaction errors
+        const waitMs = isTxError ? 500 * attempts : 100 * attempts;
+        await new Promise(resolve => setTimeout(resolve, waitMs));
       }
     }
   }
 
   stats.timeMs = Date.now() - startTime;
+  stats.finalBatchSize = currentBatchSize;
 
   // Summary log
+  const skippedInfo = stats.skippedBatches > 0
+    ? `, ${stats.skippedBatches} skipped (${stats.skippedItems} items)`
+    : '';
   console.log(
     `${opts.logPrefix} Complete: ${stats.processedItems}/${stats.totalItems} items, ` +
-    `${stats.batches} batches, ${stats.retries} retries, ${stats.batchSizeReductions} size reductions, ` +
-    `${stats.timeMs}ms`
+    `${stats.batches} batches, ${stats.retries} retries, ${stats.batchSizeReductions} reductions${skippedInfo}, ` +
+    `${stats.timeMs}ms (final batch=${stats.finalBatchSize})`
   );
 
   if (stats.errors.length > 0) {

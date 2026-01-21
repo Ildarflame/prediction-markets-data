@@ -1,14 +1,16 @@
 /**
- * Kalshi Ingestion Diagnostics (v2.6.3)
+ * Kalshi Ingestion Diagnostics (v2.6.4)
  *
  * Diagnoses Kalshi ingestion health and identifies stuck/failing states.
  * v2.6.3: Added NAPI error detection and batch configuration hints.
+ * v2.6.4: Added transaction error detection, updated batch defaults.
  */
 
 import {
   getClient,
   IngestionRepository,
   isNapiOrMemoryError,
+  isTransactionError,
   type Venue,
 } from '@data-module/db';
 
@@ -57,6 +59,9 @@ export interface IngestionDiagResult {
   /** v2.6.3: NAPI/memory error detection */
   napiErrorsDetected: boolean;
   napiErrorCount: number;
+  /** v2.6.4: Transaction error detection */
+  txErrorsDetected: boolean;
+  txErrorCount: number;
   batchConfig: {
     dbBatch: number;
     quoteBatch: number;
@@ -78,17 +83,17 @@ export async function runKalshiIngestionDiag(
   const prisma = getClient();
   const ingestionRepo = new IngestionRepository(prisma);
 
-  // v2.6.3: Read batch configuration
+  // v2.6.4: Read batch configuration (smaller defaults)
   const batchConfig = {
-    dbBatch: parseInt(process.env.KALSHI_DB_BATCH || '200', 10),
-    quoteBatch: parseInt(process.env.KALSHI_QUOTE_BATCH || '500', 10),
-    latestBatch: parseInt(process.env.KALSHI_LATEST_BATCH || '100', 10),
-    minBatch: parseInt(process.env.KALSHI_DB_MIN_BATCH || '10', 10),
+    dbBatch: parseInt(process.env.KALSHI_DB_BATCH || '50', 10),
+    quoteBatch: parseInt(process.env.KALSHI_QUOTE_BATCH || '200', 10),
+    latestBatch: parseInt(process.env.KALSHI_LATEST_BATCH || '30', 10),
+    minBatch: parseInt(process.env.KALSHI_DB_MIN_BATCH || '5', 10),
     engineType: process.env.PRISMA_CLIENT_ENGINE_TYPE || 'library',
   };
 
   console.log('================================================================================');
-  console.log(`[kalshi:ingestion:diag] Ingestion Diagnostics v2.6.3`);
+  console.log(`[kalshi:ingestion:diag] Ingestion Diagnostics v2.6.4`);
   console.log('================================================================================');
   console.log(`Venue: ${venue}`);
   console.log(`Thresholds: STUCK if age > ${KALSHI_STUCK_THRESHOLD_MIN}m OR failures > ${KALSHI_MAX_FAILURES_IN_ROW}`);
@@ -111,13 +116,22 @@ export async function runKalshiIngestionDiag(
   const recentRuns = await ingestionRepo.getRecentRunsDetailed(venue, showRuns);
 
   // v2.6.3: Detect NAPI/memory errors in recent runs
+  // v2.6.4: Also detect transaction errors
   let napiErrorCount = 0;
+  let txErrorCount = 0;
   for (const run of recentRuns) {
-    if (run.errorText && isNapiOrMemoryError(new Error(run.errorText))) {
-      napiErrorCount++;
+    if (run.errorText) {
+      const errorObj = new Error(run.errorText);
+      if (isNapiOrMemoryError(errorObj)) {
+        napiErrorCount++;
+      }
+      if (isTransactionError(errorObj)) {
+        txErrorCount++;
+      }
     }
   }
   const napiErrorsDetected = napiErrorCount > 0;
+  const txErrorsDetected = txErrorCount > 0;
 
   // Calculate metrics
   const now = new Date();
@@ -163,14 +177,30 @@ export async function runKalshiIngestionDiag(
   console.log(`  Last error: ${marketsState?.lastError?.substring(0, 100) || 'none'}${marketsState?.lastError && marketsState.lastError.length > 100 ? '...' : ''}`);
   console.log('');
 
-  // v2.6.3: Print batch configuration
-  console.log('[Batch Configuration (v2.6.3)]');
-  console.log(`  KALSHI_DB_BATCH: ${batchConfig.dbBatch}`);
-  console.log(`  KALSHI_QUOTE_BATCH: ${batchConfig.quoteBatch}`);
-  console.log(`  KALSHI_LATEST_BATCH: ${batchConfig.latestBatch}`);
-  console.log(`  KALSHI_DB_MIN_BATCH: ${batchConfig.minBatch}`);
+  // v2.6.4: Print batch configuration with smaller defaults
+  console.log('[Batch Configuration (v2.6.4)]');
+  console.log(`  KALSHI_DB_BATCH: ${batchConfig.dbBatch} (markets, default 50)`);
+  console.log(`  KALSHI_QUOTE_BATCH: ${batchConfig.quoteBatch} (quotes, default 200)`);
+  console.log(`  KALSHI_LATEST_BATCH: ${batchConfig.latestBatch} (latest quotes, default 30)`);
+  console.log(`  KALSHI_DB_MIN_BATCH: ${batchConfig.minBatch} (min before skip, default 5)`);
   console.log(`  PRISMA_CLIENT_ENGINE_TYPE: ${batchConfig.engineType}`);
   console.log('');
+
+  // v2.6.4: Transaction error detection and hints (most common issue)
+  if (txErrorsDetected) {
+    console.log('[⚠ Transaction Errors Detected]');
+    console.log(`  Found ${txErrorCount} transaction-related errors in recent runs.`);
+    console.log('  These include: "Transaction already closed", timeouts, connection resets.');
+    console.log('');
+    console.log('  v2.6.4 auto-handles these by:');
+    console.log('  1. Reducing batch size automatically (min: 5)');
+    console.log('  2. Retrying failed batches up to 3 times');
+    console.log('  3. Skipping persistent failures and continuing');
+    console.log('');
+    console.log('  To tune manually, set smaller batch sizes:');
+    console.log('  KALSHI_DB_BATCH=25 KALSHI_QUOTE_BATCH=100 KALSHI_LATEST_BATCH=15');
+    console.log('');
+  }
 
   // v2.6.3: NAPI error detection and hints
   if (napiErrorsDetected) {
@@ -178,7 +208,7 @@ export async function runKalshiIngestionDiag(
     console.log(`  Found ${napiErrorCount} NAPI/memory-related errors in recent runs.`);
     console.log('');
     console.log('  Recommended actions:');
-    console.log('  1. Reduce batch sizes (try KALSHI_DB_BATCH=100, KALSHI_QUOTE_BATCH=200)');
+    console.log('  1. Reduce batch sizes (try KALSHI_DB_BATCH=25, KALSHI_QUOTE_BATCH=100)');
     console.log('  2. Set PRISMA_CLIENT_ENGINE_TYPE=binary to use binary engine');
     console.log('  3. Enable verbose logging: KALSHI_VERBOSE=true');
     console.log('  4. Check system memory and restart if needed');
@@ -253,6 +283,9 @@ export async function runKalshiIngestionDiag(
     // v2.6.3: NAPI error detection
     napiErrorsDetected,
     napiErrorCount,
+    // v2.6.4: Transaction error detection
+    txErrorsDetected,
+    txErrorCount,
     batchConfig,
   };
 }

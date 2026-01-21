@@ -9,13 +9,19 @@ export interface MarketWithOutcomes extends Market {
 export interface UpsertMarketsResult {
   created: number;
   updated: number;
-  /** v2.6.3: Chunked processing stats */
+  /** v2.6.4: Micro-batch processing stats */
   stats?: {
     batches: number;
     retries: number;
     batchSizeReductions: number;
     timeMs: number;
     errors: string[];
+    /** v2.6.4: Count of batches skipped due to persistent errors */
+    skippedBatches: number;
+    /** v2.6.4: Items in skipped batches */
+    skippedItems: number;
+    /** v2.6.4: Final batch size after reductions */
+    finalBatchSize: number;
   };
 }
 
@@ -28,18 +34,20 @@ export class MarketRepository {
   /**
    * Upsert markets and their outcomes in batches
    *
-   * v2.6.3: Uses chunked processing with automatic batch size reduction
-   * on NAPI/memory errors to prevent crashes on large datasets (70k+ markets)
+   * v2.6.4: Uses micro-batches with automatic batch size reduction on
+   * NAPI/memory AND transaction timeout errors.
+   * Default batch size reduced to 50 (from 200) to prevent transaction timeouts.
    */
   async upsertMarkets(
     venue: Venue,
     markets: MarketDTO[],
-    batchSize = parseInt(process.env.KALSHI_DB_BATCH || '200', 10)
+    batchSize = parseInt(process.env.KALSHI_DB_BATCH || '50', 10)
   ): Promise<UpsertMarketsResult> {
     let created = 0;
     let updated = 0;
 
     const processBatch = async (batch: MarketDTO[]): Promise<void> => {
+      // v2.6.4: Add explicit timeout for transaction (30 seconds max)
       await this.prisma.$transaction(async (tx) => {
         for (const market of batch) {
           const existing = await tx.market.findUnique({
@@ -121,10 +129,10 @@ export class MarketRepository {
       });
     };
 
-    // v2.6.3: Use chunked processor with automatic retry and batch size reduction
+    // v2.6.4: Use micro-batch processor with automatic retry and batch size reduction
     const stats = await processInChunks(markets, processBatch, {
       batchSize,
-      minBatchSize: parseInt(process.env.KALSHI_DB_MIN_BATCH || '10', 10),
+      minBatchSize: parseInt(process.env.KALSHI_DB_MIN_BATCH || '5', 10),
       maxRetries: 3,
       logPrefix: '[market-upsert]',
       verbose: process.env.KALSHI_VERBOSE === 'true',
@@ -139,6 +147,10 @@ export class MarketRepository {
         batchSizeReductions: stats.batchSizeReductions,
         timeMs: stats.timeMs,
         errors: stats.errors,
+        // v2.6.4: Track skipped batches
+        skippedBatches: stats.skippedBatches,
+        skippedItems: stats.skippedItems,
+        finalBatchSize: stats.finalBatchSize,
       },
     };
   }

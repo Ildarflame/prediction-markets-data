@@ -7,12 +7,16 @@ export interface InsertQuotesResult {
   inserted: number;
   skipped: number;
   skippedInCycle: number;
-  /** v2.6.3: Chunked processing stats */
+  /** v2.6.4: Micro-batch processing stats */
   stats?: {
     batches: number;
     retries: number;
     batchSizeReductions: number;
     timeMs: number;
+    /** v2.6.4: Skipped batches and items */
+    skippedBatches: number;
+    skippedItems: number;
+    finalBatchSize: number;
   };
 }
 
@@ -39,12 +43,12 @@ export class QuoteRepository {
    * Insert quotes with deduplication
    * Uses latest_quotes table for dedup check + in-cycle deduplicator
    *
-   * v2.6.3: Uses chunked processing with automatic batch size reduction
-   * on NAPI/memory errors. Also batches latest quote upserts.
+   * v2.6.4: Uses micro-batches with automatic batch size reduction
+   * on NAPI/memory AND transaction errors. Smaller default batch sizes.
    */
   async insertQuotesWithDedup(
     quotes: QuoteInput[],
-    batchSize = parseInt(process.env.KALSHI_QUOTE_BATCH || '500', 10)
+    batchSize = parseInt(process.env.KALSHI_QUOTE_BATCH || '200', 10)
   ): Promise<InsertQuotesResult> {
     let inserted = 0;
     let skipped = 0;
@@ -113,7 +117,7 @@ export class QuoteRepository {
       }
     }
 
-    // v2.6.3: Use chunked processor for quote insertion
+    // v2.6.4: Use micro-batch processor for quote insertion
     const insertStats = await processInChunks(
       quotesToInsert,
       async (batch) => {
@@ -133,16 +137,16 @@ export class QuoteRepository {
       },
       {
         batchSize,
-        minBatchSize: parseInt(process.env.KALSHI_DB_MIN_BATCH || '50', 10),
+        minBatchSize: parseInt(process.env.KALSHI_DB_MIN_BATCH || '10', 10),
         maxRetries: 3,
         logPrefix: '[quote-insert]',
         verbose: process.env.KALSHI_VERBOSE === 'true',
       }
     );
 
-    // v2.6.3: Batch upsert latest quotes instead of individual upserts
+    // v2.6.4: Batch upsert latest quotes - smaller batch sizes
     const latestUpdatesList = [...latestUpdates.entries()];
-    const latestBatchSize = parseInt(process.env.KALSHI_LATEST_BATCH || '100', 10);
+    const latestBatchSize = parseInt(process.env.KALSHI_LATEST_BATCH || '30', 10);
 
     await processInChunks(
       latestUpdatesList,
@@ -175,7 +179,7 @@ export class QuoteRepository {
       },
       {
         batchSize: latestBatchSize,
-        minBatchSize: 10,
+        minBatchSize: 5,
         maxRetries: 3,
         logPrefix: '[latest-upsert]',
         verbose: process.env.KALSHI_VERBOSE === 'true',
@@ -191,6 +195,9 @@ export class QuoteRepository {
         retries: insertStats.retries,
         batchSizeReductions: insertStats.batchSizeReductions,
         timeMs: insertStats.timeMs,
+        skippedBatches: insertStats.skippedBatches,
+        skippedItems: insertStats.skippedItems,
+        finalBatchSize: insertStats.finalBatchSize,
       },
     };
   }
