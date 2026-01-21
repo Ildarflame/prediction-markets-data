@@ -48,3 +48,5 @@ export {
   type CryptoTruthAuditResult,
 } from './crypto-truth-audit.js';
 export { runCryptoQuality, type CryptoQualityOptions, type CryptoQualityResult, type CryptoQualityMatch } from './crypto-quality.js';
+export { runCryptoBrackets, type CryptoBracketsOptions, type CryptoBracketsResult } from './crypto-brackets.js';
+export { runCryptoDateAudit, type CryptoDateAuditOptions, type CryptoDateAuditResult } from './crypto-date-audit.js';

@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -728,15 +728,17 @@ program
     }
   });
 
-// Crypto quality review commands (v2.5.3)
+// Crypto quality review commands (v2.6.0)
 program
   .command('crypto:best')
-  .description('Show best high-score crypto matches for quality review (v2.5.3)')
+  .description('Show/auto-confirm best high-score crypto matches (v2.6.0)')
   .option('--min-score <number>', 'Minimum score filter', '0.90')
   .option('--limit <number>', 'Maximum results', '50')
   .option('--from <venue>', 'Source venue', 'kalshi')
   .option('--to <venue>', 'Target venue', 'polymarket')
   .option('--lookback-hours <hours>', 'Lookback hours', '720')
+  .option('--apply', 'Auto-confirm safe matches (SAFE_RULES)', false)
+  .option('--dry-run', 'Show what would be confirmed without applying', false)
   .action(async (opts) => {
     try {
       await runCryptoQuality({
@@ -746,6 +748,8 @@ program
         fromVenue: opts.from as Venue,
         toVenue: opts.to as Venue,
         lookbackHours: parseInt(opts.lookbackHours, 10),
+        apply: opts.apply,
+        dryRun: opts.dryRun,
       });
     } catch (error) {
       console.error('Crypto best error:', error);
@@ -801,6 +805,68 @@ program
       });
     } catch (error) {
       console.error('Crypto sample error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Crypto brackets diagnostic command (v2.6.0)
+program
+  .command('crypto:brackets')
+  .description('Analyze bracket structure in crypto markets (v2.6.0)')
+  .option('--venue <venue>', 'Venue to analyze', 'polymarket')
+  .option('--lookback-hours <hours>', 'Lookback hours', '720')
+  .option('--limit <number>', 'Max markets to fetch', '5000')
+  .option('--top-n <number>', 'Top N brackets to show', '20')
+  .action(async (opts) => {
+    const supportedVenues = getSupportedVenues();
+
+    if (!supportedVenues.includes(opts.venue)) {
+      console.error(`Invalid --venue: ${opts.venue}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    try {
+      await runCryptoBrackets({
+        venue: opts.venue as Venue,
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+        limit: parseInt(opts.limit, 10),
+        topN: parseInt(opts.topN, 10),
+      });
+    } catch (error) {
+      console.error('Crypto brackets error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Crypto date-audit diagnostic command (v2.6.0)
+program
+  .command('crypto:date-audit')
+  .description('Analyze date extraction quality for crypto markets (v2.6.0)')
+  .option('--venue <venue>', 'Venue to analyze', 'polymarket')
+  .option('--lookback-hours <hours>', 'Lookback hours', '720')
+  .option('--limit <number>', 'Max markets to fetch', '5000')
+  .option('--sample-per-type <number>', 'Sample size per dateType', '10')
+  .action(async (opts) => {
+    const supportedVenues = getSupportedVenues();
+
+    if (!supportedVenues.includes(opts.venue)) {
+      console.error(`Invalid --venue: ${opts.venue}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    try {
+      await runCryptoDateAudit({
+        venue: opts.venue as Venue,
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+        limit: parseInt(opts.limit, 10),
+        samplePerType: parseInt(opts.samplePerType, 10),
+      });
+    } catch (error) {
+      console.error('Crypto date-audit error:', error);
       process.exit(1);
     } finally {
       await disconnect();

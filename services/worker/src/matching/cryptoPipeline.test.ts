@@ -17,7 +17,7 @@ import {
   type CryptoMarket,
   type CryptoSignals,
 } from './cryptoPipeline.js';
-import { buildFingerprint, MarketIntent, type MarketFingerprint } from '@data-module/core';
+import { buildFingerprint } from '@data-module/core';
 
 // Helper to create a CryptoMarket for testing (v2.5.3)
 function makeCryptoMarket(

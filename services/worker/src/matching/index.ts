@@ -68,3 +68,20 @@ export {
   collectCryptoSettleDates,
   collectCryptoSamplesByEntity,
 } from './cryptoPipeline.js';
+
+// Crypto Bracket Grouping (v2.6.0)
+export {
+  // Types
+  type BracketKey,
+  type BracketCandidate,
+  type BracketGroup,
+  type BracketGroupingOptions,
+  type BracketStats,
+  type BracketAnalysis,
+  // Functions
+  buildBracketKey,
+  groupByBracket,
+  selectRepresentative,
+  applyBracketGrouping,
+  analyzeBrackets,
+} from './cryptoBrackets.js';

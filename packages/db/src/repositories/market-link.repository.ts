@@ -192,4 +192,63 @@ export class MarketLinkRepository {
 
     return result;
   }
+
+  /**
+   * Confirm a link by pair (venue + marketId) - v2.6.0
+   * Creates the link if it doesn't exist, or updates status to confirmed
+   * Returns info about what happened
+   */
+  async confirmByPair(
+    leftVenue: Venue,
+    leftMarketId: number,
+    rightVenue: Venue,
+    rightMarketId: number,
+    score: number,
+    reason: string | null
+  ): Promise<{ link: MarketLink; created: boolean; wasAlreadyConfirmed: boolean }> {
+    const existing = await this.prisma.marketLink.findUnique({
+      where: {
+        leftVenue_leftMarketId_rightVenue_rightMarketId: {
+          leftVenue,
+          leftMarketId,
+          rightVenue,
+          rightMarketId,
+        },
+      },
+    });
+
+    if (existing) {
+      if (existing.status === 'confirmed') {
+        // Already confirmed, no changes needed
+        return { link: existing, created: false, wasAlreadyConfirmed: true };
+      }
+
+      // Update to confirmed
+      const updated = await this.prisma.marketLink.update({
+        where: { id: existing.id },
+        data: {
+          status: 'confirmed',
+          score,
+          reason,
+        },
+      });
+
+      return { link: updated, created: false, wasAlreadyConfirmed: false };
+    }
+
+    // Create new confirmed link
+    const link = await this.prisma.marketLink.create({
+      data: {
+        leftVenue,
+        leftMarketId,
+        rightVenue,
+        rightMarketId,
+        score,
+        reason,
+        status: 'confirmed',
+      },
+    });
+
+    return { link, created: true, wasAlreadyConfirmed: false };
+  }
 }

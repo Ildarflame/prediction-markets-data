@@ -37,6 +37,12 @@ import {
   findCryptoCandidates,
   cryptoMatchScore,
   type CryptoMarket,
+  type CryptoScoreResult,
+  // Crypto Bracket Grouping (v2.6.0)
+  buildBracketKey,
+  applyBracketGrouping,
+  type BracketCandidate,
+  type BracketStats,
 } from '../matching/index.js';
 
 /**
@@ -1598,13 +1604,17 @@ interface CryptoSuggestMatchesOptions {
   maxPerRight: number;
   /** v2.5.3: Winner gap - if top1 - top2 >= gap, keep only top1 */
   winnerGap: number;
+  /** v2.6.0: Max bracket groups per left market (0 = disabled) */
+  maxGroupsPerLeft: number;
+  /** v2.6.0: Max lines per bracket group (0 = disabled) */
+  maxLinesPerGroup: number;
   marketRepo: MarketRepository;
   linkRepo: MarketLinkRepository;
   result: SuggestMatchesResult;
 }
 
 /**
- * v2.5.3 Dedup stats for crypto matching
+ * v2.5.3/v2.6.0 Dedup stats for crypto matching
  */
 interface CryptoDedupStats {
   generatedPairs: number;
@@ -1612,6 +1622,8 @@ interface CryptoDedupStats {
   droppedByLeftCap: number;
   droppedByRightCap: number;
   droppedByWinnerGap: number;
+  /** v2.6.0: Bracket grouping stats */
+  bracketStats: BracketStats | null;
 }
 
 /**
@@ -1641,15 +1653,22 @@ async function runCryptoSuggestMatches(options: CryptoSuggestMatchesOptions): Pr
     excludeSports,
     maxPerRight,
     winnerGap,
+    maxGroupsPerLeft,
+    maxLinesPerGroup,
     marketRepo,
     linkRepo,
     result,
   } = options;
 
-  console.log(`[crypto-matching] Starting suggest-matches v2.5.3: ${fromVenue} -> ${toVenue}`);
+  const useBracketGrouping = maxGroupsPerLeft > 0 && maxLinesPerGroup > 0;
+
+  console.log(`[crypto-matching] Starting suggest-matches v2.6.0: ${fromVenue} -> ${toVenue}`);
   console.log(`[crypto-matching] minScore=${minScore}, topK=${topK}, lookbackHours=${lookbackHours}`);
   console.log(`[crypto-matching] limitLeft=${limitLeft}, limitRight=${limitRight}, maxSuggestionsPerLeft=${maxSuggestionsPerLeft}`);
   console.log(`[crypto-matching] maxPerRight=${maxPerRight}, winnerGap=${winnerGap} (v2.5.3 dedup)`);
+  if (useBracketGrouping) {
+    console.log(`[crypto-matching] Bracket grouping (v2.6.0): maxGroups=${maxGroupsPerLeft}, maxLines=${maxLinesPerGroup}`);
+  }
   console.log(`[crypto-matching] Entities: ${CRYPTO_ENTITIES_V1.join(', ')}`);
   console.log(`[crypto-matching] Sports exclusion: ${excludeSports ? 'enabled' : 'disabled'}`);
 
@@ -1727,6 +1746,16 @@ async function runCryptoSuggestMatches(options: CryptoSuggestMatchesOptions): Pr
       droppedByLeftCap: 0,
       droppedByRightCap: 0,
       droppedByWinnerGap: 0,
+      bracketStats: null,
+    };
+
+    // v2.6.0: Aggregate bracket stats
+    const aggregateBracketStats: BracketStats = {
+      totalCandidates: 0,
+      uniqueGroups: 0,
+      savedCandidates: 0,
+      droppedByGroupLimit: 0,
+      droppedWithinGroups: 0,
     };
 
     // Process each left market
@@ -1756,7 +1785,14 @@ async function runCryptoSuggestMatches(options: CryptoSuggestMatchesOptions): Pr
       result.candidatesConsidered += candidates.length;
 
       // Score candidates
-      const scores: Array<{ rightMarket: CryptoMarket; score: number; reason: string; entity: string; settleKey: string }> = [];
+      const scores: Array<{
+        rightMarket: CryptoMarket;
+        score: number;
+        reason: string;
+        entity: string;
+        settleKey: string;
+        scoreResult: CryptoScoreResult;
+      }> = [];
 
       for (const rightCrypto of candidates) {
         // Skip self-match
@@ -1782,6 +1818,7 @@ async function runCryptoSuggestMatches(options: CryptoSuggestMatchesOptions): Pr
             reason: scoreResult.reason,
             entity,
             settleKey,
+            scoreResult,
           });
         }
       }
@@ -1789,27 +1826,65 @@ async function runCryptoSuggestMatches(options: CryptoSuggestMatchesOptions): Pr
       // Sort by score descending
       scores.sort((a, b) => b.score - a.score);
 
-      // v2.5.3: Apply winner-gap logic
-      // If top1 - top2 >= winnerGap, keep only top1
-      let winnowedScores = scores;
-      if (scores.length >= 2 && winnerGap > 0) {
-        const gap = scores[0].score - scores[1].score;
-        if (gap >= winnerGap) {
-          dedupStats.droppedByWinnerGap += scores.length - 1;
-          winnowedScores = [scores[0]];
+      // Track generated pairs before any caps
+      dedupStats.generatedPairs += scores.length;
+
+      // v2.6.0: Apply bracket grouping if enabled
+      let processedCandidates: Array<{ rightMarket: CryptoMarket; score: number; reason: string; entity: string; settleKey: string }>;
+
+      if (useBracketGrouping && scores.length > 0) {
+        // Convert to BracketCandidate format
+        const bracketCandidates: BracketCandidate[] = scores.map(s => ({
+          leftCrypto,
+          rightCrypto: s.rightMarket,
+          score: s.score,
+          scoreResult: s.scoreResult,
+          bracketKey: buildBracketKey(s.entity, s.settleKey, s.rightMarket.signals.comparator),
+        }));
+
+        // Apply bracket grouping
+        const { result: grouped, stats: bracketStats } = applyBracketGrouping(bracketCandidates, {
+          maxGroupsPerLeft,
+          maxLinesPerGroup,
+          representativeStrategy: 'best_score',
+        });
+
+        // Update aggregate bracket stats
+        aggregateBracketStats.totalCandidates += bracketStats.totalCandidates;
+        aggregateBracketStats.uniqueGroups += bracketStats.uniqueGroups;
+        aggregateBracketStats.savedCandidates += bracketStats.savedCandidates;
+        aggregateBracketStats.droppedByGroupLimit += bracketStats.droppedByGroupLimit;
+        aggregateBracketStats.droppedWithinGroups += bracketStats.droppedWithinGroups;
+
+        // Convert back to our format
+        processedCandidates = grouped.map(g => ({
+          rightMarket: g.rightCrypto,
+          score: g.score,
+          reason: g.scoreResult.reason,
+          entity: g.rightCrypto.signals.entity || 'UNKNOWN',
+          settleKey: g.rightCrypto.signals.settlePeriod || g.rightCrypto.signals.settleDate || 'UNKNOWN',
+        }));
+      } else {
+        // v2.5.3: Apply winner-gap logic (only when bracket grouping is disabled)
+        let winnowedScores = scores;
+        if (scores.length >= 2 && winnerGap > 0) {
+          const gap = scores[0].score - scores[1].score;
+          if (gap >= winnerGap) {
+            dedupStats.droppedByWinnerGap += scores.length - 1;
+            winnowedScores = [scores[0]];
+          }
         }
+
+        // Apply left cap
+        const afterLeftCap = winnowedScores.slice(0, effectiveCap);
+        dedupStats.droppedByLeftCap += winnowedScores.length - afterLeftCap.length;
+
+        processedCandidates = afterLeftCap;
       }
 
-      // Track generated pairs before any caps
-      dedupStats.generatedPairs += winnowedScores.length;
-
-      // Apply left cap
-      const afterLeftCap = winnowedScores.slice(0, effectiveCap);
-      dedupStats.droppedByLeftCap += winnowedScores.length - afterLeftCap.length;
-
       // v2.5.3: Apply right-side cap per (rightId, entity, settleKey)
-      const finalCandidates: typeof afterLeftCap = [];
-      for (const candidate of afterLeftCap) {
+      const finalCandidates: typeof processedCandidates = [];
+      for (const candidate of processedCandidates) {
         const rightKey = `${candidate.rightMarket.market.id}|${candidate.entity}|${candidate.settleKey}`;
         const currentUsage = rightUsage.get(rightKey) || 0;
 
@@ -1874,8 +1949,17 @@ async function runCryptoSuggestMatches(options: CryptoSuggestMatchesOptions): Pr
     console.log(`  Candidates considered: ${result.candidatesConsidered}`);
     console.log(`  Generated pairs (score >= ${minScore}): ${dedupStats.generatedPairs}`);
     console.log(`  [v2.5.3 Dedup Stats]`);
-    console.log(`    Dropped by winner-gap (>=${winnerGap}): ${dedupStats.droppedByWinnerGap}`);
-    console.log(`    Dropped by left-cap (max ${effectiveCap}): ${dedupStats.droppedByLeftCap}`);
+    if (useBracketGrouping) {
+      console.log(`  v2.6.0 Bracket Grouping Stats:`);
+      console.log(`    Total candidates: ${aggregateBracketStats.totalCandidates}`);
+      console.log(`    Unique bracket groups: ${aggregateBracketStats.uniqueGroups}`);
+      console.log(`    Dropped by group limit: ${aggregateBracketStats.droppedByGroupLimit}`);
+      console.log(`    Dropped within groups: ${aggregateBracketStats.droppedWithinGroups}`);
+      console.log(`    Saved from brackets: ${aggregateBracketStats.savedCandidates}`);
+    } else {
+      console.log(`    Dropped by winner-gap (>=${winnerGap}): ${dedupStats.droppedByWinnerGap}`);
+      console.log(`    Dropped by left-cap (max ${effectiveCap}): ${dedupStats.droppedByLeftCap}`);
+    }
     console.log(`    Dropped by right-cap (max ${maxPerRight}/key): ${dedupStats.droppedByRightCap}`);
     console.log(`    Saved after dedup: ${dedupStats.savedTopK}`);
     console.log(`  Suggestions created: ${result.suggestionsCreated}`);
@@ -2035,9 +2119,12 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
   // v2.5.2: Crypto-specific matching path
   // ============================================================
   if (topic === 'crypto') {
-    // v2.5.3: Crypto dedup/caps options (ENV overridable)
+    // v2.5.3/v2.6.0: Crypto dedup/caps options (ENV overridable)
     const cryptoMaxPerRight = parseInt(process.env.CRYPTO_MAX_PER_RIGHT || '5', 10);
     const cryptoWinnerGap = parseFloat(process.env.CRYPTO_WINNER_GAP || '0.08');
+    // v2.6.0: Bracket grouping options (set to 0 to disable)
+    const cryptoMaxGroupsPerLeft = parseInt(process.env.CRYPTO_MAX_GROUPS_PER_LEFT || '3', 10);
+    const cryptoMaxLinesPerGroup = parseInt(process.env.CRYPTO_MAX_LINES_PER_GROUP || '1', 10);
 
     return await runCryptoSuggestMatches({
       fromVenue,
@@ -2051,6 +2138,8 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       excludeSports,
       maxPerRight: cryptoMaxPerRight,
       winnerGap: cryptoWinnerGap,
+      maxGroupsPerLeft: cryptoMaxGroupsPerLeft,
+      maxLinesPerGroup: cryptoMaxLinesPerGroup,
       marketRepo,
       linkRepo,
       result,
