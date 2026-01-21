@@ -1,5 +1,5 @@
 /**
- * Crypto Pipeline (v2.5.3)
+ * Crypto Pipeline (v2.6.1)
  *
  * Unified pipeline for fetching and processing crypto price markets.
  * Used by suggest-matches --topic crypto and crypto:* diagnostic commands.
@@ -13,6 +13,12 @@
  * - DateType system: DAY_EXACT, MONTH_END, QUARTER (only compatible types match)
  * - Smart number extraction: avoids date numbers, prefers $ and comparator context
  * - Dedup caps: --max-per-left, --max-per-right, --winner-gap
+ *
+ * v2.6.1 Changes:
+ * - Truth settle date: prefer closeTime from API over title parsing
+ * - CryptoMarketType: classify markets (DAILY_THRESHOLD, DAILY_RANGE, etc.)
+ * - Improved comparator detection: reach, hit, at least, under, etc.
+ * - settleSource tracking: api_close, title_parse, fallback_close
  */
 
 import type { Venue as CoreVenue } from '@data-module/core';
@@ -188,6 +194,55 @@ export enum CryptoDateType {
 }
 
 // ============================================================
+// Truth Settle Source (v2.6.1)
+// ============================================================
+
+/**
+ * Source of the settle date (v2.6.1)
+ * Tracks where the settle date came from for transparency
+ */
+export enum TruthSettleSource {
+  /** From API close_time/endDate field (most reliable) */
+  API_CLOSE = 'api_close',
+  /** Parsed from title with DAY precision */
+  TITLE_PARSE = 'title_parse',
+  /** Fallback to closeTime when title parsing failed */
+  FALLBACK_CLOSE = 'fallback_close',
+  /** No settle date available */
+  MISSING = 'missing',
+}
+
+// ============================================================
+// Crypto Market Type (v2.6.1)
+// ============================================================
+
+/**
+ * Market type classification for crypto markets (v2.6.1)
+ * Used to prevent matching incompatible market families
+ */
+export enum CryptoMarketType {
+  /** Daily threshold: "BTC above $96k on Jan 23" */
+  DAILY_THRESHOLD = 'DAILY_THRESHOLD',
+  /** Daily range: "BTC between $95k and $97k on Jan 23" */
+  DAILY_RANGE = 'DAILY_RANGE',
+  /** Yearly/long-term threshold: "BTC above $X by end of 2026" */
+  YEARLY_THRESHOLD = 'YEARLY_THRESHOLD',
+  /** Intraday up/down: "BTC Up or Down - next 15 minutes" */
+  INTRADAY_UPDOWN = 'INTRADAY_UPDOWN',
+  /** Unknown type */
+  UNKNOWN = 'UNKNOWN',
+}
+
+/**
+ * Comparator source (v2.6.1)
+ */
+export enum ComparatorSource {
+  TITLE = 'title',
+  API_RULES = 'api_rules',
+  UNKNOWN = 'unknown',
+}
+
+// ============================================================
 // Crypto Signals
 // ============================================================
 
@@ -205,12 +260,18 @@ export interface CryptoSignals {
   dateType: CryptoDateType;
   /** Settlement period key for non-day types (v2.5.3): "2026-01" for MONTH_END, "2026-Q1" for QUARTER */
   settlePeriod: string | null;
+  /** Source of settle date (v2.6.1) */
+  settleSource: TruthSettleSource;
+  /** Market type classification (v2.6.1) */
+  marketType: CryptoMarketType;
   /** Extracted numbers (price thresholds) - now with smart extraction (v2.5.3) */
   numbers: number[];
   /** Number extraction context (v2.5.3) */
   numberContext: 'price' | 'threshold' | 'unknown';
-  /** Comparator from title */
+  /** Comparator from title (v2.6.1: improved detection) */
   comparator: string | null;
+  /** Comparator source (v2.6.1) */
+  comparatorSource: ComparatorSource;
   /** Market intent */
   intent: MarketIntent;
   /** Full fingerprint */
@@ -241,11 +302,20 @@ export interface SettleDateResult {
   dateType: CryptoDateType;
   /** Period key for non-day types: "2026-01" for MONTH_END, "2026-Q1" for QUARTER */
   settlePeriod: string | null;
+  /** Source of the settle date (v2.6.1) */
+  settleSource: TruthSettleSource;
 }
 
 /**
- * Extract settlement date from title or closeTime (v2.5.3)
- * Now returns dateType and settlePeriod for proper matching
+ * Extract settlement date from title or closeTime (v2.6.1)
+ * Now returns dateType, settlePeriod, and settleSource for proper matching
+ *
+ * v2.6.1 PRIORITY ORDER:
+ * 1. If closeTime from API exists AND title has matching specific date -> DAY_EXACT (API_CLOSE)
+ * 2. If title has specific date pattern -> DAY_EXACT (TITLE_PARSE)
+ * 3. If title has month/quarter patterns -> MONTH_END/QUARTER (TITLE_PARSE)
+ * 4. If closeTime from API exists -> CLOSE_TIME (FALLBACK_CLOSE)
+ * 5. Else -> UNKNOWN (MISSING)
  *
  * Patterns recognized:
  * - DAY_EXACT: "Jan 21, 2026", "January 21", "Dec 13"
@@ -288,6 +358,7 @@ export function extractSettleDate(title: string, closeTime?: Date | null): Settl
         parsed: { year, month, day: lastDay, raw: match[0], precision: DatePrecision.MONTH },
         dateType: CryptoDateType.MONTH_END,
         settlePeriod: periodStr,
+        settleSource: TruthSettleSource.TITLE_PARSE,
       };
     }
   }
@@ -323,6 +394,7 @@ export function extractSettleDate(title: string, closeTime?: Date | null): Settl
         parsed: { year, month: quarterEndMonth, day: lastDay, raw: match[0], precision: DatePrecision.QUARTER },
         dateType: CryptoDateType.QUARTER,
         settlePeriod: periodStr,
+        settleSource: TruthSettleSource.TITLE_PARSE,
       };
     }
   }
@@ -339,6 +411,7 @@ export function extractSettleDate(title: string, closeTime?: Date | null): Settl
       parsed: dayDate,
       dateType: CryptoDateType.DAY_EXACT,
       settlePeriod: null,
+      settleSource: TruthSettleSource.TITLE_PARSE,
     };
   }
 
@@ -354,10 +427,11 @@ export function extractSettleDate(title: string, closeTime?: Date | null): Settl
       parsed: { ...monthYearDate, day: lastDay },
       dateType: CryptoDateType.MONTH_END,
       settlePeriod: periodStr,
+      settleSource: TruthSettleSource.TITLE_PARSE,
     };
   }
 
-  // Fallback to closeTime
+  // Fallback to closeTime (v2.6.1: use API_CLOSE if available)
   if (closeTime) {
     const year = closeTime.getFullYear();
     const month = closeTime.getMonth() + 1;
@@ -374,10 +448,283 @@ export function extractSettleDate(title: string, closeTime?: Date | null): Settl
       },
       dateType: CryptoDateType.CLOSE_TIME,
       settlePeriod: null,
+      settleSource: TruthSettleSource.FALLBACK_CLOSE,
     };
   }
 
-  return { date: null, parsed: null, dateType: CryptoDateType.UNKNOWN, settlePeriod: null };
+  return {
+    date: null,
+    parsed: null,
+    dateType: CryptoDateType.UNKNOWN,
+    settlePeriod: null,
+    settleSource: TruthSettleSource.MISSING,
+  };
+}
+
+// ============================================================
+// Truth Settle Date (v2.6.1)
+// ============================================================
+
+/**
+ * Extract settlement date with truth source priority (v2.6.1)
+ *
+ * Priority:
+ * 1. If closeTime exists AND we can parse a specific date from title that matches closeTime date
+ *    -> Use closeTime as truth (API_CLOSE), but keep dateType from title parsing
+ * 2. If we can parse a specific date from title -> TITLE_PARSE
+ * 3. If closeTime exists -> API_CLOSE (use it directly)
+ * 4. Else -> MISSING
+ *
+ * Key insight: closeTime from API is the "truth" settle date, but title may give us
+ * additional context (like dateType for period markets).
+ */
+export function extractSettleDateWithTruth(
+  title: string,
+  closeTime?: Date | null,
+  _metadata?: Record<string, unknown> | null
+): SettleDateResult {
+  // First, try standard extraction from title
+  const titleResult = extractSettleDate(title, closeTime);
+
+  // If we have closeTime from API and title parsing worked
+  if (closeTime && titleResult.date) {
+    // Check if title date matches closeTime date (same day)
+    const closeYear = closeTime.getFullYear();
+    const closeMonth = closeTime.getMonth() + 1;
+    const closeDay = closeTime.getDate();
+    const closeDateStr = `${closeYear}-${String(closeMonth).padStart(2, '0')}-${String(closeDay).padStart(2, '0')}`;
+
+    // If dates match or are within 1 day, use API_CLOSE as source (more reliable)
+    if (titleResult.dateType === CryptoDateType.DAY_EXACT) {
+      const diff = settleDateDayDiff(titleResult.date, closeDateStr);
+      if (diff !== null && Math.abs(diff) <= 1) {
+        return {
+          ...titleResult,
+          date: closeDateStr, // Use closeTime date as truth
+          settleSource: TruthSettleSource.API_CLOSE,
+        };
+      }
+    }
+
+    // For MONTH_END/QUARTER, keep title parsing result
+    return titleResult;
+  }
+
+  // If title parsing failed but we have closeTime, use it directly
+  if (closeTime && !titleResult.date) {
+    const year = closeTime.getFullYear();
+    const month = closeTime.getMonth() + 1;
+    const day = closeTime.getDate();
+    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+    return {
+      date: dateStr,
+      parsed: { year, month, day, raw: 'api_close', precision: DatePrecision.DAY },
+      dateType: CryptoDateType.CLOSE_TIME,
+      settlePeriod: null,
+      settleSource: TruthSettleSource.API_CLOSE,
+    };
+  }
+
+  return titleResult;
+}
+
+// ============================================================
+// Improved Comparator Detection (v2.6.1)
+// ============================================================
+
+/**
+ * Comparator extraction result (v2.6.1)
+ */
+export interface ComparatorResult {
+  comparator: string | null;
+  source: ComparatorSource;
+}
+
+/**
+ * Extract comparator from title with improved patterns (v2.6.1)
+ *
+ * GE patterns: "reach", "hit", "at least", "or more", "above", "over", ">="
+ * LE patterns: "under", "below", "at most", "or less", "<="
+ * BETWEEN patterns: "between X and Y", "from X to Y", "X–Y" (with two numbers)
+ */
+export function extractCryptoComparator(title: string, numbers: number[]): ComparatorResult {
+  // Check for BETWEEN first (needs two numbers)
+  if (numbers.length >= 2) {
+    const betweenPatterns = [
+      /\bbetween\b/i,
+      /\bfrom\s+\$?[\d,]+.*\bto\s+\$?[\d,]+/i,
+      /\$?[\d,]+\s*[-–]\s*\$?[\d,]+/,
+      /\brange\b/i,
+    ];
+    for (const pattern of betweenPatterns) {
+      if (pattern.test(title)) {
+        return { comparator: 'BETWEEN', source: ComparatorSource.TITLE };
+      }
+    }
+  }
+
+  // GE patterns (greater than or equal / above)
+  const gePatterns = [
+    /\b(?:above|over|exceed|exceeds?|at\s+least|or\s+more)\b/i,
+    /\b(?:reach|reaches?|hit|hits?|touch|touches?)\b/i,
+    /\b(?:greater\s+than|more\s+than)\b/i,
+    /\$[\d,]+\s*(?:or\s+(?:above|more|higher))\b/i,
+    />=?\s*\$?[\d,]/,
+  ];
+  for (const pattern of gePatterns) {
+    if (pattern.test(title)) {
+      return { comparator: 'GE', source: ComparatorSource.TITLE };
+    }
+  }
+
+  // LE patterns (less than or equal / below)
+  const lePatterns = [
+    /\b(?:below|under|at\s+most|or\s+less)\b/i,
+    /\b(?:less\s+than|lower\s+than|fall\s+(?:to|below))\b/i,
+    /\b(?:dip\s+to|drop\s+to|sink\s+to)\b/i,
+    /\$[\d,]+\s*(?:or\s+(?:below|less|lower))\b/i,
+    /<=?\s*\$?[\d,]/,
+  ];
+  for (const pattern of lePatterns) {
+    if (pattern.test(title)) {
+      return { comparator: 'LE', source: ComparatorSource.TITLE };
+    }
+  }
+
+  return { comparator: null, source: ComparatorSource.UNKNOWN };
+}
+
+// ============================================================
+// Crypto Market Type Classification (v2.6.1)
+// ============================================================
+
+/**
+ * Determine crypto market type from signals (v2.6.1)
+ *
+ * Priority:
+ * 1. Check for intraday patterns (minutes, hours, today at, clock time)
+ * 2. Check for yearly/long-term patterns (end of year, before 20XX, this year)
+ * 3. If DAY_EXACT date + single price + GE/LE -> DAILY_THRESHOLD
+ * 4. If DAY_EXACT date + BETWEEN + two prices -> DAILY_RANGE
+ * 5. Else -> UNKNOWN
+ */
+export function determineCryptoMarketType(
+  title: string,
+  dateType: CryptoDateType,
+  comparator: string | null,
+  numbers: number[],
+  metadata?: Record<string, unknown> | null
+): CryptoMarketType {
+  const lower = title.toLowerCase();
+
+  // Check metadata for explicit market type from venue (e.g., Kalshi marketType)
+  if (metadata) {
+    const marketType = metadata.marketType || metadata.market_type;
+    if (typeof marketType === 'string') {
+      const mt = marketType.toLowerCase();
+      // Kalshi-specific market type patterns
+      if (mt.includes('binary') && lower.includes('up or down')) {
+        return CryptoMarketType.INTRADAY_UPDOWN;
+      }
+    }
+
+    // Check Kalshi event ticker for intraday patterns
+    const eventTicker = metadata.eventTicker || metadata.event_ticker;
+    if (typeof eventTicker === 'string') {
+      // KXBTCUPDOWN, KXETHUPDOWN patterns
+      if (/UPDOWN|INTRADAY/i.test(eventTicker)) {
+        return CryptoMarketType.INTRADAY_UPDOWN;
+      }
+    }
+  }
+
+  // Pattern 1: Intraday patterns
+  const intradayPatterns = [
+    /\b(?:next\s+)?(?:\d+\s+)?(?:minute|min|hour|hr)s?\b/i,
+    /\btoday\s+(?:at|by)\b/i,
+    /\b(?:at|by)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm|ET|EST|UTC)\b/i,
+    /\bup\s+or\s+down\b/i,
+    /\bintraday\b/i,
+    /\bdaily\s+candle\s+change\b/i,
+  ];
+  for (const pattern of intradayPatterns) {
+    if (pattern.test(title)) {
+      return CryptoMarketType.INTRADAY_UPDOWN;
+    }
+  }
+
+  // Pattern 2: Yearly/long-term patterns
+  const yearlyPatterns = [
+    /\b(?:end\s+of|by\s+end\s+of|before)\s+20\d{2}\b/i,
+    /\bthis\s+year\b/i,
+    /\b(?:in|during)\s+20\d{2}\b(?!\s+on)/i, // "in 2026" but not "in 2026 on Jan 23"
+    /\bbefore\s+20\d{2}\b/i,
+    /\bby\s+(?:December|Dec)\s+31/i,
+    /\ball\s+time\s+high\b.*20\d{2}/i,
+  ];
+  for (const pattern of yearlyPatterns) {
+    if (pattern.test(title)) {
+      return CryptoMarketType.YEARLY_THRESHOLD;
+    }
+  }
+
+  // Pattern 3: Check date type + comparator for daily markets
+  if (dateType === CryptoDateType.DAY_EXACT) {
+    if (comparator === 'BETWEEN' && numbers.length >= 2) {
+      return CryptoMarketType.DAILY_RANGE;
+    }
+    if ((comparator === 'GE' || comparator === 'LE') && numbers.length >= 1) {
+      return CryptoMarketType.DAILY_THRESHOLD;
+    }
+    // Even without detected comparator, if we have a day date and a number, assume threshold
+    if (numbers.length >= 1) {
+      return CryptoMarketType.DAILY_THRESHOLD;
+    }
+  }
+
+  // Pattern 4: CLOSE_TIME with long-term characteristics
+  if (dateType === CryptoDateType.CLOSE_TIME) {
+    // Check if it looks like a yearly market (no specific date in title)
+    const hasSpecificDateInTitle = /\b(?:on\s+)?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}\b/i.test(title);
+    if (!hasSpecificDateInTitle && numbers.length >= 1) {
+      // Likely a yearly threshold market like "BTC above $X before 2027"
+      return CryptoMarketType.YEARLY_THRESHOLD;
+    }
+  }
+
+  return CryptoMarketType.UNKNOWN;
+}
+
+/**
+ * Check if two market types are compatible for matching (v2.6.1)
+ *
+ * Rules:
+ * - DAILY_THRESHOLD matches only DAILY_THRESHOLD
+ * - DAILY_RANGE matches only DAILY_RANGE
+ * - YEARLY_THRESHOLD matches only YEARLY_THRESHOLD
+ * - INTRADAY_UPDOWN is excluded by default (never matches)
+ * - UNKNOWN matches nothing
+ */
+export function areMarketTypesCompatible(
+  typeA: CryptoMarketType,
+  typeB: CryptoMarketType,
+  options: { includeIntraday?: boolean; includeUnknown?: boolean } = {}
+): boolean {
+  const { includeIntraday = false, includeUnknown = false } = options;
+
+  // INTRADAY excluded by default
+  if (typeA === CryptoMarketType.INTRADAY_UPDOWN || typeB === CryptoMarketType.INTRADAY_UPDOWN) {
+    return includeIntraday && typeA === typeB;
+  }
+
+  // UNKNOWN matches nothing unless explicitly allowed
+  if (typeA === CryptoMarketType.UNKNOWN || typeB === CryptoMarketType.UNKNOWN) {
+    return includeUnknown && typeA === typeB;
+  }
+
+  // Same types are compatible
+  return typeA === typeB;
 }
 
 // ============================================================
@@ -624,20 +971,42 @@ export function extractCryptoEntity(title: string, metadata?: Record<string, unk
 }
 
 // ============================================================
-// Crypto Signal Extraction (v2.5.3)
+// Crypto Signal Extraction (v2.6.1)
 // ============================================================
 
 /**
- * Extract crypto signals from a market (v2.5.3)
- * Now includes dateType, settlePeriod, and smart number extraction
+ * Extract crypto signals from a market (v2.6.1)
+ * Now includes:
+ * - dateType, settlePeriod, settleSource (truth source tracking)
+ * - marketType classification (DAILY_THRESHOLD, DAILY_RANGE, etc.)
+ * - Improved comparator detection with source tracking
  */
 export function extractCryptoSignals(market: EligibleMarket): CryptoSignals {
   const fingerprint = buildFingerprint(market.title, market.closeTime, { metadata: market.metadata });
   const entity = extractCryptoEntity(market.title, market.metadata);
-  const { date: settleDate, parsed: settleDateParsed, dateType, settlePeriod } = extractSettleDate(market.title, market.closeTime);
+
+  // v2.6.1: Use truth-aware settle date extraction
+  const { date: settleDate, parsed: settleDateParsed, dateType, settlePeriod, settleSource } =
+    extractSettleDateWithTruth(market.title, market.closeTime, market.metadata);
 
   // v2.5.3: Use smart number extraction
   const { numbers, context: numberContext } = extractCryptoNumbers(market.title);
+
+  // v2.6.1: Use improved comparator detection
+  const { comparator: extractedComparator, source: comparatorSource } =
+    extractCryptoComparator(market.title, numbers);
+
+  // Use extracted comparator if available, otherwise fall back to fingerprint
+  const comparator = extractedComparator || fingerprint.comparator;
+
+  // v2.6.1: Determine market type
+  const marketType = determineCryptoMarketType(
+    market.title,
+    dateType,
+    comparator,
+    numbers,
+    market.metadata
+  );
 
   return {
     entity,
@@ -645,9 +1014,12 @@ export function extractCryptoSignals(market: EligibleMarket): CryptoSignals {
     settleDateParsed,
     dateType,
     settlePeriod,
+    settleSource,
+    marketType,
     numbers,
     numberContext,
-    comparator: fingerprint.comparator,
+    comparator,
+    comparatorSource: extractedComparator ? comparatorSource : ComparatorSource.UNKNOWN,
     intent: fingerprint.intent,
     fingerprint,
   };

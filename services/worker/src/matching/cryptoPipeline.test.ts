@@ -1,5 +1,5 @@
 /**
- * Unit tests for cryptoPipeline.ts (v2.5.3)
+ * Unit tests for cryptoPipeline.ts (v2.6.1)
  * Run with: npx tsx --test services/worker/src/matching/cryptoPipeline.test.ts
  */
 import { describe, it } from 'node:test';
@@ -13,13 +13,19 @@ import {
   getCryptoTickerRegex,
   areDateTypesCompatible,
   arePeriodsEqual,
+  determineCryptoMarketType,
+  areMarketTypesCompatible,
+  extractCryptoComparator,
   CryptoDateType,
+  TruthSettleSource,
+  CryptoMarketType,
+  ComparatorSource,
   type CryptoMarket,
   type CryptoSignals,
 } from './cryptoPipeline.js';
 import { buildFingerprint } from '@data-module/core';
 
-// Helper to create a CryptoMarket for testing (v2.5.3)
+// Helper to create a CryptoMarket for testing (v2.6.1)
 function makeCryptoMarket(
   id: number,
   title: string,
@@ -40,9 +46,12 @@ function makeCryptoMarket(
     settleDateParsed: null,
     dateType: options.dateType || CryptoDateType.DAY_EXACT,
     settlePeriod: options.settlePeriod ?? null,
+    settleSource: TruthSettleSource.TITLE_PARSE,
+    marketType: CryptoMarketType.DAILY_THRESHOLD,
     numbers,
     numberContext: options.numberContext || 'unknown',
     comparator: options.comparator ?? fingerprint.comparator,
+    comparatorSource: ComparatorSource.TITLE,
     intent: fingerprint.intent,
     fingerprint,
   };
@@ -400,5 +409,162 @@ describe('arePeriodsEqual (v2.5.3)', () => {
     assert.ok(!arePeriodsEqual(null, '2026-01'));
     assert.ok(!arePeriodsEqual('2026-01', null));
     assert.ok(!arePeriodsEqual(null, null));
+  });
+});
+
+// ========================================================================
+// v2.6.1 TESTS: MarketType, Comparator, Truth Date
+// ========================================================================
+
+describe('determineCryptoMarketType (v2.6.1)', () => {
+  it('should classify "BTC above $100k on Jan 23" as DAILY_THRESHOLD', () => {
+    const result = determineCryptoMarketType(
+      'Bitcoin above $100,000 on January 23?',
+      CryptoDateType.DAY_EXACT,
+      'GE',
+      [100000]
+    );
+    assert.strictEqual(result, CryptoMarketType.DAILY_THRESHOLD);
+  });
+
+  it('should classify "BTC between $95k-$97k on Jan 23" as DAILY_RANGE', () => {
+    const result = determineCryptoMarketType(
+      'Bitcoin between $95,000 and $97,000 on January 23?',
+      CryptoDateType.DAY_EXACT,
+      'BETWEEN',
+      [95000, 97000]
+    );
+    assert.strictEqual(result, CryptoMarketType.DAILY_RANGE);
+  });
+
+  it('should classify "BTC above $150k by end of 2026" as YEARLY_THRESHOLD', () => {
+    const result = determineCryptoMarketType(
+      'Bitcoin above $150,000 by end of 2026?',
+      CryptoDateType.MONTH_END,
+      'GE',
+      [150000]
+    );
+    assert.strictEqual(result, CryptoMarketType.YEARLY_THRESHOLD);
+  });
+
+  it('should classify "BTC Up or Down next 15 minutes" as INTRADAY_UPDOWN', () => {
+    const result = determineCryptoMarketType(
+      'BTC Up or Down next 15 minutes?',
+      CryptoDateType.UNKNOWN,
+      null,
+      []
+    );
+    assert.strictEqual(result, CryptoMarketType.INTRADAY_UPDOWN);
+  });
+
+  it('should return UNKNOWN for unclassifiable markets', () => {
+    const result = determineCryptoMarketType(
+      'Bitcoin market general question?',
+      CryptoDateType.UNKNOWN,
+      null,
+      []
+    );
+    assert.strictEqual(result, CryptoMarketType.UNKNOWN);
+  });
+});
+
+describe('areMarketTypesCompatible (v2.6.1)', () => {
+  it('should allow DAILY_THRESHOLD + DAILY_THRESHOLD', () => {
+    assert.ok(areMarketTypesCompatible(
+      CryptoMarketType.DAILY_THRESHOLD,
+      CryptoMarketType.DAILY_THRESHOLD
+    ));
+  });
+
+  it('should allow DAILY_RANGE + DAILY_RANGE', () => {
+    assert.ok(areMarketTypesCompatible(
+      CryptoMarketType.DAILY_RANGE,
+      CryptoMarketType.DAILY_RANGE
+    ));
+  });
+
+  it('should allow YEARLY_THRESHOLD + YEARLY_THRESHOLD', () => {
+    assert.ok(areMarketTypesCompatible(
+      CryptoMarketType.YEARLY_THRESHOLD,
+      CryptoMarketType.YEARLY_THRESHOLD
+    ));
+  });
+
+  it('should REJECT INTRADAY_UPDOWN + DAILY_THRESHOLD', () => {
+    assert.ok(!areMarketTypesCompatible(
+      CryptoMarketType.INTRADAY_UPDOWN,
+      CryptoMarketType.DAILY_THRESHOLD
+    ));
+  });
+
+  it('should REJECT UNKNOWN + DAILY_THRESHOLD', () => {
+    assert.ok(!areMarketTypesCompatible(
+      CryptoMarketType.UNKNOWN,
+      CryptoMarketType.DAILY_THRESHOLD
+    ));
+  });
+
+  it('should REJECT DAILY_THRESHOLD + YEARLY_THRESHOLD (cross-family)', () => {
+    assert.ok(!areMarketTypesCompatible(
+      CryptoMarketType.DAILY_THRESHOLD,
+      CryptoMarketType.YEARLY_THRESHOLD
+    ));
+  });
+
+  it('should REJECT DAILY_THRESHOLD + DAILY_RANGE (different types)', () => {
+    assert.ok(!areMarketTypesCompatible(
+      CryptoMarketType.DAILY_THRESHOLD,
+      CryptoMarketType.DAILY_RANGE
+    ));
+  });
+});
+
+describe('extractCryptoComparator (v2.6.1)', () => {
+  it('should extract GE from "above"', () => {
+    const result = extractCryptoComparator('Bitcoin above $100,000?', [100000]);
+    assert.strictEqual(result.comparator, 'GE');
+    assert.strictEqual(result.source, ComparatorSource.TITLE);
+  });
+
+  it('should extract LE from "below"', () => {
+    const result = extractCryptoComparator('Bitcoin below $100,000?', [100000]);
+    assert.strictEqual(result.comparator, 'LE');
+    assert.strictEqual(result.source, ComparatorSource.TITLE);
+  });
+
+  it('should extract GE from "reach"', () => {
+    const result = extractCryptoComparator('Will BTC reach $100,000?', [100000]);
+    assert.strictEqual(result.comparator, 'GE');
+    assert.strictEqual(result.source, ComparatorSource.TITLE);
+  });
+
+  it('should extract GE from "hit"', () => {
+    const result = extractCryptoComparator('Will ETH hit $5,000?', [5000]);
+    assert.strictEqual(result.comparator, 'GE');
+    assert.strictEqual(result.source, ComparatorSource.TITLE);
+  });
+
+  it('should extract GE from "at least"', () => {
+    const result = extractCryptoComparator('BTC price at least $100,000?', [100000]);
+    assert.strictEqual(result.comparator, 'GE');
+    assert.strictEqual(result.source, ComparatorSource.TITLE);
+  });
+
+  it('should extract LE from "under"', () => {
+    const result = extractCryptoComparator('Will BTC stay under $50,000?', [50000]);
+    assert.strictEqual(result.comparator, 'LE');
+    assert.strictEqual(result.source, ComparatorSource.TITLE);
+  });
+
+  it('should extract BETWEEN from "between X and Y"', () => {
+    const result = extractCryptoComparator('BTC between $95,000 and $100,000?', [95000, 100000]);
+    assert.strictEqual(result.comparator, 'BETWEEN');
+    assert.strictEqual(result.source, ComparatorSource.TITLE);
+  });
+
+  it('should return null for no comparator', () => {
+    const result = extractCryptoComparator('Bitcoin price on January 23?', []);
+    assert.strictEqual(result.comparator, null);
+    assert.strictEqual(result.source, ComparatorSource.UNKNOWN);
   });
 });

@@ -13,7 +13,14 @@ import {
   type BracketCandidate,
   type BracketGroup,
 } from './cryptoBrackets.js';
-import { CryptoDateType, type CryptoMarket, type CryptoScoreResult } from './cryptoPipeline.js';
+import {
+  CryptoDateType,
+  TruthSettleSource,
+  CryptoMarketType,
+  ComparatorSource,
+  type CryptoMarket,
+  type CryptoScoreResult,
+} from './cryptoPipeline.js';
 import { buildFingerprint } from '@data-module/core';
 
 /**
@@ -44,9 +51,12 @@ function makeCryptoMarket(
       settleDateParsed: null,
       dateType: CryptoDateType.DAY_EXACT,
       settlePeriod: null,
+      settleSource: TruthSettleSource.TITLE_PARSE,
+      marketType: CryptoMarketType.DAILY_THRESHOLD,
       numbers,
       numberContext: numbers.length > 0 ? 'price' : 'unknown',
       comparator: comparator ?? fingerprint.comparator,
+      comparatorSource: ComparatorSource.TITLE,
       intent: fingerprint.intent,
       fingerprint,
     },

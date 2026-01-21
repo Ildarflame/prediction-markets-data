@@ -35,7 +35,7 @@ export {
   type TruthAuditResult,
 } from './macro-truth-audit.js';
 
-// Crypto commands (v2.5.0, v2.5.3)
+// Crypto commands (v2.5.0, v2.5.3, v2.6.0, v2.6.1)
 export { runCryptoCounts, type CryptoCountsOptions, type CryptoCountsResult } from './crypto-counts.js';
 export { runCryptoOverlap, type CryptoOverlapOptions, type CryptoOverlapResult } from './crypto-overlap.js';
 export {
@@ -50,3 +50,8 @@ export {
 export { runCryptoQuality, type CryptoQualityOptions, type CryptoQualityResult, type CryptoQualityMatch } from './crypto-quality.js';
 export { runCryptoBrackets, type CryptoBracketsOptions, type CryptoBracketsResult } from './crypto-brackets.js';
 export { runCryptoDateAudit, type CryptoDateAuditOptions, type CryptoDateAuditResult } from './crypto-date-audit.js';
+
+// Crypto commands v2.6.1
+export { runCryptoTruthDateAudit, type TruthDateAuditOptions, type TruthDateAuditResult } from './crypto-truth-date-audit.js';
+export { runCryptoTypeAudit, type TypeAuditOptions, type TypeAuditResult } from './crypto-type-audit.js';
+export { runCryptoEthDebug, type EthDebugOptions, type EthDebugResult } from './crypto-eth-debug.js';

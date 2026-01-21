@@ -30,12 +30,13 @@ import {
   RARE_MACRO_ENTITIES,
   RARE_ENTITY_DEFAULT_LOOKBACK_HOURS,
   type PeriodCompatibilityKind,
-  // Crypto Pipeline (v2.5.2)
+  // Crypto Pipeline (v2.5.2, v2.6.1)
   CRYPTO_ENTITIES_V1,
   fetchEligibleCryptoMarkets,
   buildCryptoIndex,
   findCryptoCandidates,
   cryptoMatchScore,
+  areMarketTypesCompatible,
   type CryptoMarket,
   type CryptoScoreResult,
   // Crypto Bracket Grouping (v2.6.0)
@@ -300,6 +301,7 @@ export interface SuggestMatchesResult {
   skippedDateGate: number;
   skippedTextGate: number;
   skippedPeriodGate: number;
+  skippedTypeGate: number; // v2.6.1: MarketType incompatibility
   // Cap statistics (v2.4.2)
   generatedPairsTotal: number;
   savedTopKTotal: number;
@@ -1798,6 +1800,12 @@ async function runCryptoSuggestMatches(options: CryptoSuggestMatchesOptions): Pr
         // Skip self-match
         if (rightCrypto.market.id === leftMarket.id) continue;
 
+        // v2.6.1: Check market type compatibility (INTRADAY_UPDOWN excluded)
+        if (!areMarketTypesCompatible(leftCrypto.signals.marketType, rightCrypto.signals.marketType)) {
+          result.skippedTypeGate++;
+          continue;
+        }
+
         // Calculate crypto score (includes hard gates)
         const scoreResult = cryptoMatchScore(leftCrypto, rightCrypto);
 
@@ -2083,6 +2091,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       skippedDateGate: 0,
       skippedTextGate: 0,
       skippedPeriodGate: 0,
+      skippedTypeGate: 0,
       generatedPairsTotal: 0,
       savedTopKTotal: 0,
       droppedByCapTotal: 0,
@@ -2107,6 +2116,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     skippedDateGate: 0,
     skippedTextGate: 0,
     skippedPeriodGate: 0,
+    skippedTypeGate: 0,
     generatedPairsTotal: 0,
     savedTopKTotal: 0,
     droppedByCapTotal: 0,

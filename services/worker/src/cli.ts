@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit, runCryptoTruthDateAudit, runCryptoTypeAudit, runCryptoEthDebug } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -867,6 +867,111 @@ program
       });
     } catch (error) {
       console.error('Crypto date-audit error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Crypto truth-date-audit diagnostic command (v2.6.1)
+program
+  .command('crypto:truth-date-audit')
+  .description('Analyze settle date source distribution for crypto markets (v2.6.1)')
+  .option('--venue <venue>', 'Venue to analyze', 'polymarket')
+  .option('--entity <entity>', 'Entity filter (BITCOIN, ETHEREUM, or all)', 'all')
+  .option('--lookback-hours <hours>', 'Lookback hours', '720')
+  .option('--limit <number>', 'Max markets to fetch', '5000')
+  .option('--sample-per-source <number>', 'Sample size per source', '10')
+  .action(async (opts) => {
+    const supportedVenues = getSupportedVenues();
+
+    if (!supportedVenues.includes(opts.venue)) {
+      console.error(`Invalid --venue: ${opts.venue}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    try {
+      await runCryptoTruthDateAudit({
+        venue: opts.venue as Venue,
+        entity: opts.entity,
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+        limit: parseInt(opts.limit, 10),
+        samplePerSource: parseInt(opts.samplePerSource, 10),
+      });
+    } catch (error) {
+      console.error('Crypto truth-date-audit error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Crypto type-audit diagnostic command (v2.6.1)
+program
+  .command('crypto:type-audit')
+  .description('Analyze market type classification for crypto markets (v2.6.1)')
+  .option('--venue <venue>', 'Venue to analyze', 'kalshi')
+  .option('--entity <entity>', 'Entity filter (BITCOIN, ETHEREUM, or all)', 'all')
+  .option('--lookback-hours <hours>', 'Lookback hours', '720')
+  .option('--limit <number>', 'Max markets to fetch', '5000')
+  .option('--sample-per-type <number>', 'Sample size per type', '10')
+  .action(async (opts) => {
+    const supportedVenues = getSupportedVenues();
+
+    if (!supportedVenues.includes(opts.venue)) {
+      console.error(`Invalid --venue: ${opts.venue}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    try {
+      await runCryptoTypeAudit({
+        venue: opts.venue as Venue,
+        entity: opts.entity,
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+        limit: parseInt(opts.limit, 10),
+        samplePerType: parseInt(opts.samplePerType, 10),
+      });
+    } catch (error) {
+      console.error('Crypto type-audit error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Crypto ETH debug command (v2.6.1)
+program
+  .command('crypto:eth-debug')
+  .description('Diagnose ETH matching issues between venues (v2.6.1)')
+  .option('--from <venue>', 'Source venue', 'kalshi')
+  .option('--to <venue>', 'Target venue', 'polymarket')
+  .option('--lookback-hours <hours>', 'Lookback hours', '720')
+  .option('--limit <number>', 'Max markets per venue', '2000')
+  .option('--min-score <score>', 'Min score for analysis', '0.8')
+  .option('--top-dates <n>', 'Top N dates to analyze', '10')
+  .action(async (opts) => {
+    const supportedVenues = getSupportedVenues();
+
+    if (!supportedVenues.includes(opts.from)) {
+      console.error(`Invalid --from: ${opts.from}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+    if (!supportedVenues.includes(opts.to)) {
+      console.error(`Invalid --to: ${opts.to}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    try {
+      await runCryptoEthDebug({
+        from: opts.from as Venue,
+        to: opts.to as Venue,
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+        limit: parseInt(opts.limit, 10),
+        minScore: parseFloat(opts.minScore),
+        topDates: parseInt(opts.topDates, 10),
+      });
+    } catch (error) {
+      console.error('Crypto eth-debug error:', error);
       process.exit(1);
     } finally {
       await disconnect();

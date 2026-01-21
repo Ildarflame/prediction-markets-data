@@ -30,7 +30,7 @@ export {
   collectSamplesByEntity,
 } from './macroPipeline.js';
 
-// Crypto Pipeline (v2.5.3)
+// Crypto Pipeline (v2.6.1)
 export {
   // Constants
   CRYPTO_ENTITIES_V1,
@@ -39,8 +39,11 @@ export {
   CRYPTO_KEYWORDS_BROAD,
   CRYPTO_FULLNAME_KEYWORDS,
   CRYPTO_TICKER_KEYWORDS,
-  // Enums (v2.5.3)
+  // Enums (v2.5.3 + v2.6.1)
   CryptoDateType,
+  TruthSettleSource,
+  CryptoMarketType,
+  ComparatorSource,
   // Types
   type CryptoEntityV1,
   type CryptoSignals,
@@ -50,11 +53,16 @@ export {
   type CryptoScoreResult,
   type SettleDateResult,
   type CryptoNumberResult,
+  type ComparatorResult,
   // Functions
   getCryptoStrictKeywords,
   getCryptoTickerRegex,
   getCryptoDBPatterns,
   extractSettleDate,
+  extractSettleDateWithTruth,
+  extractCryptoComparator,
+  determineCryptoMarketType,
+  areMarketTypesCompatible,
   settleDateDayDiff,
   extractCryptoEntity,
   extractCryptoSignals,
