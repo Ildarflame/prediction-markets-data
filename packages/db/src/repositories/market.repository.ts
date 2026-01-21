@@ -462,10 +462,11 @@ export class MarketRepository {
 
     // Raw query for regex support
     // Note: Prisma maps "Market" model to "markets" table (@@map), columns to snake_case
+    // Cast venue to "Venue" enum type for PostgreSQL compatibility
     const query = `
       SELECT m.id, m.title, m.category, m.status, m.close_time as "closeTime", m.venue, m.metadata
       FROM markets m
-      WHERE m.venue = $1
+      WHERE m.venue = $1::"Venue"
         AND (m.status = 'active' OR (m.status = 'closed' AND m.close_time >= $2))
         AND (${keywordCondition})
       ORDER BY ${orderByClause}
