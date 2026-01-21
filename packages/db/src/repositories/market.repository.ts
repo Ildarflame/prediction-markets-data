@@ -458,15 +458,15 @@ export class MarketRepository {
     }
 
     const keywordCondition = conditions.join(' OR ');
-    const orderByClause = orderBy === 'closeTime' ? '"closeTime" DESC NULLS LAST' : 'id DESC';
+    const orderByClause = orderBy === 'closeTime' ? 'close_time DESC NULLS LAST' : 'id DESC';
 
     // Raw query for regex support
-    // Note: Use quoted "Market" to match Prisma's exact table name (case-sensitive)
+    // Note: Prisma maps "Market" model to "markets" table (@@map), columns to snake_case
     const query = `
-      SELECT m.id, m.title, m.category, m.status, m."closeTime", m.venue, m.metadata
-      FROM "Market" m
+      SELECT m.id, m.title, m.category, m.status, m.close_time as "closeTime", m.venue, m.metadata
+      FROM markets m
       WHERE m.venue = $1
-        AND (m.status = 'active' OR (m.status = 'closed' AND m."closeTime" >= $2))
+        AND (m.status = 'active' OR (m.status = 'closed' AND m.close_time >= $2))
         AND (${keywordCondition})
       ORDER BY ${orderByClause}
       LIMIT ${limit}
