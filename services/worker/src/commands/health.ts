@@ -5,10 +5,24 @@ import {
   type Venue,
 } from '@data-module/db';
 
+// ============================================================
+// v2.6.2: Ingestion watchdog thresholds (ENV configurable)
+// ============================================================
+const KALSHI_STUCK_THRESHOLD_MIN = parseInt(
+  process.env.KALSHI_STUCK_THRESHOLD_MIN || '30',
+  10
+);
+const KALSHI_MAX_FAILURES_IN_ROW = parseInt(
+  process.env.KALSHI_MAX_FAILURES_IN_ROW || '5',
+  10
+);
+
 export interface HealthOptions {
   maxStaleMinutes?: number;
   maxLastSuccessMinutes?: number;
 }
+
+export type IngestionStatus = 'OK' | 'STALE' | 'STUCK' | 'FAILING';
 
 export interface HealthResult {
   ok: boolean;
@@ -19,6 +33,9 @@ export interface HealthResult {
     lastSuccessAt: Date | null;
     lastError: string | null;
     isStale: boolean;
+    /** v2.6.2: STUCK detection for Kalshi */
+    status: IngestionStatus;
+    failuresInRow?: number;
   }>;
   quotesFreshness: Array<{
     venue: string;
@@ -67,6 +84,28 @@ export async function runHealthCheck(options: HealthOptions = {}): Promise<Healt
   console.log('\nIngestion Jobs:');
   for (const state of states) {
     const isStale = !state.lastSuccessAt || state.lastSuccessAt < staleCutoff;
+    const ageMinutes = state.lastSuccessAt
+      ? Math.round((now.getTime() - state.lastSuccessAt.getTime()) / 1000 / 60)
+      : null;
+
+    // v2.6.2: Enhanced status detection for Kalshi
+    let status: IngestionStatus = 'OK';
+    let failuresInRow: number | undefined;
+
+    if (state.venue === 'kalshi') {
+      // Check consecutive failures
+      failuresInRow = await ingestionRepo.countConsecutiveFailures('kalshi', state.jobName);
+
+      if (ageMinutes !== null && ageMinutes > KALSHI_STUCK_THRESHOLD_MIN) {
+        status = 'STUCK';
+      } else if (failuresInRow >= KALSHI_MAX_FAILURES_IN_ROW) {
+        status = 'FAILING';
+      } else if (isStale) {
+        status = 'STALE';
+      }
+    } else {
+      status = isStale ? 'STALE' : 'OK';
+    }
 
     result.jobs.push({
       venue: state.venue,
@@ -74,22 +113,35 @@ export async function runHealthCheck(options: HealthOptions = {}): Promise<Healt
       lastSuccessAt: state.lastSuccessAt,
       lastError: state.lastError,
       isStale,
+      status,
+      failuresInRow,
     });
 
-    const statusIcon = isStale ? '✗' : '✓';
+    const statusIcon = status === 'OK' ? '✓' : '✗';
     const lastSuccess = state.lastSuccessAt
-      ? `${Math.round((now.getTime() - state.lastSuccessAt.getTime()) / 1000 / 60)}m ago`
+      ? `${ageMinutes}m ago`
       : 'never';
 
-    console.log(`  ${statusIcon} ${state.venue}/${state.jobName}: last success ${lastSuccess}`);
+    // v2.6.2: Show detailed status for Kalshi
+    if (state.venue === 'kalshi' && status !== 'OK') {
+      console.log(`  ${statusIcon} ${state.venue}/${state.jobName}: ${status} (last success ${lastSuccess}, failures=${failuresInRow})`);
+    } else {
+      console.log(`  ${statusIcon} ${state.venue}/${state.jobName}: last success ${lastSuccess}`);
+    }
 
     if (state.lastError) {
       console.log(`    └─ Last error: ${state.lastError.substring(0, 80)}...`);
     }
 
-    if (isStale) {
+    if (status !== 'OK') {
       result.ok = false;
-      result.errors.push(`Job ${state.venue}/${state.jobName} is stale`);
+      if (status === 'STUCK') {
+        result.errors.push(`Job ${state.venue}/${state.jobName} is STUCK (${ageMinutes}m since last success, threshold=${KALSHI_STUCK_THRESHOLD_MIN}m)`);
+      } else if (status === 'FAILING') {
+        result.errors.push(`Job ${state.venue}/${state.jobName} is FAILING (${failuresInRow} consecutive failures, threshold=${KALSHI_MAX_FAILURES_IN_ROW})`);
+      } else {
+        result.errors.push(`Job ${state.venue}/${state.jobName} is stale`);
+      }
     }
   }
 

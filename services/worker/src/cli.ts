@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit, runCryptoTruthDateAudit, runCryptoTypeAudit, runCryptoEthDebug, runCryptoSeriesAudit, runCryptoEligibleExplain } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit, runCryptoTruthDateAudit, runCryptoTypeAudit, runCryptoEthDebug, runCryptoSeriesAudit, runCryptoEligibleExplain, runKalshiIngestionDiag, runLinksStats, runLinksCleanup } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -608,17 +608,24 @@ program
 // Crypto counts command (v2.5.0)
 program
   .command('crypto:counts')
-  .description('Diagnostic counts for crypto markets per venue (v2.5.0)')
+  .description('Diagnostic counts for crypto markets per venue (v2.5.0, v2.6.2 topic filter)')
   .requiredOption('--venue <venue>', `Venue to audit (${getSupportedVenues().join(', ')})`)
   .option('--lookback-hours <number>', 'Lookback hours', '720')
   .option('--limit <number>', 'DB limit', '5000')
   .option('--include-resolved', 'Include resolved/archived markets', false)
   .option('--all-time', 'Disable lookback filter', false)
+  .option('--topic <topic>', 'Topic filter: crypto, crypto_daily, crypto_intraday', 'crypto')
   .action(async (opts) => {
     const supportedVenues = getSupportedVenues();
 
     if (!supportedVenues.includes(opts.venue)) {
       console.error(`Invalid --venue: ${opts.venue}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    const validTopics = ['crypto', 'crypto_daily', 'crypto_intraday'];
+    if (!validTopics.includes(opts.topic)) {
+      console.error(`Invalid --topic: ${opts.topic}. Supported: ${validTopics.join(', ')}`);
       process.exit(1);
     }
 
@@ -629,6 +636,7 @@ program
         limit: parseInt(opts.limit, 10),
         includeResolved: opts.includeResolved,
         allTime: opts.allTime,
+        topic: opts.topic,
       });
     } catch (error) {
       console.error('Crypto counts error:', error);
@@ -641,11 +649,12 @@ program
 // Crypto overlap command (v2.5.0)
 program
   .command('crypto:overlap')
-  .description('Cross-venue overlap report for crypto markets (v2.5.0)')
+  .description('Cross-venue overlap report for crypto markets (v2.5.0, v2.6.2 topic filter)')
   .requiredOption('--from <venue>', `Source venue (${getSupportedVenues().join(', ')})`)
   .requiredOption('--to <venue>', `Target venue (${getSupportedVenues().join(', ')})`)
   .option('--lookback-hours <number>', 'Lookback hours', '720')
   .option('--limit <number>', 'DB limit per venue', '5000')
+  .option('--topic <topic>', 'Topic filter: crypto, crypto_daily, crypto_intraday', 'crypto')
   .action(async (opts) => {
     const supportedVenues = getSupportedVenues();
 
@@ -658,12 +667,19 @@ program
       process.exit(1);
     }
 
+    const validTopics = ['crypto', 'crypto_daily', 'crypto_intraday'];
+    if (!validTopics.includes(opts.topic)) {
+      console.error(`Invalid --topic: ${opts.topic}. Supported: ${validTopics.join(', ')}`);
+      process.exit(1);
+    }
+
     try {
       await runCryptoOverlap({
         fromVenue: opts.from as Venue,
         toVenue: opts.to as Venue,
         lookbackHours: parseInt(opts.lookbackHours, 10),
         limit: parseInt(opts.limit, 10),
+        topic: opts.topic,
       });
     } catch (error) {
       console.error('Crypto overlap error:', error);
@@ -1172,6 +1188,74 @@ program
     } catch (error) {
       console.error('Kalshi discover error:', error);
       process.exit(1);
+    }
+  });
+
+// Kalshi ingestion diagnostics command (v2.6.2)
+program
+  .command('kalshi:ingestion:diag')
+  .description('Diagnose Kalshi ingestion health and identify stuck/failing states (v2.6.2)')
+  .option('--show-runs <number>', 'Number of recent runs to show', '20')
+  .action(async (opts) => {
+    try {
+      const result = await runKalshiIngestionDiag({
+        venue: 'kalshi',
+        showRuns: parseInt(opts.showRuns, 10),
+      });
+
+      // Exit with error code if STUCK or FAILING
+      if (result.status === 'STUCK' || result.status === 'FAILING') {
+        process.exit(1);
+      }
+    } catch (error) {
+      console.error('Kalshi ingestion diagnostics error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Link hygiene commands (v2.6.2)
+program
+  .command('links:stats')
+  .description('Show market link statistics by status, topic, and algoVersion (v2.6.2)')
+  .action(async () => {
+    try {
+      await runLinksStats();
+    } catch (error) {
+      console.error('Links stats error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+program
+  .command('links:cleanup')
+  .description('Delete old market link suggestions (v2.6.2)')
+  .option('--older-than-days <days>', 'Delete links older than N days', '30')
+  .option('--status <status>', 'Filter by status: suggested, rejected, all', 'suggested')
+  .option('--algo-version <version>', 'Filter by algoVersion (e.g., "crypto_daily@2.6.0")')
+  .option('--dry-run', 'Preview without actually deleting', false)
+  .action(async (opts) => {
+    const validStatuses = ['suggested', 'rejected', 'all'];
+    if (!validStatuses.includes(opts.status)) {
+      console.error(`Invalid --status: ${opts.status}. Supported: ${validStatuses.join(', ')}`);
+      process.exit(1);
+    }
+
+    try {
+      await runLinksCleanup({
+        olderThanDays: parseInt(opts.olderThanDays, 10),
+        status: opts.status as 'suggested' | 'rejected' | 'all',
+        algoVersion: opts.algoVersion,
+        dryRun: opts.dryRun,
+      });
+    } catch (error) {
+      console.error('Links cleanup error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
     }
   });
 

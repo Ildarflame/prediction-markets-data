@@ -1472,3 +1472,295 @@ export function collectCryptoSamplesByEntity(
 
   return samples;
 }
+
+// ============================================================
+// v2.6.2: Intraday Matching Infrastructure
+// ============================================================
+
+/**
+ * Time bucket slot size options for intraday matching (v2.6.2)
+ */
+export type IntradaySlotSize = '15m' | '30m' | '1h' | '2h' | '4h';
+
+/**
+ * Calculate time bucket for intraday matching (v2.6.2)
+ * Rounds closeTime to the nearest slot boundary
+ *
+ * @param closeTime - The market close time
+ * @param slotSize - Slot size: 15m, 30m, 1h, 2h, 4h
+ * @returns ISO timestamp string of slot start (e.g., "2026-01-21T14:00:00.000Z")
+ */
+export function calculateTimeBucket(closeTime: Date | null, slotSize: IntradaySlotSize = '1h'): string | null {
+  if (!closeTime) return null;
+
+  const slotMinutes: Record<IntradaySlotSize, number> = {
+    '15m': 15,
+    '30m': 30,
+    '1h': 60,
+    '2h': 120,
+    '4h': 240,
+  };
+
+  const minutes = slotMinutes[slotSize];
+  const ms = closeTime.getTime();
+  const slotMs = Math.floor(ms / (minutes * 60 * 1000)) * (minutes * 60 * 1000);
+
+  return new Date(slotMs).toISOString();
+}
+
+/**
+ * Intraday-specific signals (v2.6.2)
+ */
+export interface IntradaySignals {
+  entity: string | null;
+  /** Time bucket for indexing (ISO string) */
+  timeBucket: string | null;
+  /** Original close time */
+  closeTime: Date | null;
+  /** Market type (should be INTRADAY_UPDOWN) */
+  marketType: CryptoMarketType;
+  /** Direction from title: UP, DOWN, or null */
+  direction: 'UP' | 'DOWN' | null;
+}
+
+/**
+ * Market with intraday signals (v2.6.2)
+ */
+export interface IntradayMarket {
+  market: EligibleMarket;
+  signals: IntradaySignals;
+}
+
+/**
+ * Extract direction from intraday market title (v2.6.2)
+ * Looks for patterns like "Up or Down", "go up", "go down"
+ */
+export function extractIntradayDirection(title: string): 'UP' | 'DOWN' | null {
+  const lower = title.toLowerCase();
+
+  // Check for explicit UP patterns
+  if (/\bup\b(?!\s+or\s+down)/i.test(lower) || /\bgo\s+up\b/i.test(lower) || /\brises?\b/i.test(lower)) {
+    return 'UP';
+  }
+
+  // Check for explicit DOWN patterns
+  if (/\bdown\b(?!\s+or\s+up)/i.test(lower) || /\bgo\s+down\b/i.test(lower) || /\bfalls?\b/i.test(lower) || /\bdrops?\b/i.test(lower)) {
+    return 'DOWN';
+  }
+
+  return null;
+}
+
+/**
+ * Extract intraday signals from a market (v2.6.2)
+ */
+export function extractIntradaySignals(market: EligibleMarket, slotSize: IntradaySlotSize = '1h'): IntradaySignals {
+  const entity = extractCryptoEntity(market.title, market.metadata);
+  const timeBucket = calculateTimeBucket(market.closeTime, slotSize);
+  const direction = extractIntradayDirection(market.title);
+
+  // Determine market type
+  const { dateType } = extractSettleDate(market.title, market.closeTime);
+  const { numbers } = extractCryptoNumbers(market.title);
+  const { comparator } = extractCryptoComparator(market.title, numbers);
+  const marketType = determineCryptoMarketType(market.title, dateType, comparator, numbers, market.metadata);
+
+  return {
+    entity,
+    timeBucket,
+    closeTime: market.closeTime,
+    marketType,
+    direction,
+  };
+}
+
+/**
+ * Fetch intraday-only crypto markets (v2.6.2)
+ * Only returns markets classified as INTRADAY_UPDOWN
+ */
+export async function fetchIntradayCryptoMarkets(
+  marketRepo: MarketRepository,
+  options: FetchCryptoMarketsOptions & { slotSize?: IntradaySlotSize }
+): Promise<{ markets: IntradayMarket[]; stats: FetchCryptoMarketsStats }> {
+  const {
+    venue,
+    lookbackHours,
+    limit,
+    entities = CRYPTO_ENTITIES_V1,
+    excludeSports = true,
+    slotSize = '1h',
+  } = options;
+
+  const stats: FetchCryptoMarketsStats = {
+    total: 0,
+    afterKeywordFilter: 0,
+    afterSportsFilter: 0,
+    afterIntradayFilter: 0,
+    withCryptoEntity: 0,
+    withSettleDate: 0,
+  };
+
+  // Use same DB patterns as regular crypto fetch
+  const { fullNameKeywords, tickerPatterns } = getCryptoDBPatterns(entities);
+
+  // Fetch from DB
+  let markets = await marketRepo.listEligibleMarketsCrypto(venue as Venue, {
+    lookbackHours,
+    limit,
+    fullNameKeywords,
+    tickerPatterns,
+    orderBy: 'closeTime',
+  });
+  stats.total = markets.length;
+  stats.afterKeywordFilter = markets.length;
+
+  // Apply sports filtering
+  if (excludeSports) {
+    markets = markets.filter(m => {
+      if (venue === 'kalshi' && isKalshiSportsMarket(m.metadata)) return false;
+      if (hasSportsTitleKeyword(m.title)) return false;
+      return true;
+    });
+  }
+  stats.afterSportsFilter = markets.length;
+
+  // Extract signals and filter for INTRADAY_UPDOWN only
+  const result: IntradayMarket[] = [];
+  const entitySet = new Set(entities);
+
+  for (const market of markets) {
+    const signals = extractIntradaySignals(market, slotSize);
+
+    // Must have entity
+    if (!signals.entity || !entitySet.has(signals.entity)) {
+      continue;
+    }
+
+    // ONLY include INTRADAY_UPDOWN markets
+    if (signals.marketType !== CryptoMarketType.INTRADAY_UPDOWN) {
+      continue;
+    }
+
+    stats.withCryptoEntity++;
+
+    if (signals.timeBucket) {
+      stats.withSettleDate++; // Reusing stat for time bucket
+    }
+
+    result.push({ market, signals });
+  }
+
+  stats.afterIntradayFilter = result.length;
+
+  return { markets: result, stats };
+}
+
+/**
+ * Build intraday index (v2.6.2)
+ * Key: entity + timeBucket (e.g., "BITCOIN|2026-01-21T14:00:00.000Z")
+ */
+export function buildIntradayIndex(markets: IntradayMarket[]): Map<string, IntradayMarket[]> {
+  const index = new Map<string, IntradayMarket[]>();
+
+  for (const m of markets) {
+    if (!m.signals.entity || !m.signals.timeBucket) continue;
+
+    const key = `${m.signals.entity}|${m.signals.timeBucket}`;
+    if (!index.has(key)) {
+      index.set(key, []);
+    }
+    index.get(key)!.push(m);
+  }
+
+  return index;
+}
+
+/**
+ * Find intraday candidates (v2.6.2)
+ * Returns candidates with same entity and exact timeBucket (no offset allowed)
+ */
+export function findIntradayCandidates(
+  market: IntradayMarket,
+  index: Map<string, IntradayMarket[]>
+): IntradayMarket[] {
+  if (!market.signals.entity || !market.signals.timeBucket) {
+    return [];
+  }
+
+  const key = `${market.signals.entity}|${market.signals.timeBucket}`;
+  return index.get(key) || [];
+}
+
+/**
+ * Intraday match score result (v2.6.2)
+ */
+export interface IntradayScoreResult {
+  score: number;
+  reason: string;
+  entityScore: number;
+  timeScore: number;
+  textScore: number;
+  directionMatch: boolean;
+  timeBucket: string | null;
+}
+
+/**
+ * Calculate intraday match score (v2.6.2)
+ *
+ * Scoring weights:
+ * - entity: 0.6 (must match exactly)
+ * - time: 0.3 (1.0 if same bucket, 0 otherwise)
+ * - text: 0.1 (token overlap)
+ *
+ * Hard gates:
+ * - Entity must match
+ * - Time bucket must match exactly
+ */
+export function intradayMatchScore(left: IntradayMarket, right: IntradayMarket): IntradayScoreResult | null {
+  const lSig = left.signals;
+  const rSig = right.signals;
+
+  // Hard gate: entity must match
+  if (!lSig.entity || !rSig.entity || lSig.entity !== rSig.entity) {
+    return null;
+  }
+
+  // Hard gate: time bucket must match exactly
+  if (!lSig.timeBucket || !rSig.timeBucket || lSig.timeBucket !== rSig.timeBucket) {
+    return null;
+  }
+
+  // Entity score (exact match = 1.0)
+  const entityScore = 1.0;
+
+  // Time score (exact bucket match = 1.0)
+  const timeScore = 1.0;
+
+  // Text score (token overlap)
+  const lTokens = new Set(tokenizeForEntities(left.market.title));
+  const rTokens = new Set(tokenizeForEntities(right.market.title));
+  let intersection = 0;
+  for (const t of lTokens) {
+    if (rTokens.has(t)) intersection++;
+  }
+  const union = lTokens.size + rTokens.size - intersection;
+  const textScore = union > 0 ? intersection / union : 0;
+
+  // Direction match bonus (not used in score, but tracked)
+  const directionMatch = lSig.direction !== null && rSig.direction !== null && lSig.direction === rSig.direction;
+
+  // Weighted score: entity 0.6 + time 0.3 + text 0.1
+  const score = 0.6 * entityScore + 0.3 * timeScore + 0.1 * textScore;
+
+  const reason = `entity=${lSig.entity} bucket=${lSig.timeBucket} dir=${lSig.direction || 'any'}/${rSig.direction || 'any'} text=${textScore.toFixed(2)}`;
+
+  return {
+    score,
+    reason,
+    entityScore,
+    timeScore,
+    textScore,
+    directionMatch,
+    timeBucket: lSig.timeBucket,
+  };
+}

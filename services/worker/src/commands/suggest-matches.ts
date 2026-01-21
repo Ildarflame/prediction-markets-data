@@ -44,6 +44,13 @@ import {
   applyBracketGrouping,
   type BracketCandidate,
   type BracketStats,
+  // v2.6.2: Intraday Pipeline
+  fetchIntradayCryptoMarkets,
+  buildIntradayIndex,
+  findIntradayCandidates,
+  intradayMatchScore,
+  type IntradayMarket,
+  type IntradaySlotSize,
 } from '../matching/index.js';
 
 /**
@@ -1630,6 +1637,8 @@ interface CryptoSuggestMatchesOptions {
    * and markets classified as INTRADAY_UPDOWN
    */
   excludeIntraday: boolean;
+  /** v2.6.2: Algorithm version for tracking (e.g., "crypto_daily@2.6.2") */
+  algoVersion: string;
   marketRepo: MarketRepository;
   linkRepo: MarketLinkRepository;
   result: SuggestMatchesResult;
@@ -1646,6 +1655,322 @@ interface CryptoDedupStats {
   droppedByWinnerGap: number;
   /** v2.6.0: Bracket grouping stats */
   bracketStats: BracketStats | null;
+}
+
+/**
+ * v2.6.2: Options for intraday crypto matching
+ */
+interface IntradaySuggestMatchesOptions {
+  fromVenue: CoreVenue;
+  toVenue: CoreVenue;
+  minScore: number;
+  topK: number;
+  lookbackHours: number;
+  limitLeft: number;
+  limitRight: number;
+  maxSuggestionsPerLeft: number;
+  excludeSports: boolean;
+  /** Max suggestions per right market */
+  maxPerRight: number;
+  /** Time bucket size for intraday matching */
+  slotSize: IntradaySlotSize;
+  /** v2.6.2: Algorithm version for tracking (e.g., "crypto_intraday@2.6.2") */
+  algoVersion: string;
+  marketRepo: MarketRepository;
+  linkRepo: MarketLinkRepository;
+  result: SuggestMatchesResult;
+}
+
+/**
+ * v2.6.2: Intraday crypto matching flow
+ *
+ * Uses dedicated intraday pipeline:
+ * - fetchIntradayCryptoMarkets with INTRADAY_UPDOWN market type filter
+ * - buildIntradayIndex keyed by entity + timeBucket
+ * - findIntradayCandidates with exact bucket match (no ±1 day)
+ * - intradayMatchScore with hard gates (entity match, bucket exact)
+ *
+ * Scoring weights: entity 0.6 + time 0.3 + text 0.1
+ */
+async function runIntradaySuggestMatches(options: IntradaySuggestMatchesOptions): Promise<SuggestMatchesResult> {
+  const {
+    fromVenue,
+    toVenue,
+    minScore,
+    topK,
+    lookbackHours,
+    limitLeft,
+    limitRight,
+    maxSuggestionsPerLeft,
+    excludeSports,
+    maxPerRight,
+    slotSize,
+    algoVersion,
+    marketRepo,
+    linkRepo,
+    result,
+  } = options;
+
+  console.log(`[intraday-matching] Starting suggest-matches v2.6.2: ${fromVenue} -> ${toVenue}`);
+  console.log(`[intraday-matching] minScore=${minScore}, topK=${topK}, lookbackHours=${lookbackHours}`);
+  console.log(`[intraday-matching] limitLeft=${limitLeft}, limitRight=${limitRight}, maxSuggestionsPerLeft=${maxSuggestionsPerLeft}`);
+  console.log(`[intraday-matching] maxPerRight=${maxPerRight}, slotSize=${slotSize}, algoVersion=${algoVersion}`);
+  console.log(`[intraday-matching] Sports exclusion: ${excludeSports ? 'enabled' : 'disabled'}`);
+
+  try {
+    // Fetch intraday crypto markets from both venues
+    console.log(`[intraday-matching] Fetching intraday crypto markets from ${fromVenue}...`);
+    const { markets: leftMarkets, stats: leftStats } = await fetchIntradayCryptoMarkets(marketRepo, {
+      venue: fromVenue,
+      lookbackHours,
+      limit: limitLeft,
+      excludeSports,
+      slotSize,
+    });
+    result.leftCount = leftMarkets.length;
+    console.log(`[intraday-matching] ${fromVenue}: ${leftStats.total} DB -> ${leftStats.afterSportsFilter} (sports) -> ${leftStats.afterIntradayFilter} (intraday only) -> ${leftStats.withCryptoEntity} (with entity)`);
+
+    console.log(`[intraday-matching] Fetching intraday crypto markets from ${toVenue}...`);
+    const { markets: rightMarkets, stats: rightStats } = await fetchIntradayCryptoMarkets(marketRepo, {
+      venue: toVenue,
+      lookbackHours,
+      limit: limitRight,
+      excludeSports,
+      slotSize,
+    });
+    result.rightCount = rightMarkets.length;
+    console.log(`[intraday-matching] ${toVenue}: ${rightStats.total} DB -> ${rightStats.afterSportsFilter} (sports) -> ${rightStats.afterIntradayFilter} (intraday only) -> ${rightStats.withCryptoEntity} (with entity)`);
+
+    if (leftMarkets.length === 0 || rightMarkets.length === 0) {
+      console.log(`[intraday-matching] No markets to match`);
+      return result;
+    }
+
+    // Build intraday index for right markets (keyed by entity + timeBucket)
+    console.log(`[intraday-matching] Building intraday index for ${toVenue}...`);
+    const intradayIndex = buildIntradayIndex(rightMarkets);
+    console.log(`[intraday-matching] Index built: ${intradayIndex.size} unique entity+bucket keys`);
+
+    // Get set of markets that already have confirmed links
+    const confirmedLeft = new Set<number>();
+    for (const { market } of leftMarkets) {
+      const hasConfirmed = await linkRepo.hasConfirmedLink(fromVenue as Venue, market.id);
+      if (hasConfirmed) {
+        confirmedLeft.add(market.id);
+      }
+    }
+    console.log(`[intraday-matching] ${confirmedLeft.size} markets from ${fromVenue} already have confirmed links`);
+
+    // Intraday coverage tracking
+    const intradayStats = {
+      leftByEntity: new Map<string, number>(),
+      rightByEntity: new Map<string, number>(),
+      matchedByEntity: new Map<string, number>(),
+      leftByBucket: new Map<string, number>(),
+      rightByBucket: new Map<string, number>(),
+    };
+
+    // Build right-side entity counts
+    for (const { signals } of rightMarkets) {
+      if (signals.entity) {
+        intradayStats.rightByEntity.set(signals.entity, (intradayStats.rightByEntity.get(signals.entity) || 0) + 1);
+      }
+      if (signals.timeBucket) {
+        intradayStats.rightByBucket.set(signals.timeBucket, (intradayStats.rightByBucket.get(signals.timeBucket) || 0) + 1);
+      }
+    }
+
+    // Track right-side usage for dedup
+    const rightUsage = new Map<string, number>();
+
+    // Process each left market
+    console.log(`[intraday-matching] Processing matches...`);
+    let processed = 0;
+    const effectiveCap = Math.min(topK, maxSuggestionsPerLeft);
+
+    for (const leftIntraday of leftMarkets) {
+      const leftMarket = leftIntraday.market;
+
+      // Skip if already has confirmed link
+      if (confirmedLeft.has(leftMarket.id)) {
+        result.skippedConfirmed++;
+        continue;
+      }
+
+      // Track left-side entity
+      if (leftIntraday.signals.entity) {
+        intradayStats.leftByEntity.set(leftIntraday.signals.entity, (intradayStats.leftByEntity.get(leftIntraday.signals.entity) || 0) + 1);
+      }
+      if (leftIntraday.signals.timeBucket) {
+        intradayStats.leftByBucket.set(leftIntraday.signals.timeBucket, (intradayStats.leftByBucket.get(leftIntraday.signals.timeBucket) || 0) + 1);
+      }
+
+      // Find candidates using intraday index (exact entity + timeBucket match)
+      const candidates = findIntradayCandidates(leftIntraday, intradayIndex);
+      result.candidatesConsidered += candidates.length;
+
+      // Score candidates
+      const scores: Array<{
+        rightMarket: IntradayMarket;
+        score: number;
+        reason: string;
+        entity: string;
+        bucket: string;
+      }> = [];
+
+      for (const rightIntraday of candidates) {
+        // Skip self-match
+        if (rightIntraday.market.id === leftMarket.id) continue;
+
+        // Calculate intraday score (includes hard gates)
+        const scoreResult = intradayMatchScore(leftIntraday, rightIntraday);
+
+        // null means gate failed
+        if (!scoreResult) {
+          result.skippedDateGate++; // entity or bucket gate
+          continue;
+        }
+
+        if (scoreResult.score >= minScore) {
+          scores.push({
+            rightMarket: rightIntraday,
+            score: scoreResult.score,
+            reason: scoreResult.reason,
+            entity: rightIntraday.signals.entity || 'UNKNOWN',
+            bucket: rightIntraday.signals.timeBucket || 'UNKNOWN',
+          });
+        }
+      }
+
+      // Sort by score descending
+      scores.sort((a, b) => b.score - a.score);
+
+      // Track generated pairs
+      result.generatedPairsTotal += scores.length;
+
+      // Apply left cap
+      const afterLeftCap = scores.slice(0, effectiveCap);
+      result.droppedByCapTotal += Math.max(0, scores.length - afterLeftCap.length);
+
+      // Apply right-side cap
+      const finalCandidates: typeof afterLeftCap = [];
+      for (const candidate of afterLeftCap) {
+        const rightKey = `${candidate.rightMarket.market.id}|${candidate.entity}|${candidate.bucket}`;
+        const currentUsage = rightUsage.get(rightKey) || 0;
+
+        if (currentUsage < maxPerRight) {
+          finalCandidates.push(candidate);
+          rightUsage.set(rightKey, currentUsage + 1);
+        } else {
+          result.droppedByRightCap++;
+        }
+      }
+
+      result.savedTopKTotal += finalCandidates.length;
+
+      // Save suggestions
+      for (const candidate of finalCandidates) {
+        try {
+          const upsertResult = await linkRepo.upsertSuggestion(
+            fromVenue as Venue,
+            leftMarket.id,
+            toVenue as Venue,
+            candidate.rightMarket.market.id,
+            candidate.score,
+            candidate.reason,
+            algoVersion
+          );
+
+          if (upsertResult.created) {
+            result.suggestionsCreated++;
+          } else {
+            result.suggestionsUpdated++;
+          }
+
+          // Track matched entities
+          if (leftIntraday.signals.entity) {
+            intradayStats.matchedByEntity.set(
+              leftIntraday.signals.entity,
+              (intradayStats.matchedByEntity.get(leftIntraday.signals.entity) || 0) + 1
+            );
+          }
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          result.errors.push(`Failed to save suggestion for ${leftMarket.id}: ${errMsg}`);
+        }
+      }
+
+      processed++;
+      if (processed % 100 === 0) {
+        console.log(`[intraday-matching] Processed ${processed}/${leftMarkets.length - confirmedLeft.size} markets...`);
+      }
+    }
+
+    // Print summary
+    console.log(`\n[intraday-matching] Suggest-matches v2.6.2 complete:`);
+    console.log(`  Left markets (${fromVenue}): ${result.leftCount}`);
+    console.log(`  Right markets (${toVenue}): ${result.rightCount}`);
+    console.log(`  Skipped (already confirmed): ${result.skippedConfirmed}`);
+    console.log(`  Skipped (entity/bucket gate): ${result.skippedDateGate}`);
+    console.log(`  Candidates considered: ${result.candidatesConsidered}`);
+    console.log(`  Generated pairs (score >= ${minScore}): ${result.generatedPairsTotal}`);
+    console.log(`  Dropped by left-cap (max ${effectiveCap}): ${result.droppedByCapTotal}`);
+    console.log(`  Dropped by right-cap (max ${maxPerRight}): ${result.droppedByRightCap}`);
+    console.log(`  Saved after dedup: ${result.savedTopKTotal}`);
+    console.log(`  Suggestions created: ${result.suggestionsCreated}`);
+    console.log(`  Suggestions updated: ${result.suggestionsUpdated}`);
+
+    if (result.errors.length > 0) {
+      console.log(`  Errors: ${result.errors.length}`);
+    }
+
+    // Intraday coverage report
+    console.log(`\n[intraday-coverage] Intraday Entity Coverage Report:`);
+    console.log(`${'Entity'.padEnd(12)} | ${'Left'.padStart(6)} | ${'Right'.padStart(6)} | ${'Matched'.padStart(8)} | ${'Rate'.padStart(6)}`);
+    console.log('-'.repeat(48));
+
+    let totalLeft = 0;
+    let totalMatched = 0;
+
+    for (const entity of ['BTC', 'ETH']) {
+      const left = intradayStats.leftByEntity.get(entity) || 0;
+      const right = intradayStats.rightByEntity.get(entity) || 0;
+      const matched = intradayStats.matchedByEntity.get(entity) || 0;
+      const rate = left > 0 ? ((matched / left) * 100).toFixed(1) + '%' : 'N/A';
+
+      console.log(`${entity.padEnd(12)} | ${String(left).padStart(6)} | ${String(right).padStart(6)} | ${String(matched).padStart(8)} | ${rate.padStart(6)}`);
+
+      totalLeft += left;
+      totalMatched += matched;
+    }
+
+    console.log('-'.repeat(48));
+    const totalRate = totalLeft > 0 ? ((totalMatched / totalLeft) * 100).toFixed(1) + '%' : 'N/A';
+    console.log(`${'TOTAL'.padEnd(12)} | ${String(totalLeft).padStart(6)} | ${String('').padStart(6)} | ${String(totalMatched).padStart(8)} | ${totalRate.padStart(6)}`);
+
+    // Top time buckets with overlap
+    console.log(`\n[intraday-coverage] Top TimeBuckets with overlap:`);
+    const leftBuckets = [...intradayStats.leftByBucket.entries()].sort((a, b) => b[1] - a[1]);
+    const rightBucketsSet = new Set(intradayStats.rightByBucket.keys());
+    let shownBuckets = 0;
+    for (const [bucket, leftCount] of leftBuckets) {
+      if (rightBucketsSet.has(bucket) && shownBuckets < 10) {
+        const rightCount = intradayStats.rightByBucket.get(bucket) || 0;
+        console.log(`  ${bucket}: ${leftCount} ${fromVenue} × ${rightCount} ${toVenue}`);
+        shownBuckets++;
+      }
+    }
+    if (shownBuckets === 0) {
+      console.log(`  No bucket overlap found`);
+    }
+
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    result.errors.push(`Intraday matching error: ${errMsg}`);
+    console.error(`[intraday-matching] Error: ${errMsg}`);
+  }
+
+  return result;
 }
 
 /**
@@ -1678,6 +2003,7 @@ async function runCryptoSuggestMatches(options: CryptoSuggestMatchesOptions): Pr
     maxGroupsPerLeft,
     maxLinesPerGroup,
     excludeIntraday,
+    algoVersion,
     marketRepo,
     linkRepo,
     result,
@@ -1686,7 +2012,7 @@ async function runCryptoSuggestMatches(options: CryptoSuggestMatchesOptions): Pr
   const useBracketGrouping = maxGroupsPerLeft > 0 && maxLinesPerGroup > 0;
 
   console.log(`[crypto-matching] Starting suggest-matches v2.6.2: ${fromVenue} -> ${toVenue}`);
-  console.log(`[crypto-matching] minScore=${minScore}, topK=${topK}, lookbackHours=${lookbackHours}`);
+  console.log(`[crypto-matching] minScore=${minScore}, topK=${topK}, lookbackHours=${lookbackHours}, algoVersion=${algoVersion}`);
   console.log(`[crypto-matching] limitLeft=${limitLeft}, limitRight=${limitRight}, maxSuggestionsPerLeft=${maxSuggestionsPerLeft}`);
   console.log(`[crypto-matching] maxPerRight=${maxPerRight}, winnerGap=${winnerGap} (v2.5.3 dedup)`);
   if (useBracketGrouping) {
@@ -1944,7 +2270,8 @@ async function runCryptoSuggestMatches(options: CryptoSuggestMatchesOptions): Pr
             toVenue as Venue,
             candidate.rightMarket.market.id,
             candidate.score,
-            candidate.reason
+            candidate.reason,
+            algoVersion
           );
 
           if (upsertResult.created) {
@@ -2170,12 +2497,33 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
     // - crypto: excludeIntraday=false (backward compatible, includes all)
     const excludeIntraday = topic === 'crypto_daily';
 
+    // v2.6.2: Separate intraday pipeline for INTRADAY_UPDOWN markets
     if (topic === 'crypto_intraday') {
-      console.log(`[matching] WARNING: topic=crypto_intraday is not yet fully supported.`);
-      console.log(`[matching] Use topic=crypto_daily for matching daily/yearly markets.`);
-      // For now, crypto_intraday falls through with excludeIntraday=false
-      // In future, we would implement a separate pipeline that ONLY includes intraday
+      const intradaySlotSize = (process.env.INTRADAY_SLOT_SIZE || '1h') as IntradaySlotSize;
+      const intradayMaxPerRight = parseInt(process.env.INTRADAY_MAX_PER_RIGHT || '3', 10);
+      const intradayMaxPerLeft = parseInt(process.env.INTRADAY_MAX_PER_LEFT || '3', 10);
+
+      return await runIntradaySuggestMatches({
+        fromVenue,
+        toVenue,
+        minScore,
+        topK,
+        lookbackHours,
+        limitLeft,
+        limitRight,
+        maxSuggestionsPerLeft: intradayMaxPerLeft,
+        excludeSports,
+        maxPerRight: intradayMaxPerRight,
+        slotSize: intradaySlotSize,
+        algoVersion: 'crypto_intraday@2.6.2',
+        marketRepo,
+        linkRepo,
+        result,
+      });
     }
+
+    // v2.6.2: algoVersion for crypto_daily or crypto (backward compat)
+    const cryptoAlgoVersion = topic === 'crypto_daily' ? 'crypto_daily@2.6.2' : 'crypto@2.6.2';
 
     return await runCryptoSuggestMatches({
       fromVenue,
@@ -2192,6 +2540,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       maxGroupsPerLeft: cryptoMaxGroupsPerLeft,
       maxLinesPerGroup: cryptoMaxLinesPerGroup,
       excludeIntraday,
+      algoVersion: cryptoAlgoVersion,
       marketRepo,
       linkRepo,
       result,
@@ -2200,6 +2549,9 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
 
   // v2.4.5: Use closeTime ordering for macro to include old active markets
   const orderBy = topic === 'macro' ? 'closeTime' as const : 'id' as const;
+
+  // v2.6.2: algoVersion for tracking
+  const algoVersion = topic !== 'all' ? `${topic}@2.6.2` : 'all@2.6.2';
 
   console.log(`[matching] Starting suggest-matches v2.4.5: ${fromVenue} -> ${toVenue}`);
   console.log(`[matching] minScore=${minScore}, topK=${topK}, lookbackHours=${lookbackHours}, limitLeft=${limitLeft}, limitRight=${limitRight}, requireOverlap=${requireOverlapKeywords}`);
@@ -2526,7 +2878,8 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
             toVenue as Venue,
             candidate.rightId,
             candidate.score,
-            candidate.reason
+            candidate.reason,
+            algoVersion
           );
 
           if (upsertResult.created) {

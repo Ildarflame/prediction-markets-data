@@ -1,8 +1,10 @@
 /**
- * crypto:counts - Diagnostic command for crypto market counts (v2.5.0)
+ * crypto:counts - Diagnostic command for crypto market counts (v2.5.0, v2.6.2)
  *
  * Shows strict/broad DB counts, detected counts, and detection rate
  * Similar to macro:audit-pack but for crypto entities
+ *
+ * v2.6.2: Added --topic option to filter by crypto_daily or crypto_intraday
  */
 
 import { type Venue } from '@data-module/core';
@@ -14,12 +16,59 @@ import {
   extractCryptoEntity,
 } from '../matching/index.js';
 
+/**
+ * v2.6.2: Simple intraday detection based on title patterns and metadata
+ * Simplified version that doesn't require full signal extraction
+ */
+function isIntradayMarket(title: string, metadata: Record<string, unknown> | null): boolean {
+  const lower = title.toLowerCase();
+
+  // Check metadata for intraday indicators
+  if (metadata) {
+    const marketType = metadata.marketType || metadata.market_type;
+    if (typeof marketType === 'string') {
+      if (marketType.toLowerCase().includes('binary') && lower.includes('up or down')) {
+        return true;
+      }
+    }
+
+    const eventTicker = metadata.eventTicker || metadata.event_ticker;
+    if (typeof eventTicker === 'string') {
+      if (/UPDOWN|INTRADAY/i.test(eventTicker)) {
+        return true;
+      }
+    }
+  }
+
+  // Check title for intraday patterns
+  const intradayPatterns = [
+    /\b(?:next\s+)?(?:\d+\s+)?(?:minute|min|hour|hr)s?\b/i,
+    /\btoday\s+(?:at|by)\b/i,
+    /\b(?:at|by)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm|ET|EST|UTC)\b/i,
+    /\bup\s+or\s+down\b/i,
+    /\bintraday\b/i,
+    /\bdaily\s+candle\s+change\b/i,
+  ];
+  for (const pattern of intradayPatterns) {
+    if (pattern.test(title)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/** Topic filter for crypto counts */
+export type CryptoTopic = 'crypto' | 'crypto_daily' | 'crypto_intraday';
+
 export interface CryptoCountsOptions {
   venue: Venue;
   lookbackHours?: number;
   limit?: number;
   includeResolved?: boolean;
   allTime?: boolean;
+  /** v2.6.2: Filter by topic (crypto_daily, crypto_intraday, or crypto for all) */
+  topic?: CryptoTopic;
 }
 
 export interface CryptoEntityCount {
@@ -51,10 +100,11 @@ export async function runCryptoCounts(options: CryptoCountsOptions): Promise<Cry
     limit = 5000,
     includeResolved = false,
     allTime = false,
+    topic = 'crypto',
   } = options;
 
   console.log(`\n${'='.repeat(80)}`);
-  console.log(`[crypto:counts] ${venue}`);
+  console.log(`[crypto:counts] ${venue} | topic=${topic}`);
   console.log(`${'='.repeat(80)}`);
   console.log(`Lookback: ${allTime ? 'ALL-TIME' : `${lookbackHours}h`} | Limit: ${limit} | Include resolved: ${includeResolved}`);
   console.log(`${'='.repeat(80)}\n`);
@@ -99,12 +149,25 @@ export async function runCryptoCounts(options: CryptoCountsOptions): Promise<Cry
     });
 
     // Run extraction on strict markets to count detected
+    // v2.6.2: Apply topic filter based on market type
     let detected = 0;
     const samples: string[] = [];
 
     for (const m of strictMarkets) {
       const extractedEntity = extractCryptoEntity(m.title, m.metadata as Record<string, unknown> | null);
       if (extractedEntity === entity) {
+        // v2.6.2: Filter by market type based on topic
+        if (topic !== 'crypto') {
+          const isIntraday = isIntradayMarket(m.title, m.metadata as Record<string, unknown> | null);
+
+          if (topic === 'crypto_daily' && isIntraday) {
+            continue; // Skip intraday markets when looking for daily
+          }
+          if (topic === 'crypto_intraday' && !isIntraday) {
+            continue; // Skip daily markets when looking for intraday
+          }
+        }
+
         detected++;
         if (samples.length < 3) {
           samples.push(m.title.slice(0, 60) + (m.title.length > 60 ? '...' : ''));

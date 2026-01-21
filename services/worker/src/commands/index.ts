@@ -59,3 +59,10 @@ export { runCryptoEthDebug, type EthDebugOptions, type EthDebugResult } from './
 // Crypto commands v2.6.2
 export { runCryptoSeriesAudit, type SeriesAuditOptions, type SeriesAuditResult } from './crypto-series-audit.js';
 export { runCryptoEligibleExplain, type EligibleExplainOptions, type EligibleExplainResult } from './crypto-eligible-explain.js';
+
+// Kalshi ingestion diagnostics (v2.6.2)
+export { runKalshiIngestionDiag, type IngestionDiagOptions, type IngestionDiagResult } from './kalshi-ingestion-diag.js';
+
+// Link hygiene commands (v2.6.2)
+export { runLinksStats, type LinksStatsResult } from './links-stats.js';
+export { runLinksCleanup, type LinksCleanupOptions, type LinksCleanupResult } from './links-cleanup.js';

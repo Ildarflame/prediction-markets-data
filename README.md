@@ -340,6 +340,27 @@ Environment variables:
 | `DEDUP_EPSILON_KALSHI` | 0.001 | Kalshi price threshold |
 | `DEDUP_MIN_INTERVAL_SECONDS_KALSHI` | 60 | Kalshi min interval |
 
+### Kalshi ingestion watchdog settings (v2.6.2)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KALSHI_STUCK_THRESHOLD_MIN` | 30 | Mark as STUCK if no success for this many minutes |
+| `KALSHI_MAX_FAILURES_IN_ROW` | 5 | Mark as FAILING if this many consecutive failures |
+
+**Commands:**
+```bash
+# Check Kalshi ingestion health
+pnpm --filter @data-module/worker kalshi:ingestion:diag
+
+# Sample output:
+# [Status] ✗ STUCK
+# [Reason] Last success was 45m ago (threshold: 30m)
+# [Error Categories]
+#   429_rate_limit    15 (60%)
+#   5xx_server         5 (20%)
+#   timeout            5 (20%)
+```
+
 ## Development
 
 ### Build all packages

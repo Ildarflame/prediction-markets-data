@@ -40,7 +40,8 @@ services:
   worker-kalshi:
     build: .
     container_name: pm_worker_kalshi
-    restart: unless-stopped
+    # v2.6.2: Use restart: always for reliability (auto-restart on any failure)
+    restart: always
     depends_on:
       postgres:
         condition: service_healthy
@@ -64,6 +65,9 @@ services:
       # Dedup settings
       DEDUP_EPSILON_KALSHI: ${DEDUP_EPSILON_KALSHI:-0.001}
       DEDUP_MIN_INTERVAL_SECONDS_KALSHI: ${DEDUP_MIN_INTERVAL_SECONDS_KALSHI:-60}
+      # v2.6.2: Ingestion watchdog thresholds
+      KALSHI_STUCK_THRESHOLD_MIN: ${KALSHI_STUCK_THRESHOLD_MIN:-30}
+      KALSHI_MAX_FAILURES_IN_ROW: ${KALSHI_MAX_FAILURES_IN_ROW:-5}
     command: ["node", "services/worker/dist/cli.js", "ingest", "-v", "kalshi", "-m", "loop", "-i", "${INGEST_INTERVAL_SECONDS:-60}"]
     healthcheck:
       test: ["CMD", "node", "services/worker/dist/cli.js", "health", "--max-stale", "5", "--max-job-age", "10"]

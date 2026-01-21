@@ -199,4 +199,97 @@ export class IngestionRepository {
       orderBy: [{ venue: 'asc' }, { jobName: 'asc' }],
     });
   }
+
+  // ============================================================
+  // v2.6.2: Ingestion diagnostics
+  // ============================================================
+
+  /**
+   * Get recent runs for a venue with extended info (v2.6.2)
+   */
+  async getRecentRunsDetailed(venue: Venue, limit = 20): Promise<IngestionRun[]> {
+    return this.prisma.ingestionRun.findMany({
+      where: { venue },
+      orderBy: { startedAt: 'desc' },
+      take: limit,
+    });
+  }
+
+  /**
+   * Count consecutive failures from the most recent runs (v2.6.2)
+   * Returns the number of failed runs in a row starting from the most recent
+   */
+  async countConsecutiveFailures(venue: Venue, jobName: string = 'markets'): Promise<number> {
+    const recentRuns = await this.prisma.ingestionRun.findMany({
+      where: { venue, jobName },
+      orderBy: { startedAt: 'desc' },
+      take: 20,
+      select: { ok: true },
+    });
+
+    let failures = 0;
+    for (const run of recentRuns) {
+      if (!run.ok) {
+        failures++;
+      } else {
+        break; // Stop at first success
+      }
+    }
+    return failures;
+  }
+
+  /**
+   * Get error category counts from recent runs (v2.6.2)
+   * Groups errors by type: 429, 5xx, timeout, network, other
+   */
+  async getErrorCategories(venue: Venue, limit = 50): Promise<Record<string, number>> {
+    const recentRuns = await this.prisma.ingestionRun.findMany({
+      where: { venue, ok: false },
+      orderBy: { startedAt: 'desc' },
+      take: limit,
+      select: { errorText: true },
+    });
+
+    const categories: Record<string, number> = {
+      '429_rate_limit': 0,
+      '5xx_server': 0,
+      'timeout': 0,
+      'network': 0,
+      'prisma_db': 0,
+      'parse_error': 0,
+      'other': 0,
+    };
+
+    for (const run of recentRuns) {
+      const error = run.errorText?.toLowerCase() || '';
+
+      if (error.includes('429') || error.includes('rate limit') || error.includes('too many')) {
+        categories['429_rate_limit']++;
+      } else if (error.includes('500') || error.includes('502') || error.includes('503') || error.includes('504') || error.includes('internal server')) {
+        categories['5xx_server']++;
+      } else if (error.includes('timeout') || error.includes('timed out') || error.includes('etimedout')) {
+        categories['timeout']++;
+      } else if (error.includes('econnrefused') || error.includes('enotfound') || error.includes('network') || error.includes('fetch failed')) {
+        categories['network']++;
+      } else if (error.includes('prisma') || error.includes('database') || error.includes('db')) {
+        categories['prisma_db']++;
+      } else if (error.includes('parse') || error.includes('json') || error.includes('syntax')) {
+        categories['parse_error']++;
+      } else if (error) {
+        categories['other']++;
+      }
+    }
+
+    return categories;
+  }
+
+  /**
+   * Get last successful run timestamp (v2.6.2)
+   */
+  async getLastSuccessfulRun(venue: Venue, jobName: string = 'markets'): Promise<IngestionRun | null> {
+    return this.prisma.ingestionRun.findFirst({
+      where: { venue, jobName, ok: true },
+      orderBy: { finishedAt: 'desc' },
+    });
+  }
 }

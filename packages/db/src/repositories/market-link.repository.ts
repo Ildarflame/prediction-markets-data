@@ -27,6 +27,7 @@ export class MarketLinkRepository {
    * Upsert a suggestion
    * If pair exists and status != confirmed, update score/reason
    * If pair exists and status == confirmed, skip
+   * v2.6.2: Added algoVersion parameter
    */
   async upsertSuggestion(
     leftVenue: Venue,
@@ -34,7 +35,8 @@ export class MarketLinkRepository {
     rightVenue: Venue,
     rightMarketId: number,
     score: number,
-    reason: string | null
+    reason: string | null,
+    algoVersion?: string | null
   ): Promise<UpsertSuggestionResult> {
     // Check if exists
     const existing = await this.prisma.marketLink.findUnique({
@@ -60,6 +62,7 @@ export class MarketLinkRepository {
         data: {
           score,
           reason,
+          algoVersion,
           status: 'suggested', // Reset to suggested if was rejected
         },
       });
@@ -76,6 +79,7 @@ export class MarketLinkRepository {
         rightMarketId,
         score,
         reason,
+        algoVersion,
         status: 'suggested',
       },
     });
@@ -191,6 +195,101 @@ export class MarketLinkRepository {
     }
 
     return result;
+  }
+
+  /**
+   * v2.6.2: Get link statistics grouped by status and algoVersion
+   */
+  async getStats(): Promise<{
+    byStatus: Record<LinkStatus, number>;
+    byAlgoVersion: Array<{ algoVersion: string | null; count: number }>;
+    byTopic: Array<{ topic: string; count: number }>;
+    total: number;
+  }> {
+    // Count by status
+    const statusCounts = await this.prisma.marketLink.groupBy({
+      by: ['status'],
+      _count: { status: true },
+    });
+
+    const byStatus: Record<LinkStatus, number> = {
+      suggested: 0,
+      confirmed: 0,
+      rejected: 0,
+    };
+
+    let total = 0;
+    for (const c of statusCounts) {
+      byStatus[c.status] = c._count.status;
+      total += c._count.status;
+    }
+
+    // Count by algoVersion
+    const versionCounts = await this.prisma.marketLink.groupBy({
+      by: ['algoVersion'],
+      _count: { algoVersion: true },
+    });
+
+    const byAlgoVersion = versionCounts.map(c => ({
+      algoVersion: c.algoVersion,
+      count: c._count.algoVersion,
+    })).sort((a, b) => b.count - a.count);
+
+    // Derive topic from algoVersion (e.g., "crypto_daily@2.6.2" -> "crypto_daily")
+    const topicCounts = new Map<string, number>();
+    for (const v of byAlgoVersion) {
+      const topic = v.algoVersion?.split('@')[0] || 'unknown';
+      topicCounts.set(topic, (topicCounts.get(topic) || 0) + v.count);
+    }
+
+    const byTopic = [...topicCounts.entries()].map(([topic, count]) => ({ topic, count })).sort((a, b) => b.count - a.count);
+
+    return { byStatus, byAlgoVersion, byTopic, total };
+  }
+
+  /**
+   * v2.6.2: Delete old suggestions matching criteria
+   * Returns count of deleted links
+   */
+  async cleanupSuggestions(options: {
+    olderThanDays: number;
+    status?: LinkStatus | 'all';
+    algoVersion?: string;
+    dryRun?: boolean;
+  }): Promise<{ count: number; matches: MarketLink[] }> {
+    const { olderThanDays, status = 'suggested', algoVersion, dryRun = false } = options;
+
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
+
+    const whereClause: Record<string, unknown> = {
+      updatedAt: { lt: cutoffDate },
+    };
+
+    if (status !== 'all') {
+      whereClause.status = status;
+    }
+
+    if (algoVersion) {
+      whereClause.algoVersion = algoVersion;
+    }
+
+    // Get matching links first
+    const matches = await this.prisma.marketLink.findMany({
+      where: whereClause,
+      take: 1000, // Limit for safety
+    });
+
+    if (dryRun) {
+      return { count: matches.length, matches };
+    }
+
+    // Delete matching links
+    const result = await this.prisma.marketLink.deleteMany({
+      where: whereClause,
+    });
+
+    return { count: result.count, matches };
   }
 
   /**

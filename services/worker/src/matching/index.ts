@@ -30,7 +30,7 @@ export {
   collectSamplesByEntity,
 } from './macroPipeline.js';
 
-// Crypto Pipeline (v2.6.1)
+// Crypto Pipeline (v2.6.2)
 export {
   // Constants
   CRYPTO_ENTITIES_V1,
@@ -54,6 +54,11 @@ export {
   type SettleDateResult,
   type CryptoNumberResult,
   type ComparatorResult,
+  // v2.6.2: Intraday types
+  type IntradaySlotSize,
+  type IntradaySignals,
+  type IntradayMarket,
+  type IntradayScoreResult,
   // Functions
   getCryptoStrictKeywords,
   getCryptoTickerRegex,
@@ -75,6 +80,14 @@ export {
   cryptoMatchScore,
   collectCryptoSettleDates,
   collectCryptoSamplesByEntity,
+  // v2.6.2: Intraday functions
+  calculateTimeBucket,
+  extractIntradayDirection,
+  extractIntradaySignals,
+  fetchIntradayCryptoMarkets,
+  buildIntradayIndex,
+  findIntradayCandidates,
+  intradayMatchScore,
 } from './cryptoPipeline.js';
 
 // Crypto Bracket Grouping (v2.6.0)

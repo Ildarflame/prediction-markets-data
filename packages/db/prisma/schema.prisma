@@ -164,6 +164,8 @@ model MarketLink {
   status        LinkStatus @default(suggested)
   score         Float
   reason        String?
+  /// v2.6.2: Algorithm version that created/updated this suggestion (e.g., "crypto_daily@2.6.2")
+  algoVersion   String?    @map("algo_version")
   createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz
   updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -173,5 +175,6 @@ model MarketLink {
   @@unique([leftVenue, leftMarketId, rightVenue, rightMarketId])
   @@index([status, score(sort: Desc)])
   @@index([leftVenue, rightVenue])
+  @@index([algoVersion])
   @@map("market_links")
 }
