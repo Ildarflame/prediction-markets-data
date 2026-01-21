@@ -295,3 +295,107 @@ export function formatDuration(ms: number): string {
   const seconds = ((ms % 60000) / 1000).toFixed(0);
   return `${minutes}m ${seconds}s`;
 }
+
+// ============================================================
+// v2.6.2: Ticker Extraction Helpers
+// ============================================================
+
+/**
+ * Normalize ticker string: uppercase, trim whitespace
+ */
+export function normalizeTicker(str: string | null | undefined): string | null {
+  if (!str || typeof str !== 'string') return null;
+  const normalized = str.trim().toUpperCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+/**
+ * Extract Kalshi series ticker from market metadata
+ * Example: "KXBTC", "KXETH"
+ */
+export function getKalshiSeriesTicker(metadata: Record<string, unknown> | null | undefined): string | null {
+  if (!metadata) return null;
+  const ticker = metadata.seriesTicker ?? metadata.series_ticker;
+  return normalizeTicker(ticker as string | null | undefined);
+}
+
+/**
+ * Extract Kalshi event ticker from market metadata
+ * Example: "KXBTCUPDOWN", "KXETHD-26JAN23"
+ */
+export function getKalshiEventTicker(metadata: Record<string, unknown> | null | undefined): string | null {
+  if (!metadata) return null;
+  const ticker = metadata.eventTicker ?? metadata.event_ticker;
+  return normalizeTicker(ticker as string | null | undefined);
+}
+
+/**
+ * Extract Kalshi market ticker from market metadata
+ * Example: "KXBTCUPDOWN-26JAN23-T0945-B104500"
+ */
+export function getKalshiMarketTicker(metadata: Record<string, unknown> | null | undefined): string | null {
+  if (!metadata) return null;
+  const ticker = metadata.marketTicker ?? metadata.market_ticker;
+  return normalizeTicker(ticker as string | null | undefined);
+}
+
+/**
+ * Extract Polymarket market key from metadata
+ * Uses conditionId, slug, or marketId
+ */
+export function getPolymarketMarketKey(metadata: Record<string, unknown> | null | undefined): string | null {
+  if (!metadata) return null;
+  const key = metadata.conditionId ?? metadata.condition_id ?? metadata.slug ?? metadata.marketId ?? metadata.market_id;
+  return normalizeTicker(key as string | null | undefined);
+}
+
+/**
+ * Check if a Kalshi event ticker indicates intraday markets
+ * Patterns: UPDOWN, INTRADAY, minute-based tickers
+ */
+export function isKalshiIntradayTicker(eventTicker: string | null | undefined): boolean {
+  if (!eventTicker || typeof eventTicker !== 'string') return false;
+  const upper = eventTicker.toUpperCase();
+  // Known intraday patterns
+  if (/UPDOWN|INTRADAY|15MIN|30MIN|1HR|HOURLY/i.test(upper)) {
+    return true;
+  }
+  // Kalshi crypto intraday pattern: KXBTCUPDOWN, KXETHUPDOWN
+  if (/KX(BTC|ETH|SOL|XRP|DOGE)UPDOWN/i.test(upper)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Check if a Kalshi event ticker indicates daily threshold markets
+ * Patterns: KXBTCD, KXETHD (daily), KXBTCP (price), dates in ticker
+ */
+export function isKalshiDailyTicker(eventTicker: string | null | undefined): boolean {
+  if (!eventTicker || typeof eventTicker !== 'string') return false;
+  const upper = eventTicker.toUpperCase();
+  // Daily patterns: KXBTCD-*, KXETHD-*, KXBTCP-*
+  if (/KX(BTC|ETH|SOL|XRP|DOGE)[DP]-/i.test(upper)) {
+    return true;
+  }
+  // Has date pattern but not UPDOWN
+  if (/\d{2}[A-Z]{3}\d{2}/.test(upper) && !isKalshiIntradayTicker(eventTicker)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Extract ticker prefix (first segment before hyphen or underscore)
+ */
+export function getTickerPrefix(ticker: string | null | undefined, maxLength: number = 20): string | null {
+  if (!ticker || typeof ticker !== 'string') return null;
+  const normalized = ticker.trim().toUpperCase();
+  // Split by common delimiters
+  const parts = normalized.split(/[-_]/);
+  const prefix = parts[0] || null;
+  if (prefix && prefix.length > maxLength) {
+    return prefix.slice(0, maxLength);
+  }
+  return prefix;
+}

@@ -535,6 +535,7 @@ export class KalshiAdapter implements VenueAdapter {
       closeTime: m.close_time ? new Date(m.close_time) : undefined,
       outcomes,
       metadata: {
+        marketTicker: m.ticker, // v2.6.2: Also store market ticker in metadata
         eventTicker: m.event_ticker,
         seriesTicker: m.series_ticker,
         marketType: m.market_type,

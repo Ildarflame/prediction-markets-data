@@ -55,3 +55,7 @@ export { runCryptoDateAudit, type CryptoDateAuditOptions, type CryptoDateAuditRe
 export { runCryptoTruthDateAudit, type TruthDateAuditOptions, type TruthDateAuditResult } from './crypto-truth-date-audit.js';
 export { runCryptoTypeAudit, type TypeAuditOptions, type TypeAuditResult } from './crypto-type-audit.js';
 export { runCryptoEthDebug, type EthDebugOptions, type EthDebugResult } from './crypto-eth-debug.js';
+
+// Crypto commands v2.6.2
+export { runCryptoSeriesAudit, type SeriesAuditOptions, type SeriesAuditResult } from './crypto-series-audit.js';
+export { runCryptoEligibleExplain, type EligibleExplainOptions, type EligibleExplainResult } from './crypto-eligible-explain.js';

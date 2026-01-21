@@ -205,19 +205,29 @@ function filterSportsMarkets(
 }
 
 /**
- * Topic filter types for market matching
+ * Topic filter for suggest-matches (v2.6.2)
+ * - crypto: All crypto markets (backward compatible)
+ * - crypto_daily: Only daily/yearly crypto markets (excludes INTRADAY_UPDOWN)
+ * - crypto_intraday: Only intraday crypto markets (reserved for future)
+ * - macro: Economic indicators
+ * - politics: Political markets
+ * - all: All topics
  */
-export type TopicFilter = 'crypto' | 'macro' | 'politics' | 'all';
+export type TopicFilter = 'crypto' | 'crypto_daily' | 'crypto_intraday' | 'macro' | 'politics' | 'all';
 
 /**
  * Topic-specific entities for filtering
  * Markets must have at least one entity from the topic set to match
  */
+const CRYPTO_ENTITIES = [
+  'BITCOIN', 'ETHEREUM', 'SOLANA', 'XRP', 'DOGECOIN', 'CARDANO', 'BNB',
+  'AVALANCHE', 'POLYGON', 'POLKADOT', 'CHAINLINK', 'LITECOIN',
+];
+
 export const TOPIC_ENTITIES: Record<Exclude<TopicFilter, 'all'>, string[]> = {
-  crypto: [
-    'BITCOIN', 'ETHEREUM', 'SOLANA', 'XRP', 'DOGECOIN', 'CARDANO', 'BNB',
-    'AVALANCHE', 'POLYGON', 'POLKADOT', 'CHAINLINK', 'LITECOIN',
-  ],
+  crypto: CRYPTO_ENTITIES,
+  crypto_daily: CRYPTO_ENTITIES,
+  crypto_intraday: CRYPTO_ENTITIES,
   macro: [
     'CPI', 'GDP', 'NFP', 'FOMC', 'FED_RATE', 'UNEMPLOYMENT_RATE', 'JOBLESS_CLAIMS',
     'INFLATION', 'INTEREST_RATE', 'PPI', 'PCE',
@@ -237,11 +247,15 @@ export const TOPIC_ENTITIES: Record<Exclude<TopicFilter, 'all'>, string[]> = {
  * Topic-specific keywords for filtering
  * Markets must have at least one keyword from the topic set (fallback if no entity)
  */
+const CRYPTO_KEYWORDS = [
+  'bitcoin', 'btc', 'ethereum', 'eth', 'solana', 'sol', 'crypto',
+  'xrp', 'ripple', 'doge', 'dogecoin', 'cardano', 'ada',
+];
+
 export const TOPIC_KEYWORDS: Record<Exclude<TopicFilter, 'all'>, string[]> = {
-  crypto: [
-    'bitcoin', 'btc', 'ethereum', 'eth', 'solana', 'sol', 'crypto',
-    'xrp', 'ripple', 'doge', 'dogecoin', 'cardano', 'ada',
-  ],
+  crypto: CRYPTO_KEYWORDS,
+  crypto_daily: CRYPTO_KEYWORDS,
+  crypto_intraday: CRYPTO_KEYWORDS,
   // Macro keywords - token-based only, specific to economic indicators
   // v2.4.6: expanded to include "jobs" (Polymarket uses "jobs" instead of NFP)
   macro: [
@@ -1610,6 +1624,12 @@ interface CryptoSuggestMatchesOptions {
   maxGroupsPerLeft: number;
   /** v2.6.0: Max lines per bracket group (0 = disabled) */
   maxLinesPerGroup: number;
+  /**
+   * v2.6.2: Exclude intraday markets (INTRADAY_UPDOWN)
+   * When true, filters out markets with intraday tickers (KXBTCUPDOWN, etc.)
+   * and markets classified as INTRADAY_UPDOWN
+   */
+  excludeIntraday: boolean;
   marketRepo: MarketRepository;
   linkRepo: MarketLinkRepository;
   result: SuggestMatchesResult;
@@ -1657,6 +1677,7 @@ async function runCryptoSuggestMatches(options: CryptoSuggestMatchesOptions): Pr
     winnerGap,
     maxGroupsPerLeft,
     maxLinesPerGroup,
+    excludeIntraday,
     marketRepo,
     linkRepo,
     result,
@@ -1664,7 +1685,7 @@ async function runCryptoSuggestMatches(options: CryptoSuggestMatchesOptions): Pr
 
   const useBracketGrouping = maxGroupsPerLeft > 0 && maxLinesPerGroup > 0;
 
-  console.log(`[crypto-matching] Starting suggest-matches v2.6.0: ${fromVenue} -> ${toVenue}`);
+  console.log(`[crypto-matching] Starting suggest-matches v2.6.2: ${fromVenue} -> ${toVenue}`);
   console.log(`[crypto-matching] minScore=${minScore}, topK=${topK}, lookbackHours=${lookbackHours}`);
   console.log(`[crypto-matching] limitLeft=${limitLeft}, limitRight=${limitRight}, maxSuggestionsPerLeft=${maxSuggestionsPerLeft}`);
   console.log(`[crypto-matching] maxPerRight=${maxPerRight}, winnerGap=${winnerGap} (v2.5.3 dedup)`);
@@ -1673,6 +1694,7 @@ async function runCryptoSuggestMatches(options: CryptoSuggestMatchesOptions): Pr
   }
   console.log(`[crypto-matching] Entities: ${CRYPTO_ENTITIES_V1.join(', ')}`);
   console.log(`[crypto-matching] Sports exclusion: ${excludeSports ? 'enabled' : 'disabled'}`);
+  console.log(`[crypto-matching] Intraday exclusion (v2.6.2): ${excludeIntraday ? 'enabled' : 'disabled'}`);
 
   try {
     // Fetch crypto markets from both venues
@@ -1683,9 +1705,10 @@ async function runCryptoSuggestMatches(options: CryptoSuggestMatchesOptions): Pr
       limit: limitLeft,
       entities: CRYPTO_ENTITIES_V1,
       excludeSports,
+      excludeIntraday,
     });
     result.leftCount = leftMarkets.length;
-    console.log(`[crypto-matching] ${fromVenue}: ${leftStats.total} DB -> ${leftStats.afterSportsFilter} (sports) -> ${leftStats.withCryptoEntity} (entity) [${leftStats.withSettleDate} with date]`);
+    console.log(`[crypto-matching] ${fromVenue}: ${leftStats.total} DB -> ${leftStats.afterSportsFilter} (sports) -> ${leftStats.afterIntradayFilter} (intraday) -> ${leftStats.withCryptoEntity} (entity) [${leftStats.withSettleDate} with date]`);
 
     console.log(`[crypto-matching] Fetching crypto markets from ${toVenue}...`);
     const { markets: rightMarkets, stats: rightStats } = await fetchEligibleCryptoMarkets(marketRepo, {
@@ -1694,9 +1717,10 @@ async function runCryptoSuggestMatches(options: CryptoSuggestMatchesOptions): Pr
       limit: limitRight,
       entities: CRYPTO_ENTITIES_V1,
       excludeSports,
+      excludeIntraday,
     });
     result.rightCount = rightMarkets.length;
-    console.log(`[crypto-matching] ${toVenue}: ${rightStats.total} DB -> ${rightStats.afterSportsFilter} (sports) -> ${rightStats.withCryptoEntity} (entity) [${rightStats.withSettleDate} with date]`);
+    console.log(`[crypto-matching] ${toVenue}: ${rightStats.total} DB -> ${rightStats.afterSportsFilter} (sports) -> ${rightStats.afterIntradayFilter} (intraday) -> ${rightStats.withCryptoEntity} (entity) [${rightStats.withSettleDate} with date]`);
 
     if (leftMarkets.length === 0 || rightMarkets.length === 0) {
       console.log(`[crypto-matching] No markets to match`);
@@ -2126,15 +2150,32 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
   };
 
   // ============================================================
-  // v2.5.2: Crypto-specific matching path
+  // v2.6.2: Crypto-specific matching paths (daily/intraday split)
   // ============================================================
-  if (topic === 'crypto') {
+  // Topic variants:
+  // - 'crypto': Original behavior (includes both daily and intraday)
+  // - 'crypto_daily': Excludes intraday markets (RECOMMENDED for matching)
+  // - 'crypto_intraday': Only intraday markets (separate matching pool)
+  if (topic === 'crypto' || topic === 'crypto_daily' || topic === 'crypto_intraday') {
     // v2.5.3/v2.6.0: Crypto dedup/caps options (ENV overridable)
     const cryptoMaxPerRight = parseInt(process.env.CRYPTO_MAX_PER_RIGHT || '5', 10);
     const cryptoWinnerGap = parseFloat(process.env.CRYPTO_WINNER_GAP || '0.08');
     // v2.6.0: Bracket grouping options (set to 0 to disable)
     const cryptoMaxGroupsPerLeft = parseInt(process.env.CRYPTO_MAX_GROUPS_PER_LEFT || '3', 10);
     const cryptoMaxLinesPerGroup = parseInt(process.env.CRYPTO_MAX_LINES_PER_GROUP || '1', 10);
+
+    // v2.6.2: Determine intraday exclusion based on topic
+    // - crypto_daily: excludeIntraday=true (filter out INTRADAY_UPDOWN)
+    // - crypto_intraday: NOT SUPPORTED YET - would need separate pipeline
+    // - crypto: excludeIntraday=false (backward compatible, includes all)
+    const excludeIntraday = topic === 'crypto_daily';
+
+    if (topic === 'crypto_intraday') {
+      console.log(`[matching] WARNING: topic=crypto_intraday is not yet fully supported.`);
+      console.log(`[matching] Use topic=crypto_daily for matching daily/yearly markets.`);
+      // For now, crypto_intraday falls through with excludeIntraday=false
+      // In future, we would implement a separate pipeline that ONLY includes intraday
+    }
 
     return await runCryptoSuggestMatches({
       fromVenue,
@@ -2150,6 +2191,7 @@ export async function runSuggestMatches(options: SuggestMatchesOptions): Promise
       winnerGap: cryptoWinnerGap,
       maxGroupsPerLeft: cryptoMaxGroupsPerLeft,
       maxLinesPerGroup: cryptoMaxLinesPerGroup,
+      excludeIntraday,
       marketRepo,
       linkRepo,
       result,

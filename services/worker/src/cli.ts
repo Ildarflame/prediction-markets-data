@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit, runCryptoTruthDateAudit, runCryptoTypeAudit, runCryptoEthDebug } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit, runCryptoTruthDateAudit, runCryptoTypeAudit, runCryptoEthDebug, runCryptoSeriesAudit, runCryptoEligibleExplain } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -281,7 +281,7 @@ program
   .option('--lookback-hours <hours>', 'Include closed markets within N hours', '24')
   .option('--limit-left <number>', 'Max source markets to process', '2000')
   .option('--limit-right <number>', 'Max target markets to fetch', '20000')
-  .option('--topic <topic>', 'Topic filter: crypto, macro, politics, all (default: all)', 'all')
+  .option('--topic <topic>', 'Topic filter: crypto, crypto_daily, crypto_intraday, macro, politics, all (default: all)', 'all')
   .option('--macro-min-year <year>', 'Min year for macro markets (default: currentYear-1)')
   .option('--macro-max-year <year>', 'Max year for macro markets (default: currentYear+1)')
   .option('--debug-one <marketId>', 'Debug single market: show top 20 candidates with breakdown')
@@ -291,7 +291,7 @@ program
   .option('--no-exclude-sports', 'Disable sports/esports exclusion filter')
   .action(async (opts) => {
     const supportedVenues = getSupportedVenues();
-    const validTopics = ['crypto', 'macro', 'politics', 'all'];
+    const validTopics = ['crypto', 'crypto_daily', 'crypto_intraday', 'macro', 'politics', 'all'];
 
     if (!supportedVenues.includes(opts.from)) {
       console.error(`Invalid --from venue: ${opts.from}. Supported: ${supportedVenues.join(', ')}`);
@@ -972,6 +972,76 @@ program
       });
     } catch (error) {
       console.error('Crypto eth-debug error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Crypto series audit command (v2.6.2)
+program
+  .command('crypto:series-audit')
+  .description('Audit crypto market series/event tickers to diagnose coverage issues (v2.6.2)')
+  .option('--venue <venue>', 'Venue to audit', 'kalshi')
+  .option('--entity <entity>', 'Entity filter (BITCOIN, ETHEREUM, or all)', 'all')
+  .option('--lookback-hours <hours>', 'Lookback hours', '720')
+  .option('--limit <number>', 'Max markets to fetch', '20000')
+  .option('--sample-per-group <n>', 'Samples per group', '10')
+  .option('--top-groups <n>', 'Top N groups to show', '30')
+  .action(async (opts) => {
+    const supportedVenues = getSupportedVenues();
+    if (!supportedVenues.includes(opts.venue)) {
+      console.error(`Invalid --venue: ${opts.venue}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    try {
+      await runCryptoSeriesAudit({
+        venue: opts.venue as Venue,
+        entity: opts.entity,
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+        limit: parseInt(opts.limit, 10),
+        samplePerGroup: parseInt(opts.samplePerGroup, 10),
+        topGroups: parseInt(opts.topGroups, 10),
+      });
+    } catch (error) {
+      console.error('Crypto series-audit error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Crypto eligible explain command (v2.6.2)
+program
+  .command('crypto:eligible-explain')
+  .description('Explain why eligible selection produces certain results (v2.6.2)')
+  .option('--venue <venue>', 'Venue to analyze', 'kalshi')
+  .option('--entity <entity>', 'Entity to analyze (BITCOIN, ETHEREUM)', 'ETHEREUM')
+  .option('--lookback-hours <hours>', 'Lookback hours', '720')
+  .option('--limit <number>', 'Max markets to fetch', '4000')
+  .option('--mode <mode>', 'Mode: daily or intraday', 'daily')
+  .action(async (opts) => {
+    const supportedVenues = getSupportedVenues();
+    if (!supportedVenues.includes(opts.venue)) {
+      console.error(`Invalid --venue: ${opts.venue}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+    if (!['daily', 'intraday'].includes(opts.mode)) {
+      console.error(`Invalid --mode: ${opts.mode}. Supported: daily, intraday`);
+      process.exit(1);
+    }
+
+    try {
+      await runCryptoEligibleExplain({
+        venue: opts.venue as Venue,
+        entity: opts.entity,
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+        limit: parseInt(opts.limit, 10),
+        mode: opts.mode as 'daily' | 'intraday',
+      });
+    } catch (error) {
+      console.error('Crypto eligible-explain error:', error);
       process.exit(1);
     } finally {
       await disconnect();

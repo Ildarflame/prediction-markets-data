@@ -1,5 +1,5 @@
 /**
- * Crypto Pipeline (v2.6.1)
+ * Crypto Pipeline (v2.6.2)
  *
  * Unified pipeline for fetching and processing crypto price markets.
  * Used by suggest-matches --topic crypto and crypto:* diagnostic commands.
@@ -19,6 +19,11 @@
  * - CryptoMarketType: classify markets (DAILY_THRESHOLD, DAILY_RANGE, etc.)
  * - Improved comparator detection: reach, hit, at least, under, etc.
  * - settleSource tracking: api_close, title_parse, fallback_close
+ *
+ * v2.6.2 Changes:
+ * - Added excludeIntraday option to filter out INTRADAY_UPDOWN markets
+ * - Intraday detection via eventTicker patterns (UPDOWN, 15MIN, 1HR)
+ * - Double-layer filtering: ticker pattern + marketType detection
  */
 
 import type { Venue as CoreVenue } from '@data-module/core';
@@ -28,6 +33,8 @@ import {
   tokenizeForEntities,
   MarketIntent,
   DatePrecision,
+  isKalshiIntradayTicker,
+  getKalshiEventTicker,
   type MarketFingerprint,
   type ExtractedDate,
 } from '@data-module/core';
@@ -1037,12 +1044,22 @@ export interface FetchCryptoMarketsOptions {
   entities?: readonly string[];
   /** Exclude sports/esports markets */
   excludeSports?: boolean;
+  /**
+   * Exclude intraday markets (v2.6.2)
+   * When true, filters out markets where:
+   * - eventTicker matches intraday patterns (KXBTCUPDOWN, KXETH15MIN, etc.)
+   * - marketType is INTRADAY_UPDOWN
+   * Default: false (include all markets)
+   */
+  excludeIntraday?: boolean;
 }
 
 export interface FetchCryptoMarketsStats {
   total: number;
   afterKeywordFilter: number;
   afterSportsFilter: number;
+  /** Count after intraday exclusion (v2.6.2) */
+  afterIntradayFilter: number;
   withCryptoEntity: number;
   withSettleDate: number;
 }
@@ -1080,10 +1097,11 @@ function isKalshiSportsMarket(metadata: Record<string, unknown> | null | undefin
 // ============================================================
 
 /**
- * Fetch eligible crypto markets using unified pipeline (v2.5.2)
+ * Fetch eligible crypto markets using unified pipeline (v2.6.2)
  * This is the SAME pipeline used by suggest-matches --topic crypto
  *
  * v2.5.2: Now uses regex-based DB search for tickers to find "$ETH", "ETH price" etc.
+ * v2.6.2: Added excludeIntraday option to filter out INTRADAY_UPDOWN markets for daily matching
  */
 export async function fetchEligibleCryptoMarkets(
   marketRepo: MarketRepository,
@@ -1095,12 +1113,14 @@ export async function fetchEligibleCryptoMarkets(
     limit,
     entities = CRYPTO_ENTITIES_V1,
     excludeSports = true,
+    excludeIntraday = false,
   } = options;
 
   const stats: FetchCryptoMarketsStats = {
     total: 0,
     afterKeywordFilter: 0,
     afterSportsFilter: 0,
+    afterIntradayFilter: 0,
     withCryptoEntity: 0,
     withSettleDate: 0,
   };
@@ -1132,7 +1152,22 @@ export async function fetchEligibleCryptoMarkets(
   }
   stats.afterSportsFilter = markets.length;
 
-  // Step 4: Extract signals and filter by entity
+  // Step 4 (v2.6.2): Apply intraday filtering if requested
+  // This filters out INTRADAY_UPDOWN markets (KXBTCUPDOWN, KXETH15MIN, etc.)
+  // to focus on daily/yearly threshold markets for matching
+  if (excludeIntraday && venue === 'kalshi') {
+    markets = markets.filter(m => {
+      const eventTicker = getKalshiEventTicker(m.metadata);
+      // Exclude if ticker pattern indicates intraday (UPDOWN, 15MIN, 1HR, etc.)
+      if (isKalshiIntradayTicker(eventTicker)) {
+        return false;
+      }
+      return true;
+    });
+  }
+  stats.afterIntradayFilter = markets.length;
+
+  // Step 5: Extract signals and filter by entity + marketType
   const result: CryptoMarket[] = [];
   const entitySet = new Set(entities);
 
@@ -1141,6 +1176,12 @@ export async function fetchEligibleCryptoMarkets(
 
     // Must have a recognized crypto entity
     if (!signals.entity || !entitySet.has(signals.entity)) {
+      continue;
+    }
+
+    // v2.6.2: If excludeIntraday, also filter by detected marketType
+    // (catches cases where ticker doesn't match but title indicates intraday)
+    if (excludeIntraday && signals.marketType === CryptoMarketType.INTRADAY_UPDOWN) {
       continue;
     }
 
