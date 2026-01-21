@@ -112,8 +112,10 @@ export async function runIngestion(options: IngestOptions): Promise<IngestResult
     console.log(`[${venue}] Markets: ${upsertResult.created} created, ${upsertResult.updated} updated`);
 
     // Fetch quotes for active markets
-    const activeMarkets = await marketRepo.getActiveMarkets(venue as DbVenue);
-    console.log(`[${venue}] Fetching quotes for ${activeMarkets.length} active markets...`);
+    // v2.6.5: Limit quotes processing to prevent OOM on large datasets (default 5000)
+    const quotesMaxMarkets = parseInt(process.env.QUOTES_MAX_MARKETS || '5000', 10);
+    const activeMarkets = await marketRepo.getActiveMarkets(venue as DbVenue, quotesMaxMarkets);
+    console.log(`[${venue}] Fetching quotes for ${activeMarkets.length} active markets (limit: ${quotesMaxMarkets})...`);
 
     // Convert to MarketDTO for adapter
     const marketDTOs: MarketDTO[] = activeMarkets.map((m) => ({

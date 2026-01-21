@@ -157,8 +157,9 @@ export class MarketRepository {
 
   /**
    * Get active markets for a venue with their outcomes
+   * v2.6.5: Added optional limit parameter to prevent OOM on large datasets
    */
-  async getActiveMarkets(venue: Venue): Promise<MarketWithOutcomes[]> {
+  async getActiveMarkets(venue: Venue, limit?: number): Promise<MarketWithOutcomes[]> {
     return this.prisma.market.findMany({
       where: {
         venue,
@@ -169,6 +170,7 @@ export class MarketRepository {
       include: {
         outcomes: true,
       },
+      ...(limit ? { take: limit, orderBy: { updatedAt: 'desc' } } : {}),
     });
   }
 
