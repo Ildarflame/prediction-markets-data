@@ -273,7 +273,8 @@ function evaluateCryptoDailyRules(
   }
 
   // Rule 2: Date type must be compatible
-  const compatibleDateTypes = ['DAY_EXACT', 'DAILY_THRESHOLD', 'DAILY_RANGE', 'YEARLY_THRESHOLD', 'MONTH_END', 'QUARTER_END'];
+  // CLOSE_TIME is set by crypto pipeline when using closeTime for date matching
+  const compatibleDateTypes = ['DAY_EXACT', 'DAILY_THRESHOLD', 'DAILY_RANGE', 'YEARLY_THRESHOLD', 'MONTH_END', 'QUARTER_END', 'CLOSE_TIME'];
   if (!parsed.dateType) {
     results.push({
       pass: false,
