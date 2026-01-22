@@ -364,8 +364,7 @@ export const PM_TAG_MAP: Record<string, CanonicalTopic> = {
   'soybeans': CanonicalTopic.COMMODITIES,
   'agriculture': CanonicalTopic.COMMODITIES,
   'futures': CanonicalTopic.COMMODITIES,
-  'daily': CanonicalTopic.COMMODITIES, // Often used with commodities
-  'up-or-down': CanonicalTopic.COMMODITIES, // Common pattern for commodities
+  // NOTE: 'daily' and 'up-or-down' removed - too generic, causes crypto misclassification
 };
 
 /**
@@ -608,6 +607,19 @@ function isCryptoPriceMarket(title: string): boolean {
 }
 
 /**
+ * Check if title indicates a crypto intraday "up or down" market
+ * These are short-term direction prediction markets (e.g., "Bitcoin Up or Down - January 22, 4:25PM-4:30PM ET")
+ */
+function isCryptoIntradayMarket(title: string): boolean {
+  const cryptoAssets = /\b(bitcoin|btc|ethereum|eth|solana|sol|doge|xrp)\b/i;
+  const intradayPatterns = /\b(up\s+or\s+down|up\/down|updown)\b/i;
+  const timePatterns = /\d{1,2}:\d{2}\s*(AM|PM|ET|UTC)/i;
+
+  // Must have crypto asset AND (up or down pattern OR time pattern like "4:25PM")
+  return cryptoAssets.test(title) && (intradayPatterns.test(title) || timePatterns.test(title));
+}
+
+/**
  * Classify by pmTags array (v3.0.2)
  */
 export function classifyPolymarketByTags(
@@ -847,13 +859,24 @@ function isSportsMarketByTitle(title: string): boolean {
  * - UNKNOWN: Could not classify
  */
 export function classifyPolymarketMarketV3(market: PolymarketMarketInfoV3): TopicClassification & { taxonomySource: string } {
-  // === 1. Precedence Rule: Crypto price markets override everything ===
+  // === 1a. Precedence Rule: Crypto price markets override everything ===
   if (isCryptoPriceMarket(market.title)) {
     return {
       topic: CanonicalTopic.CRYPTO_DAILY,
       confidence: 0.95,
       source: TopicSource.TITLE_KEYWORDS,
       reason: 'Precedence: crypto price market',
+      taxonomySource: 'TITLE',
+    };
+  }
+
+  // === 1b. Precedence Rule: Crypto intraday "up or down" markets ===
+  if (isCryptoIntradayMarket(market.title)) {
+    return {
+      topic: CanonicalTopic.CRYPTO_DAILY, // Note: CRYPTO_INTRADAY is a sub-type, mapped via topic detection
+      confidence: 0.95,
+      source: TopicSource.TITLE_KEYWORDS,
+      reason: 'Precedence: crypto intraday market',
       taxonomySource: 'TITLE',
     };
   }
