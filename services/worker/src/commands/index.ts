@@ -79,3 +79,16 @@ export { runIntradayBest, type IntradayBestOptions, type IntradayBestResult, typ
 export { runLinksStats, type LinksStatsResult } from './links-stats.js';
 export { runLinksCleanup, type LinksCleanupOptions, type LinksCleanupResult } from './links-cleanup.js';
 export { runLinksBackfill, type LinksBackfillOptions, type LinksBackfillResult } from './links-backfill.js';
+
+// v2.6.7: Eligibility commands
+export { runVenueSanityEligible, type VenueSanityEligibleOptions, type VenueSanityEligibleResult } from './venue-sanity-eligible.js';
+
+// v2.6.7: Watchlist commands
+export { runLinksWatchlistSync, type LinksWatchlistSyncOptions, type LinksWatchlistSyncResult } from './links-watchlist-sync.js';
+export { runWatchlistStats, type WatchlistStatsOptions, type WatchlistStatsResult } from './watchlist-stats.js';
+export { runWatchlistList, type WatchlistListOptions, type WatchlistListResult } from './watchlist-list.js';
+export { runWatchlistCleanup, type WatchlistCleanupOptions, type WatchlistCleanupResult } from './watchlist-cleanup.js';
+
+// v2.6.7: Review loop commands
+export { runLinksQueue, type LinksQueueOptions, type LinksQueueResult } from './links-queue.js';
+export { runLinksAutoReject, type LinksAutoRejectOptions, type LinksAutoRejectResult } from './links-auto-reject.js';

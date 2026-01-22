@@ -45,11 +45,22 @@ pnpm --filter @data-module/worker confirm-match --id <link_id>
 # Kalshi diagnostics
 pnpm --filter @data-module/worker kalshi:ingestion:diag          # Check Kalshi ingestion health
 
-# Sanity/Diagnostics (v2.6.6)
-pnpm --filter @data-module/worker kalshi:sanity:status           # Check Kalshi status/closeTime anomalies
+# Sanity/Diagnostics (v2.6.6, v2.6.7)
+pnpm --filter @data-module/worker kalshi:sanity:status           # Check Kalshi status/closeTime anomalies (minor/major buckets)
 pnpm --filter @data-module/worker quotes:freshness --venue kalshi --minutes 10  # Quotes freshness check
 pnpm --filter @data-module/worker polymarket:ingestion:cursor    # Polymarket cursor diagnostics
 pnpm --filter @data-module/worker links:stats                    # Link statistics with avgScore
+pnpm --filter @data-module/worker venue:sanity:eligible --venue kalshi --topic crypto_daily  # Eligibility diagnostics
+
+# Watchlist Quotes (v2.6.7) - targeted quotes instead of all markets
+pnpm --filter @data-module/worker links:watchlist:sync --dry-run   # Sync links to watchlist
+pnpm --filter @data-module/worker watchlist:stats                  # Watchlist statistics
+pnpm --filter @data-module/worker watchlist:list --venue kalshi    # List watchlist entries
+pnpm --filter @data-module/worker watchlist:cleanup --older-than-days 30 --dry-run
+
+# Review Loop (v2.6.7) - manage suggested links
+pnpm --filter @data-module/worker links:queue --topic crypto_daily  # Show links for review
+pnpm --filter @data-module/worker links:auto-reject --dry-run       # Auto-reject low-quality
 ```
 
 ## Architecture
@@ -87,11 +98,37 @@ KALSHI_PRIVATE_KEY_PATH=./kalshi-private-key.pem
 
 Kalshi modes: `KALSHI_MODE=markets` (direct) or `KALSHI_MODE=catalog` (series→events→markets hierarchy)
 
+## Eligibility Module (v2.6.7)
+
+Unified market eligibility filtering (`services/worker/src/eligibility/`):
+- **Key Principle**: Never trust `status` alone - use time-based filtering
+- `buildEligibleWhere()`: Prisma WHERE clause for eligible markets
+- `isEligibleMarket()`: Runtime check for single market
+- `explainEligibility()`: Detailed reasons for eligibility/exclusion
+- **stale_active**: Active markets with closeTime in past (beyond grace period)
+- Configurable via `ELIGIBILITY_GRACE_MINUTES`, `ELIGIBILITY_LOOKBACK_HOURS_*`
+
+## Watchlist Quotes (v2.6.7)
+
+Instead of quoting all 1.2M markets, use targeted watchlist:
+1. `links:watchlist:sync` - Populate from confirmed/top-suggested links
+2. Set `QUOTES_MODE=watchlist` in environment
+3. Quotes worker fetches only from `quote_watchlist` table
+4. Priority: 100 (confirmed) > 50 (top_suggested) > 0 (manual)
+
+Environment variables:
+```
+QUOTES_MODE=watchlist          # or 'global' for legacy mode
+QUOTES_WATCHLIST_LIMIT=2000    # Max markets per quote cycle
+WATCHLIST_MIN_SCORE=0.92       # Min score for top_suggested
+```
+
 ## Key Files
 
-- `packages/db/prisma/schema.prisma` - Database schema (Market, Outcome, Quote, MarketLink)
+- `packages/db/prisma/schema.prisma` - Database schema (Market, Outcome, Quote, MarketLink, QuoteWatchlist)
 - `services/worker/src/cli.ts` - CLI entry point
 - `services/worker/src/adapters/` - Venue API adapters
 - `services/worker/src/pipeline/ingest.ts` - Main ingestion pipeline
-- `services/worker/src/pipeline/split-runner.ts` - Split mode runner
+- `services/worker/src/pipeline/split-runner.ts` - Split mode runner (watchlist support)
+- `services/worker/src/eligibility/` - Eligibility filtering module
 - `.env.example` - Full environment variables reference

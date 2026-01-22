@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit, runCryptoTruthDateAudit, runCryptoTypeAudit, runCryptoEthDebug, runCryptoSeriesAudit, runCryptoEligibleExplain, runKalshiIngestionDiag, runKalshiSanityStatus, runQuotesFreshness, runPolymarketCursorDiag, runLinksStats, runLinksCleanup, runLinksBackfill, runIntradayBest } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit, runCryptoTruthDateAudit, runCryptoTypeAudit, runCryptoEthDebug, runCryptoSeriesAudit, runCryptoEligibleExplain, runKalshiIngestionDiag, runKalshiSanityStatus, runQuotesFreshness, runPolymarketCursorDiag, runLinksStats, runLinksCleanup, runLinksBackfill, runIntradayBest, runVenueSanityEligible, runLinksWatchlistSync, runWatchlistStats, runWatchlistList, runWatchlistCleanup, runLinksQueue, runLinksAutoReject } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -1329,17 +1329,19 @@ program
     }
   });
 
-// Kalshi status sanity check (v2.6.6)
+// Kalshi status sanity check (v2.6.6, v2.6.7)
 program
   .command('kalshi:sanity:status')
-  .description('Check Kalshi market status/closeTime anomalies (v2.6.6)')
+  .description('Check Kalshi market status/closeTime anomalies (v2.6.7: minor/major buckets)')
   .option('--limit <number>', 'Max samples per category', '20')
   .option('--days <number>', 'Days back to analyze', '30')
+  .option('--grace-minutes <minutes>', 'Grace period for minor/major classification', '60')
   .action(async (opts) => {
     try {
       const result = await runKalshiSanityStatus({
         limit: parseInt(opts.limit, 10),
         days: parseInt(opts.days, 10),
+        graceMinutes: parseInt(opts.graceMinutes, 10),
       });
 
       if (!result.ok) {
@@ -1450,6 +1452,176 @@ program
       });
     } catch (error) {
       console.error('Links backfill error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// v2.6.7: links:watchlist:sync - Sync links to watchlist
+program
+  .command('links:watchlist:sync')
+  .description('Sync confirmed/top-suggested links to quote watchlist (v2.6.7)')
+  .option('--min-score <number>', 'Min score for suggested links', '0.92')
+  .option('--max-suggested <number>', 'Max suggested links to include', '500')
+  .option('--dry-run', 'Preview changes without applying', false)
+  .action(async (opts) => {
+    try {
+      await runLinksWatchlistSync({
+        minScore: parseFloat(opts.minScore),
+        maxSuggested: parseInt(opts.maxSuggested, 10),
+        dryRun: opts.dryRun,
+      });
+    } catch (error) {
+      console.error('Links watchlist sync error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// v2.6.7: links:queue - Show suggested links for review
+program
+  .command('links:queue')
+  .description('Show suggested links for manual review (v2.6.7)')
+  .option('--topic <topic>', 'Filter by topic')
+  .option('--min-score <number>', 'Minimum score', '0.55')
+  .option('--limit <number>', 'Maximum results', '50')
+  .action(async (opts) => {
+    try {
+      await runLinksQueue({
+        topic: opts.topic,
+        minScore: parseFloat(opts.minScore),
+        limit: parseInt(opts.limit, 10),
+      });
+    } catch (error) {
+      console.error('Links queue error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// v2.6.7: links:auto-reject - Auto-reject low-quality links
+program
+  .command('links:auto-reject')
+  .description('Auto-reject low-quality suggested links (v2.6.7, default: dry-run)')
+  .option('--max-score <number>', 'Reject links with score below this', '0.55')
+  .option('--older-than-days <days>', 'Only reject links older than N days', '14')
+  .option('--topic <topic>', 'Filter by topic')
+  .option('--apply', 'Actually reject (default: dry-run)', false)
+  .action(async (opts) => {
+    try {
+      await runLinksAutoReject({
+        maxScore: parseFloat(opts.maxScore),
+        olderThanDays: parseInt(opts.olderThanDays, 10),
+        topic: opts.topic,
+        apply: opts.apply,
+      });
+    } catch (error) {
+      console.error('Links auto-reject error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// v2.6.7: venue:sanity:eligible - Eligibility diagnostics
+program
+  .command('venue:sanity:eligible')
+  .description('Show market eligibility diagnostics for a venue/topic (v2.6.7)')
+  .requiredOption('--venue <venue>', 'Venue to analyze (kalshi, polymarket)')
+  .option('--topic <topic>', 'Topic filter (crypto_daily, crypto_intraday, macro)', 'crypto_daily')
+  .option('--limit <number>', 'Max markets to analyze', '10000')
+  .option('--sample <number>', 'Samples per exclusion reason', '5')
+  .option('--grace-minutes <minutes>', 'Grace period for stale_active detection', '60')
+  .action(async (opts) => {
+    const supportedVenues = getSupportedVenues();
+    if (!supportedVenues.includes(opts.venue)) {
+      console.error(`Invalid --venue: ${opts.venue}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    try {
+      await runVenueSanityEligible({
+        venue: opts.venue as 'kalshi' | 'polymarket',
+        topic: opts.topic,
+        limit: parseInt(opts.limit, 10),
+        sample: parseInt(opts.sample, 10),
+        graceMinutes: parseInt(opts.graceMinutes, 10),
+      });
+    } catch (error) {
+      console.error('Venue sanity eligible error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// v2.6.7: watchlist:stats - Show watchlist statistics
+program
+  .command('watchlist:stats')
+  .description('Show quote watchlist statistics (v2.6.7)')
+  .option('--venue <venue>', 'Filter by venue')
+  .action(async (opts) => {
+    try {
+      await runWatchlistStats({
+        venue: opts.venue as 'kalshi' | 'polymarket' | undefined,
+      });
+    } catch (error) {
+      console.error('Watchlist stats error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// v2.6.7: watchlist:list - List watchlist entries
+program
+  .command('watchlist:list')
+  .description('List quote watchlist entries (v2.6.7)')
+  .requiredOption('--venue <venue>', 'Venue (kalshi, polymarket)')
+  .option('--limit <number>', 'Maximum entries to show', '50')
+  .option('--offset <number>', 'Offset for pagination', '0')
+  .action(async (opts) => {
+    const supportedVenues = getSupportedVenues();
+    if (!supportedVenues.includes(opts.venue)) {
+      console.error(`Invalid --venue: ${opts.venue}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    try {
+      await runWatchlistList({
+        venue: opts.venue as 'kalshi' | 'polymarket',
+        limit: parseInt(opts.limit, 10),
+        offset: parseInt(opts.offset, 10),
+      });
+    } catch (error) {
+      console.error('Watchlist list error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// v2.6.7: watchlist:cleanup - Clean up old watchlist entries
+program
+  .command('watchlist:cleanup')
+  .description('Clean up old quote watchlist entries (v2.6.7)')
+  .requiredOption('--older-than-days <days>', 'Delete entries older than N days')
+  .option('--reason <reason>', 'Filter by reason (confirmed_link, top_suggested)')
+  .option('--venue <venue>', 'Filter by venue')
+  .option('--dry-run', 'Preview without deleting', false)
+  .action(async (opts) => {
+    try {
+      await runWatchlistCleanup({
+        olderThanDays: parseInt(opts.olderThanDays, 10),
+        reason: opts.reason,
+        venue: opts.venue as 'kalshi' | 'polymarket' | undefined,
+        dryRun: opts.dryRun,
+      });
+    } catch (error) {
+      console.error('Watchlist cleanup error:', error);
       process.exit(1);
     } finally {
       await disconnect();

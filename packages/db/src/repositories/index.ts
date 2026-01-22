@@ -2,3 +2,4 @@ export { MarketRepository, type MarketWithOutcomes, type UpsertMarketsResult, ty
 export { QuoteRepository, type InsertQuotesResult, type QuoteInput } from './quote.repository.js';
 export { IngestionRepository, type StartRunResult } from './ingestion.repository.js';
 export { MarketLinkRepository, type MarketLinkWithMarkets, type ListSuggestionsOptions, type UpsertSuggestionResult } from './market-link.repository.js';
+export { WatchlistRepository, type WatchlistItem, type WatchlistStats, type WatchlistWithMarket } from './watchlist.repository.js';

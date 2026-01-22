@@ -11,6 +11,7 @@ export type {
   IngestionState,
   IngestionRun,
   MarketLink,
+  QuoteWatchlist,
   Venue,
   MarketStatus,
   OutcomeSide,

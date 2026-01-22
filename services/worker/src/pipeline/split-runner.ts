@@ -5,9 +5,14 @@ import {
   MarketRepository,
   QuoteRepository,
   IngestionRepository,
+  WatchlistRepository,
   type Venue as DbVenue,
 } from '@data-module/db';
 import { createAdapter, type VenueAdapter, type KalshiAuthConfig } from '../adapters/index.js';
+
+// v2.6.7: Quotes mode from environment
+const QUOTES_MODE = process.env.QUOTES_MODE || 'global';
+const QUOTES_WATCHLIST_LIMIT = parseInt(process.env.QUOTES_WATCHLIST_LIMIT || '2000', 10);
 
 export interface SplitRunnerConfig {
   venue: Venue;
@@ -114,7 +119,9 @@ async function syncMarkets(
 
 /**
  * Sync quotes only (for existing markets)
- * Uses pagination to handle large market counts with round-robin cursor
+ * v2.6.7: Supports two modes:
+ * - 'watchlist': Only fetch quotes for markets in quote_watchlist (recommended)
+ * - 'global': Original pagination-based approach
  */
 async function syncQuotes(
   adapter: VenueAdapter,
@@ -123,29 +130,77 @@ async function syncQuotes(
   ingestionRepo: IngestionRepository,
   venue: DbVenue,
   closedLookbackHours: number,
-  maxMarketsPerCycle: number
+  maxMarketsPerCycle: number,
+  watchlistRepo?: WatchlistRepository
 ): Promise<SyncResult> {
   const startTime = Date.now();
+  const quotesMode = QUOTES_MODE;
 
   try {
-    // Get current cursor from ingestion state for round-robin
-    const state = await ingestionRepo.getOrCreateState(venue, 'quotes');
-    const afterId = state.cursor ? parseInt(state.cursor, 10) : undefined;
+    let markets: Awaited<ReturnType<typeof marketRepo.getMarketsForQuotesSyncPaginated>>['markets'];
+    let nextCursor: number | null = null;
+    let totalEligible: number;
+    let afterId: number | undefined;
 
-    // Fetch paginated markets
-    const { markets, nextCursor, totalEligible } = await marketRepo.getMarketsForQuotesSyncPaginated(
-      venue,
-      {
-        closedLookbackHours,
-        limit: maxMarketsPerCycle,
-        afterId: afterId && !isNaN(afterId) ? afterId : undefined,
+    if (quotesMode === 'watchlist' && watchlistRepo) {
+      // v2.6.7: Watchlist mode - only fetch quotes for watched markets
+      const watchlistItems = await watchlistRepo.getMarketIdsForQuotes(venue, QUOTES_WATCHLIST_LIMIT);
+
+      if (watchlistItems.length === 0) {
+        console.log(`[${venue}:quotes] Watchlist mode: No markets in watchlist, skipping`);
+        return { ok: true, durationMs: Date.now() - startTime };
       }
-    );
 
-    console.log(
-      `[${venue}:quotes] Selected ${markets.length}/${totalEligible} eligible markets` +
-        (afterId ? ` (after ID ${afterId})` : '')
-    );
+      // Count by priority bucket for logging
+      const priorityBuckets: Record<number, number> = {};
+      for (const item of watchlistItems) {
+        priorityBuckets[item.priority] = (priorityBuckets[item.priority] || 0) + 1;
+      }
+      const bucketStr = Object.entries(priorityBuckets)
+        .sort((a, b) => parseInt(b[0]) - parseInt(a[0]))
+        .map(([p, c]) => `${p}:${c}`)
+        .join('/');
+
+      console.log(
+        `[${venue}:quotes] Watchlist mode: Selected ${watchlistItems.length} markets ` +
+          `(priority buckets: ${bucketStr})`
+      );
+
+      // Fetch markets by IDs
+      const marketIds = watchlistItems.map((w: { marketId: number; priority: number }) => w.marketId);
+      const prisma = getClient();
+      markets = await prisma.market.findMany({
+        where: {
+          venue,
+          id: { in: marketIds },
+        },
+        include: { outcomes: true },
+      });
+
+      totalEligible = watchlistItems.length;
+    } else {
+      // Original global mode with pagination
+      const state = await ingestionRepo.getOrCreateState(venue, 'quotes');
+      afterId = state.cursor ? parseInt(state.cursor, 10) : undefined;
+
+      const result = await marketRepo.getMarketsForQuotesSyncPaginated(
+        venue,
+        {
+          closedLookbackHours,
+          limit: maxMarketsPerCycle,
+          afterId: afterId && !isNaN(afterId) ? afterId : undefined,
+        }
+      );
+
+      markets = result.markets;
+      nextCursor = result.nextCursor;
+      totalEligible = result.totalEligible;
+
+      console.log(
+        `[${venue}:quotes] Global mode: Selected ${markets.length}/${totalEligible} eligible markets` +
+          (afterId ? ` (after ID ${afterId})` : '')
+      );
+    }
 
     if (markets.length === 0) {
       // Reset cursor if we've reached the end or no markets
@@ -214,8 +269,10 @@ async function syncQuotes(
       `[${venue}:quotes] Written: ${insertResult.inserted}, Skipped: ${insertResult.skipped}, InCycle: ${insertResult.skippedInCycle}`
     );
 
-    // Update cursor for round-robin (null if we've processed all, nextCursor for continuation)
-    await ingestionRepo.updateCursor(venue, 'quotes', nextCursor ? String(nextCursor) : null);
+    // v2.6.7: Only update cursor in global mode (watchlist mode doesn't use cursor)
+    if (quotesMode !== 'watchlist') {
+      await ingestionRepo.updateCursor(venue, 'quotes', nextCursor ? String(nextCursor) : null);
+    }
 
     await ingestionRepo.updateWatermark(venue, 'quotes', new Date());
     await ingestionRepo.markSuccess(venue, 'quotes', {
@@ -257,6 +314,7 @@ export async function runSplitIngestionLoop(config: SplitRunnerConfig): Promise<
   const marketRepo = new MarketRepository(prisma);
   const quoteRepo = new QuoteRepository(prisma, dedupConfig);
   const ingestionRepo = new IngestionRepository(prisma);
+  const watchlistRepo = new WatchlistRepository(prisma);
 
   const adapter = createAdapter(venue, {
     config: { pageSize },
@@ -266,6 +324,7 @@ export async function runSplitIngestionLoop(config: SplitRunnerConfig): Promise<
   console.log(`[${venue}] Starting split ingestion loop`);
   console.log(`[${venue}] Markets refresh: ${marketsRefreshSeconds}s, Quotes refresh: ${quotesRefreshSeconds}s`);
   console.log(`[${venue}] Quotes closed lookback: ${quotesClosedLookbackHours}h, Max markets/cycle: ${quotesMaxMarketsPerCycle}`);
+  console.log(`[${venue}] Quotes mode: ${QUOTES_MODE} (limit: ${QUOTES_WATCHLIST_LIMIT})`);
 
   let lastMarketsSync = 0;
   let lastQuotesSync = 0;
@@ -298,7 +357,8 @@ export async function runSplitIngestionLoop(config: SplitRunnerConfig): Promise<
         ingestionRepo,
         venue as DbVenue,
         quotesClosedLookbackHours,
-        quotesMaxMarketsPerCycle
+        quotesMaxMarketsPerCycle,
+        watchlistRepo
       );
       console.log(`[${venue}:quotes] Completed in ${formatDuration(result.durationMs)}`);
       lastQuotesSync = Date.now();

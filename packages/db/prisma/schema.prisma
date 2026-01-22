@@ -53,9 +53,10 @@ model Market {
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz
 
-  outcomes   Outcome[]
-  leftLinks  MarketLink[] @relation("LeftMarketLinks")
-  rightLinks MarketLink[] @relation("RightMarketLinks")
+  outcomes       Outcome[]
+  leftLinks      MarketLink[]     @relation("LeftMarketLinks")
+  rightLinks     MarketLink[]     @relation("RightMarketLinks")
+  quoteWatchlist QuoteWatchlist[]
 
   @@unique([venue, externalId])
   @@index([status, closeTime])
@@ -180,4 +181,23 @@ model MarketLink {
   @@index([algoVersion])
   @@index([topic])
   @@map("market_links")
+}
+
+// v2.6.7: QuoteWatchlist - Markets to actively fetch quotes for
+// Instead of trying to quote all 1.2M markets, we target specific ones
+model QuoteWatchlist {
+  id        Int      @id @default(autoincrement())
+  venue     Venue
+  marketId  Int      @map("market_id")
+  priority  Int      @default(0) // Higher = more important (100=confirmed, 50=top_suggested, 0=manual)
+  reason    String   // "confirmed_link", "top_suggested", "manual"
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  market Market @relation(fields: [marketId], references: [id], onDelete: Cascade)
+
+  @@unique([venue, marketId])
+  @@index([venue, priority(sort: Desc)])
+  @@index([reason])
+  @@map("quote_watchlist")
 }

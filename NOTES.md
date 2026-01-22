@@ -1,5 +1,102 @@
 # Implementation Notes
 
+## Release v2.6.7 - Eligibility Hardening + Watchlist Quotes + Review Loop
+
+**Released**: 2026-01-22
+
+### Goal
+Stop trying to quote all 1.2M Kalshi markets. Focus on relevant markets via watchlist.
+
+### Changes
+
+#### BLOCK A: Eligibility v3
+- **Added**: Unified eligibility module (`services/worker/src/eligibility/`)
+- **Key principle**: Never trust `status` alone - use time-based filtering
+- **Added**: `buildEligibleWhere()` - Prisma WHERE for eligible markets
+- **Added**: `isEligibleMarket()` - Runtime check for single market
+- **Added**: `explainEligibility()` - Detailed reasons array
+- **Added**: `stale_active` detection - active markets with closeTime in past
+- **Added**: CLI `venue:sanity:eligible --venue kalshi --topic crypto_daily`
+- **Config**: `ELIGIBILITY_GRACE_MINUTES`, `ELIGIBILITY_LOOKBACK_HOURS_*`
+
+#### BLOCK B: Kalshi Status Hardening
+- **Updated**: `kalshi:sanity:status` now shows minor/major buckets
+- **minor**: Within grace period (configurable, default 60m)
+- **major**: Beyond grace period (stale_active)
+- **Added**: Top 20 major anomalies with age info
+
+#### BLOCK C: Watchlist Quotes
+- **Added**: `quote_watchlist` table in Prisma schema
+- **Added**: `WatchlistRepository` with upsertMany, list, cleanup
+- **Added**: `links:watchlist:sync` - Populate from links
+  - Confirmed links -> priority 100
+  - Top suggested (score >= 0.92) -> priority 50
+- **Added**: Quotes worker watchlist mode (`QUOTES_MODE=watchlist`)
+- **Added**: CLI commands: `watchlist:stats`, `watchlist:list`, `watchlist:cleanup`
+- **Config**: `QUOTES_MODE`, `QUOTES_WATCHLIST_LIMIT`, `WATCHLIST_MIN_SCORE`
+
+#### BLOCK D: Review Loop
+- **Added**: `links:queue` - Show suggested links for review
+- **Added**: `links:auto-reject` - Auto-reject low-quality (default: dry-run)
+  - Rejects: score < 0.55, older than 14 days, entity/date mismatch in reason
+
+#### BLOCK E: Tests + Docs
+- **Added**: `services/worker/src/eligibility/eligibility.test.ts`
+- **Updated**: CLAUDE.md with new commands and modules
+- **Updated**: NOTES.md with release notes
+
+### Post-Deploy Checklist
+
+```bash
+# 1. Run database migration
+pnpm --filter @data-module/db db:migrate
+
+# 2. Check eligibility diagnostics
+pnpm --filter @data-module/worker venue:sanity:eligible --venue kalshi --topic crypto_daily
+
+# 3. Sync watchlist (dry-run first)
+pnpm --filter @data-module/worker links:watchlist:sync --dry-run
+pnpm --filter @data-module/worker links:watchlist:sync
+
+# 4. Check watchlist stats
+pnpm --filter @data-module/worker watchlist:stats
+
+# 5. Enable watchlist mode for quotes (in .env)
+# QUOTES_MODE=watchlist
+# QUOTES_WATCHLIST_LIMIT=2000
+
+# 6. Review suggested links
+pnpm --filter @data-module/worker links:queue --topic crypto_daily --limit 50
+
+# 7. Auto-reject low-quality (dry-run first)
+pnpm --filter @data-module/worker links:auto-reject --dry-run
+```
+
+### Files Changed
+
+- `packages/db/prisma/schema.prisma` - Added QuoteWatchlist model
+- `packages/db/src/repositories/watchlist.repository.ts` - New
+- `packages/db/src/repositories/index.ts` - Export WatchlistRepository
+- `packages/db/src/index.ts` - Export QuoteWatchlist type
+- `services/worker/src/eligibility/eligibility.ts` - New
+- `services/worker/src/eligibility/eligibility.test.ts` - New
+- `services/worker/src/eligibility/index.ts` - New
+- `services/worker/src/commands/venue-sanity-eligible.ts` - New
+- `services/worker/src/commands/links-watchlist-sync.ts` - New
+- `services/worker/src/commands/watchlist-stats.ts` - New
+- `services/worker/src/commands/watchlist-list.ts` - New
+- `services/worker/src/commands/watchlist-cleanup.ts` - New
+- `services/worker/src/commands/links-queue.ts` - New
+- `services/worker/src/commands/links-auto-reject.ts` - New
+- `services/worker/src/commands/kalshi-sanity-status.ts` - Added minor/major
+- `services/worker/src/commands/index.ts` - Exports
+- `services/worker/src/pipeline/split-runner.ts` - Watchlist mode
+- `services/worker/src/cli.ts` - New commands
+- `CLAUDE.md` - Updated
+- `NOTES.md` - Updated
+
+---
+
 ## Release v2.6.6 - Data Sanity + Cursor + Score Cap
 
 **Released**: 2026-01-22

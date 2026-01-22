@@ -1,0 +1,15 @@
+export {
+  buildEligibleWhere,
+  isEligibleMarket,
+  explainEligibility,
+  categorizeStaleActive,
+  summarizeEligibility,
+  getDefaultLookbackHours,
+  getDefaultForwardHours,
+  type EligibilityConfig,
+  type EligibilityReason,
+  type EligibilityResult,
+  type EligibilitySummary,
+  type MarketForEligibility,
+  type Topic,
+} from './eligibility.js';
