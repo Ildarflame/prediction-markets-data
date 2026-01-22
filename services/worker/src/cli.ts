@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit, runCryptoTruthDateAudit, runCryptoTypeAudit, runCryptoEthDebug, runCryptoSeriesAudit, runCryptoEligibleExplain, runKalshiIngestionDiag, runLinksStats, runLinksCleanup, runLinksBackfill, runIntradayBest } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit, runCryptoTruthDateAudit, runCryptoTypeAudit, runCryptoEthDebug, runCryptoSeriesAudit, runCryptoEligibleExplain, runKalshiIngestionDiag, runKalshiSanityStatus, runQuotesFreshness, runPolymarketCursorDiag, runLinksStats, runLinksCleanup, runLinksBackfill, runIntradayBest } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -1323,6 +1323,67 @@ program
       }
     } catch (error) {
       console.error('Kalshi ingestion diagnostics error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Kalshi status sanity check (v2.6.6)
+program
+  .command('kalshi:sanity:status')
+  .description('Check Kalshi market status/closeTime anomalies (v2.6.6)')
+  .option('--limit <number>', 'Max samples per category', '20')
+  .option('--days <number>', 'Days back to analyze', '30')
+  .action(async (opts) => {
+    try {
+      const result = await runKalshiSanityStatus({
+        limit: parseInt(opts.limit, 10),
+        days: parseInt(opts.days, 10),
+      });
+
+      if (!result.ok) {
+        process.exit(1);
+      }
+    } catch (error) {
+      console.error('Kalshi sanity status error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Quotes freshness check (v2.6.6)
+program
+  .command('quotes:freshness')
+  .description('Check quotes freshness and round-robin cursor status (v2.6.6)')
+  .requiredOption('--venue <venue>', 'Venue to check (kalshi, polymarket)')
+  .option('--minutes <number>', 'Minutes to consider "fresh"', '10')
+  .option('--limit <number>', 'Max stale samples to show', '20')
+  .action(async (opts) => {
+    try {
+      await runQuotesFreshness({
+        venue: opts.venue as 'kalshi' | 'polymarket',
+        minutes: parseInt(opts.minutes, 10),
+        limit: parseInt(opts.limit, 10),
+      });
+    } catch (error) {
+      console.error('Quotes freshness error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Polymarket cursor diagnostics (v2.6.6)
+program
+  .command('polymarket:ingestion:cursor')
+  .description('Diagnose Polymarket ingestion cursor state (v2.6.6)')
+  .action(async () => {
+    try {
+      await runPolymarketCursorDiag();
+    } catch (error) {
+      console.error('Polymarket cursor diagnostics error:', error);
       process.exit(1);
     } finally {
       await disconnect();

@@ -63,6 +63,15 @@ export { runCryptoEligibleExplain, type EligibleExplainOptions, type EligibleExp
 // Kalshi ingestion diagnostics (v2.6.2)
 export { runKalshiIngestionDiag, type IngestionDiagOptions, type IngestionDiagResult } from './kalshi-ingestion-diag.js';
 
+// Kalshi sanity checks (v2.6.6)
+export { runKalshiSanityStatus, type KalshiSanityStatusOptions, type KalshiSanityStatusResult } from './kalshi-sanity-status.js';
+
+// Quotes freshness (v2.6.6)
+export { runQuotesFreshness, type QuotesFreshnessOptions, type QuotesFreshnessResult } from './quotes-freshness.js';
+
+// Polymarket cursor diagnostics (v2.6.6)
+export { runPolymarketCursorDiag, type PolymarketCursorResult } from './polymarket-cursor-diag.js';
+
 // Crypto intraday commands (v2.6.3)
 export { runIntradayBest, type IntradayBestOptions, type IntradayBestResult, type IntradayBestMatch } from './crypto-intraday-best.js';
 
