@@ -220,6 +220,7 @@ describe('evaluateSafeRules', () => {
       pmEventCategory: null,
       pmEventSubcategory: null,
       taxonomySource: null,
+      pmEventId: null,
       outcomes: [],
     },
     rightMarket: {
@@ -241,6 +242,7 @@ describe('evaluateSafeRules', () => {
       pmEventCategory: null,
       pmEventSubcategory: null,
       taxonomySource: null,
+      pmEventId: null,
       outcomes: [],
     },
   });

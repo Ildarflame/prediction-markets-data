@@ -108,3 +108,6 @@ export { runTaxonomyTruthAudit, type TaxonomyTruthAuditOptions, type TaxonomyTru
 
 // v3.0.2: Polymarket taxonomy backfill
 export { runPolymarketTaxonomyBackfill, type PolymarketTaxonomyBackfillOptions, type PolymarketTaxonomyBackfillResult } from './polymarket-taxonomy-backfill.js';
+
+// v3.0.3: Polymarket events sync
+export { runPolymarketEventsSync, type PolymarketEventsSyncOptions, type PolymarketEventsSyncResult } from './polymarket-events-sync.js';

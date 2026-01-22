@@ -50,8 +50,10 @@ export {
   classifyPolymarketByPmCategories,
   classifyPolymarketMarket,
   classifyPolymarketMarketV2,
+  classifyPolymarketMarketV3,
   extractPolymarketTags,
   type PolymarketMarketInfoV2,
+  type PolymarketMarketInfoV3,
 } from './polymarketRules.js';
 
 // Unified matcher

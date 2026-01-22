@@ -70,7 +70,10 @@ model Market {
   pmTags             Json?     @map("pm_tags") @db.JsonB          // Array of {slug, label}
   pmEventCategory    String?   @map("pm_event_category")          // Event-level category
   pmEventSubcategory String?   @map("pm_event_subcategory")       // Event-level subcategory
-  taxonomySource     String?   @map("taxonomy_source")            // PM_TAGS, PM_CATEGORIES, PM_EVENT, HEURISTIC
+  taxonomySource     String?   @map("taxonomy_source")            // PM_EVENT_TAGS, PM_SPORTS, TITLE, HEURISTIC
+
+  // v3.0.3: Link to Polymarket event for taxonomy
+  pmEventId          String?   @map("pm_event_id")                // Gamma event ID (not FK, just reference)
 
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz
@@ -83,6 +86,7 @@ model Market {
   @@unique([venue, externalId])
   @@index([status, closeTime])
   @@index([derivedTopic])
+  @@index([pmEventId])
   @@map("markets")
 }
 
@@ -281,4 +285,48 @@ model TopicMap {
   @@unique([venue, venueTopic])
   @@index([canonicalTopic])
   @@map("topic_map")
+}
+
+// ============================================================
+// Polymarket Events (v3.0.3)
+// ============================================================
+
+// PolymarketEvent - Cached event metadata from Gamma API
+// Events contain markets and have proper taxonomy tags
+model PolymarketEvent {
+  id            Int      @id @default(autoincrement())
+  externalId    String   @unique @map("external_id")  // Gamma event ID
+  slug          String
+  title         String
+  category      String?                               // Event-level category (e.g., "Sports")
+  tags          Json?    @db.JsonB                    // Array of {id, slug, label}
+  seriesId      String?  @map("series_id")            // Link to series if present
+  seriesSlug    String?  @map("series_slug")
+  active        Boolean  @default(true)
+  closed        Boolean  @default(false)
+  volume        Float?
+  liquidity     Float?
+  marketCount   Int      @default(0) @map("market_count")
+  lastSyncAt    DateTime @map("last_sync_at") @db.Timestamptz
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([category])
+  @@index([active, closed])
+  @@map("polymarket_events")
+}
+
+// PolymarketSport - Sports configuration from Gamma API
+// Maps series to sports/leagues for sports detection
+model PolymarketSport {
+  id         Int      @id @default(autoincrement())
+  sport      String   @unique                         // e.g., "nba", "nfl", "epl"
+  seriesIds  String[] @default([]) @map("series_ids") // Series IDs that belong to this sport
+  tagIds     String[] @default([]) @map("tag_ids")    // Tag IDs for this sport
+  image      String?
+  resolution String?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("polymarket_sports")
 }

@@ -1,12 +1,14 @@
 /**
- * Taxonomy Truth Audit Command (v3.0.2)
+ * Taxonomy Truth Audit Command (v3.0.3)
  *
  * Validates taxonomy classification accuracy by checking:
  * 1. Known markets (ground truth examples)
  * 2. Random samples from each topic
  * 3. UNKNOWN classification rates
+ * 4. taxonomySource distribution
  *
- * v3.0.2: Added CSV output, pmCategories/pmTags display, V2 classifier for Polymarket
+ * v3.0.2: Added CSV output, pmCategories/pmTags display, V2 classifier
+ * v3.0.3: V3 classifier with event-level tags, taxonomySource tracking, SPORTS detection
  */
 
 import * as fs from 'node:fs';
@@ -14,7 +16,7 @@ import { getClient } from '@data-module/db';
 import {
   CanonicalTopic,
   classifyMarket,
-  classifyPolymarketMarketV2,
+  classifyPolymarketMarketV3,
   extractSeriesTickerFromEvent,
   isMatchableTopic,
   classifyKalshiSeries,
@@ -35,6 +37,7 @@ export interface TaxonomyTruthAuditResult {
   unknownMarkets: number;
   unknownRate: number;
   topicDistribution: Record<string, number>;
+  taxonomySourceDistribution: Record<string, number>;
   misclassifiedSamples: Array<{
     id: number;
     title: string;
@@ -46,16 +49,14 @@ export interface TaxonomyTruthAuditResult {
     id: number;
     title: string;
     category: string | null;
-    pmCategories: string[];
-    pmTags: string[];
+    eventTags: string[];
     reason: string;
   }>;
   ok: boolean;
 }
 
 /**
- * Ground truth examples for validation
- * Format: { title pattern -> expected topic }
+ * Ground truth examples for Kalshi
  */
 const GROUND_TRUTH_KALSHI: Array<{ pattern: RegExp; expected: CanonicalTopic }> = [
   // Crypto
@@ -87,6 +88,9 @@ const GROUND_TRUTH_KALSHI: Array<{ pattern: RegExp; expected: CanonicalTopic }> 
   { pattern: /trump.*president/i, expected: CanonicalTopic.ELECTIONS },
 ];
 
+/**
+ * Ground truth examples for Polymarket (v3.0.3: added sports)
+ */
 const GROUND_TRUTH_POLYMARKET: Array<{ pattern: RegExp; expected: CanonicalTopic }> = [
   // Crypto
   { pattern: /bitcoin.*\$?\d+,?\d*k?/i, expected: CanonicalTopic.CRYPTO_DAILY },
@@ -101,26 +105,24 @@ const GROUND_TRUTH_POLYMARKET: Array<{ pattern: RegExp; expected: CanonicalTopic
   { pattern: /president.*win/i, expected: CanonicalTopic.ELECTIONS },
   { pattern: /will.*win.*election/i, expected: CanonicalTopic.ELECTIONS },
   { pattern: /trump.*\d{4}/i, expected: CanonicalTopic.ELECTIONS },
+
+  // Sports (v3.0.3)
+  { pattern: /\b(nba|nfl|mlb|nhl)\b.*spread/i, expected: CanonicalTopic.SPORTS },
+  { pattern: /\bspread:?\s*[+-]?\d+\.?\d*/i, expected: CanonicalTopic.SPORTS },
+  { pattern: /\bo\/u\s*\d+\.?\d*/i, expected: CanonicalTopic.SPORTS },
+  { pattern: /super bowl/i, expected: CanonicalTopic.SPORTS },
+  { pattern: /\bvs\.?\s+\w+.*winner/i, expected: CanonicalTopic.SPORTS },
 ];
 
 /**
- * Extract pmCategories from market data
+ * Extract tags from event data
  */
-function extractPmCategories(market: { pmCategories?: unknown }): string[] {
-  if (!market.pmCategories || !Array.isArray(market.pmCategories)) return [];
-  return market.pmCategories
-    .map((c: { slug?: string; label?: string }) => c.slug || c.label || '')
-    .filter(Boolean);
-}
-
-/**
- * Extract pmTags from market data
- */
-function extractPmTags(market: { pmTags?: unknown }): string[] {
-  if (!market.pmTags || !Array.isArray(market.pmTags)) return [];
-  return market.pmTags
-    .map((t: { slug?: string; label?: string }) => t.slug || t.label || '')
-    .filter(Boolean);
+function extractEventTags(eventTags: unknown): Array<{ slug: string; label: string }> {
+  if (!eventTags || !Array.isArray(eventTags)) return [];
+  return eventTags
+    .filter((t): t is { slug?: string; label?: string } => typeof t === 'object' && t !== null)
+    .map(t => ({ slug: t.slug || '', label: t.label || '' }))
+    .filter(t => t.slug || t.label);
 }
 
 export async function runTaxonomyTruthAudit(
@@ -134,7 +136,7 @@ export async function runTaxonomyTruthAudit(
     csvOutput,
   } = options;
 
-  console.log(`\n=== Taxonomy Truth Audit (v3.0.2) ===\n`);
+  console.log(`\n=== Taxonomy Truth Audit (v3.0.3) ===\n`);
   console.log(`Venue: ${venue}`);
   if (topic) console.log(`Topic filter: ${topic}`);
   console.log(`Sample size: ${sampleSize}`);
@@ -157,15 +159,15 @@ export async function runTaxonomyTruthAudit(
       category: true,
       metadata: true,
       derivedTopic: true,
-      // v3.0.2: Include PM taxonomy fields
       pmCategories: true,
       pmTags: true,
       pmEventCategory: true,
       pmEventSubcategory: true,
+      pmEventId: true,
       taxonomySource: true,
     },
     orderBy: { updatedAt: 'desc' },
-    take: sampleSize * 10, // Get more to have samples for each topic
+    take: sampleSize * 10,
   });
 
   console.log(`Fetched ${markets.length} eligible markets\n`);
@@ -182,8 +184,33 @@ export async function runTaxonomyTruthAudit(
     console.log(`Loaded ${seriesMap.size} Kalshi series for lookup\n`);
   }
 
+  // Load Polymarket events for event-level tags (v3.0.3)
+  let eventMap = new Map<string, { tags: unknown; category: string | null }>();
+  let sportsSeriesSet = new Set<string>();
+  if (venue === 'polymarket') {
+    const events = await client.polymarketEvent.findMany({
+      select: { externalId: true, tags: true, category: true, seriesId: true },
+    });
+    for (const e of events) {
+      eventMap.set(e.externalId, { tags: e.tags, category: e.category });
+    }
+    console.log(`Loaded ${eventMap.size} Polymarket events for lookup`);
+
+    // Load sports config
+    const sports = await client.polymarketSport.findMany({
+      select: { sport: true, seriesIds: true },
+    });
+    for (const s of sports) {
+      for (const sid of s.seriesIds) {
+        sportsSeriesSet.add(sid);
+      }
+    }
+    console.log(`Loaded ${sports.length} sports configurations\n`);
+  }
+
   // Classify markets and track results
   const topicDistribution: Record<string, number> = {};
+  const taxonomySourceDistribution: Record<string, number> = {};
   const misclassifiedSamples: TaxonomyTruthAuditResult['misclassifiedSamples'] = [];
   const unknownSamples: TaxonomyTruthAuditResult['unknownSamples'] = [];
   let unknownCount = 0;
@@ -192,12 +219,11 @@ export async function runTaxonomyTruthAudit(
 
   // CSV rows for export
   const csvRows: string[][] = [[
-    'id', 'title', 'category', 'pmCategories', 'pmTags', 'classifiedTopic', 'confidence', 'reason', 'matchesGroundTruth'
+    'id', 'title', 'category', 'eventTags', 'classifiedTopic', 'taxonomySource', 'confidence', 'reason', 'matchesGroundTruth'
   ]];
 
   for (const market of markets) {
-    // Classify using current taxonomy rules
-    let classification;
+    let classification: { topic: CanonicalTopic; confidence: number; reason?: string; taxonomySource?: string };
 
     if (venue === 'kalshi') {
       // Try series-based classification first
@@ -206,56 +232,61 @@ export async function runTaxonomyTruthAudit(
       const seriesData = seriesTicker ? seriesMap.get(seriesTicker) : null;
 
       if (seriesData) {
-        // Use classifyKalshiSeries with title for RATES override
-        classification = classifyKalshiSeries({
+        const result = classifyKalshiSeries({
           ticker: seriesTicker || '',
           title: seriesData.title,
           category: seriesData.category,
           tags: seriesData.tags,
         });
-      }
-
-      if (!classification || classification.topic === CanonicalTopic.UNKNOWN) {
-        classification = classifyMarket({
+        classification = { ...result, taxonomySource: 'KALSHI_SERIES' };
+      } else {
+        const result = classifyMarket({
           venue,
           title: market.title,
           category: market.category || undefined,
           metadata: market.metadata as Record<string, unknown> | undefined,
         });
+        classification = { ...result, taxonomySource: 'KALSHI_CATEGORY' };
       }
     } else {
-      // v3.0.2: Use V2 classifier for Polymarket
-      const pmCats = extractPmCategories(market);
-      const pmTgs = extractPmTags(market);
+      // v3.0.3: Use V3 classifier with event-level tags
+      const eventData = market.pmEventId ? eventMap.get(market.pmEventId) : null;
+      const eventTags = eventData ? extractEventTags(eventData.tags) : [];
 
-      classification = classifyPolymarketMarketV2({
+      classification = classifyPolymarketMarketV3({
         title: market.title,
         category: market.category || undefined,
         groupItemTitle: (market.metadata as any)?.groupItemTitle,
         tags: (market.metadata as any)?.tags,
-        pmCategories: pmCats.length > 0 ? pmCats.map(s => ({ slug: s, label: s })) : undefined,
-        pmTags: pmTgs.length > 0 ? pmTgs.map(s => ({ slug: s, label: s })) : undefined,
-        pmEventCategory: market.pmEventCategory || undefined,
+        pmCategories: market.pmCategories as any,
+        pmTags: market.pmTags as any,
+        pmEventCategory: market.pmEventCategory || eventData?.category || undefined,
         pmEventSubcategory: market.pmEventSubcategory || undefined,
+        eventTags: eventTags.length > 0 ? eventTags : undefined,
+        eventCategory: eventData?.category || undefined,
       });
     }
 
     const classifiedTopic = classification.topic;
+    const taxonomySource = classification.taxonomySource || 'UNKNOWN';
 
-    // Count topic distribution
+    // Count distributions
     topicDistribution[classifiedTopic] = (topicDistribution[classifiedTopic] || 0) + 1;
+    taxonomySourceDistribution[taxonomySource] = (taxonomySourceDistribution[taxonomySource] || 0) + 1;
 
     if (classifiedTopic === CanonicalTopic.UNKNOWN) {
       unknownCount++;
 
-      // Collect unknown samples with metadata
+      // Collect unknown samples
       if (unknownSamples.length < 30) {
+        const eventData = market.pmEventId ? eventMap.get(market.pmEventId) : null;
+        const eventTags = eventData ? extractEventTags(eventData.tags) : [];
+
         unknownSamples.push({
           id: market.id,
           title: market.title.slice(0, 70),
           category: market.category,
-          pmCategories: extractPmCategories(market),
-          pmTags: extractPmTags(market),
+          eventTags: eventTags.map(t => t.slug || t.label),
           reason: classification.reason || 'unknown',
         });
       }
@@ -284,13 +315,16 @@ export async function runTaxonomyTruthAudit(
     }
 
     // Add to CSV
+    const eventData = market.pmEventId ? eventMap.get(market.pmEventId) : null;
+    const eventTags = eventData ? extractEventTags(eventData.tags) : [];
+
     csvRows.push([
       String(market.id),
       market.title.slice(0, 100).replace(/,/g, ';'),
       market.category || '',
-      extractPmCategories(market).join('|'),
-      extractPmTags(market).join('|'),
+      eventTags.map(t => t.slug).join('|'),
       classifiedTopic,
+      taxonomySource,
       String(classification.confidence),
       classification.reason || '',
       matchesGroundTruth,
@@ -304,6 +338,14 @@ export async function runTaxonomyTruthAudit(
     const pct = ((count / markets.length) * 100).toFixed(1);
     const matchable = isMatchableTopic(t as CanonicalTopic) ? '✓' : ' ';
     console.log(`  ${matchable} ${t.padEnd(18)} ${String(count).padStart(5)} (${pct}%)`);
+  }
+
+  // v3.0.3: Show taxonomySource distribution
+  console.log('\n--- Taxonomy Source Distribution ---');
+  const sortedSources = Object.entries(taxonomySourceDistribution).sort((a, b) => b[1] - a[1]);
+  for (const [src, count] of sortedSources) {
+    const pct = ((count / markets.length) * 100).toFixed(1);
+    console.log(`  ${src.padEnd(20)} ${String(count).padStart(5)} (${pct}%)`);
   }
 
   const unknownRate = markets.length > 0 ? unknownCount / markets.length : 0;
@@ -327,17 +369,14 @@ export async function runTaxonomyTruthAudit(
     }
   }
 
-  // UNKNOWN samples with metadata (v3.0.2)
+  // UNKNOWN samples with event tags (v3.0.3)
   if (unknownSamples.length > 0) {
     console.log(`\n--- UNKNOWN Samples (${unknownSamples.length}) ---`);
     for (const sample of unknownSamples.slice(0, 10)) {
       console.log(`  [${sample.id}] ${sample.title}`);
       console.log(`    Category: ${sample.category || '(none)'}`);
-      if (sample.pmCategories.length > 0) {
-        console.log(`    pmCategories: ${sample.pmCategories.join(', ')}`);
-      }
-      if (sample.pmTags.length > 0) {
-        console.log(`    pmTags: ${sample.pmTags.join(', ')}`);
+      if (sample.eventTags.length > 0) {
+        console.log(`    Event tags: ${sample.eventTags.join(', ')}`);
       }
       console.log(`    Reason: ${sample.reason}`);
     }
@@ -350,12 +389,12 @@ export async function runTaxonomyTruthAudit(
     console.log(`\nCSV written to: ${csvOutput}`);
   }
 
-  // Determine if audit passed
-  const ok = unknownRate < 0.30; // Pass if less than 30% UNKNOWN
+  // Determine if audit passed (v3.0.3: lower threshold to 25%)
+  const ok = unknownRate < 0.25;
 
   console.log(`\n--- Verdict: ${ok ? 'PASS' : 'FAIL'} ---`);
   if (!ok) {
-    console.log(`UNKNOWN rate ${(unknownRate * 100).toFixed(1)}% exceeds 30% threshold`);
+    console.log(`UNKNOWN rate ${(unknownRate * 100).toFixed(1)}% exceeds 25% threshold`);
   }
 
   return {
@@ -365,6 +404,7 @@ export async function runTaxonomyTruthAudit(
     unknownMarkets: unknownCount,
     unknownRate,
     topicDistribution,
+    taxonomySourceDistribution,
     misclassifiedSamples,
     unknownSamples,
     ok,

@@ -191,11 +191,12 @@ export const POLYMARKET_CATEGORY_MAP: Record<string, CanonicalTopic> = {
 };
 
 /**
- * Polymarket tag slug to topic mapping (v3.0.2)
- * Tags come from market.tags[] array in Gamma API
+ * Polymarket tag slug to topic mapping (v3.0.3)
+ * Tags come from event.tags[] array in Gamma API
+ * Based on actual API response analysis
  */
 export const PM_TAG_MAP: Record<string, CanonicalTopic> = {
-  // Crypto
+  // === Crypto ===
   'crypto': CanonicalTopic.CRYPTO_DAILY,
   'bitcoin': CanonicalTopic.CRYPTO_DAILY,
   'btc': CanonicalTopic.CRYPTO_DAILY,
@@ -208,8 +209,11 @@ export const PM_TAG_MAP: Record<string, CanonicalTopic> = {
   'xrp': CanonicalTopic.CRYPTO_DAILY,
   'cryptocurrency': CanonicalTopic.CRYPTO_DAILY,
   'defi': CanonicalTopic.CRYPTO_DAILY,
+  'microstrategy': CanonicalTopic.CRYPTO_DAILY,
+  'coinbase': CanonicalTopic.CRYPTO_DAILY,
+  'exchange': CanonicalTopic.CRYPTO_DAILY,
 
-  // Macro
+  // === Macro / Finance ===
   'inflation': CanonicalTopic.MACRO,
   'cpi': CanonicalTopic.MACRO,
   'gdp': CanonicalTopic.MACRO,
@@ -218,28 +222,48 @@ export const PM_TAG_MAP: Record<string, CanonicalTopic> = {
   'unemployment': CanonicalTopic.MACRO,
   'economy': CanonicalTopic.MACRO,
   'recession': CanonicalTopic.MACRO,
+  'finance': CanonicalTopic.MACRO,
+  'business': CanonicalTopic.MACRO,
+  'stocks': CanonicalTopic.MACRO,
+  'ipos': CanonicalTopic.MACRO,
+  'tariffs': CanonicalTopic.MACRO,
 
-  // Rates
+  // === Rates ===
   'fed': CanonicalTopic.RATES,
   'fomc': CanonicalTopic.RATES,
   'interest-rates': CanonicalTopic.RATES,
   'federal-reserve': CanonicalTopic.RATES,
 
-  // Elections
+  // === Elections / Politics ===
   'politics': CanonicalTopic.ELECTIONS,
   'elections': CanonicalTopic.ELECTIONS,
   'us-politics': CanonicalTopic.ELECTIONS,
+  'uptspt-politics': CanonicalTopic.ELECTIONS,  // Gamma API actual slug
   'trump': CanonicalTopic.ELECTIONS,
+  'trump-presidency': CanonicalTopic.ELECTIONS,
   'biden': CanonicalTopic.ELECTIONS,
+  'harris': CanonicalTopic.ELECTIONS,
   '2024-election': CanonicalTopic.ELECTIONS,
+  '2025-election': CanonicalTopic.ELECTIONS,
   '2026-election': CanonicalTopic.ELECTIONS,
+  'congress': CanonicalTopic.ELECTIONS,
+  'senate': CanonicalTopic.ELECTIONS,
+  'governor': CanonicalTopic.ELECTIONS,
+  'immigration': CanonicalTopic.ELECTIONS,
+  'immigrationborder': CanonicalTopic.ELECTIONS,
 
-  // Sports
+  // === Sports (expanded with actual Gamma tags) ===
   'sports': CanonicalTopic.SPORTS,
   'nba': CanonicalTopic.SPORTS,
   'nfl': CanonicalTopic.SPORTS,
+  'nfl-playoffs': CanonicalTopic.SPORTS,
   'mlb': CanonicalTopic.SPORTS,
+  'nhl': CanonicalTopic.SPORTS,
   'soccer': CanonicalTopic.SPORTS,
+  'football': CanonicalTopic.SPORTS,
+  'basketball': CanonicalTopic.SPORTS,
+  'baseball': CanonicalTopic.SPORTS,
+  'hockey': CanonicalTopic.SPORTS,
   'tennis': CanonicalTopic.SPORTS,
   'golf': CanonicalTopic.SPORTS,
   'ufc': CanonicalTopic.SPORTS,
@@ -248,8 +272,21 @@ export const PM_TAG_MAP: Record<string, CanonicalTopic> = {
   'esports': CanonicalTopic.SPORTS,
   'olympics': CanonicalTopic.SPORTS,
   'f1': CanonicalTopic.SPORTS,
+  'formula-1': CanonicalTopic.SPORTS,
+  'ncaab': CanonicalTopic.SPORTS,
+  'ncaaf': CanonicalTopic.SPORTS,
+  'march-madness': CanonicalTopic.SPORTS,
+  'super-bowl': CanonicalTopic.SPORTS,
+  'superbowl': CanonicalTopic.SPORTS,
+  'epl': CanonicalTopic.SPORTS,       // English Premier League
+  'lal': CanonicalTopic.SPORTS,       // La Liga
+  'ucl': CanonicalTopic.SPORTS,       // UEFA Champions League
+  'cowboys-vs-eagles': CanonicalTopic.SPORTS,
+  'afc': CanonicalTopic.SPORTS,
+  'nfc': CanonicalTopic.SPORTS,
+  'awards': CanonicalTopic.SPORTS,    // Sports awards like MVP
 
-  // Entertainment
+  // === Entertainment ===
   'entertainment': CanonicalTopic.ENTERTAINMENT,
   'pop-culture': CanonicalTopic.ENTERTAINMENT,
   'movies': CanonicalTopic.ENTERTAINMENT,
@@ -258,19 +295,31 @@ export const PM_TAG_MAP: Record<string, CanonicalTopic> = {
   'oscars': CanonicalTopic.ENTERTAINMENT,
   'grammys': CanonicalTopic.ENTERTAINMENT,
   'emmys': CanonicalTopic.ENTERTAINMENT,
+  'celebrities': CanonicalTopic.ENTERTAINMENT,
+  'streaming': CanonicalTopic.ENTERTAINMENT,
 
-  // Geopolitics
+  // === Geopolitics ===
   'geopolitics': CanonicalTopic.GEOPOLITICS,
   'war': CanonicalTopic.GEOPOLITICS,
   'ukraine': CanonicalTopic.GEOPOLITICS,
   'russia': CanonicalTopic.GEOPOLITICS,
   'china': CanonicalTopic.GEOPOLITICS,
   'middle-east': CanonicalTopic.GEOPOLITICS,
+  'world': CanonicalTopic.GEOPOLITICS,
+  'france': CanonicalTopic.GEOPOLITICS,
+  'macron': CanonicalTopic.GEOPOLITICS,
+  'resign': CanonicalTopic.GEOPOLITICS,
 
-  // Climate
+  // === Climate ===
   'climate': CanonicalTopic.CLIMATE,
   'weather': CanonicalTopic.CLIMATE,
   'hurricane': CanonicalTopic.CLIMATE,
+  'temperature': CanonicalTopic.CLIMATE,
+
+  // === Tech (mapped to MACRO for now) ===
+  'tech': CanonicalTopic.MACRO,
+  'ai': CanonicalTopic.MACRO,
+  'deepseek': CanonicalTopic.MACRO,
 };
 
 /**
@@ -688,3 +737,181 @@ export function classifyPolymarketMarketV2(market: PolymarketMarketInfoV2): Topi
     reason: 'No matching rule',
   };
 }
+
+/**
+ * Extended market info with v3.0.3 event-level tags
+ */
+export interface PolymarketMarketInfoV3 extends PolymarketMarketInfoV2 {
+  /** Event-level tags from polymarket_events table */
+  eventTags?: Array<{ id?: string; slug: string; label: string }>;
+  /** Event category (e.g., "Sports") */
+  eventCategory?: string;
+  /** Series ID for sports detection */
+  seriesId?: string;
+  /** Sport code if detected (e.g., "nba", "nfl") */
+  sportCode?: string;
+}
+
+/**
+ * Check if market is a sports market by title patterns
+ */
+function isSportsMarketByTitle(title: string): boolean {
+  const sportsPatterns = [
+    /\b(nba|nfl|mlb|nhl|ncaa|afc|nfc)\b/i,
+    /\b(spread|moneyline|o\/u|over\/under|total points)\b/i,
+    /\bvs\.?\s+/i,  // Team vs Team
+    /\b(championship|playoff|super bowl|world series)\b/i,
+    /\b(quarter|half|1h|2h)\s+(spread|o\/u|total)/i,
+    /\b(assists?|rebounds?|points?)\s+o\/u/i,  // Player props
+  ];
+
+  return sportsPatterns.some(p => p.test(title));
+}
+
+/**
+ * Classify a Polymarket market using event-first approach (v3.0.3)
+ *
+ * Priority:
+ * 1. Precedence rules (crypto price market overrides everything)
+ * 2. Event tags from polymarket_events table (highest quality taxonomy)
+ * 3. Sports detection (by sportCode, seriesId, or title patterns)
+ * 4. pmCategories/pmTags (market-level metadata)
+ * 5. Legacy category + title heuristics
+ *
+ * Returns taxonomySource for debugging:
+ * - PM_EVENT_TAGS: Classified from event.tags[]
+ * - PM_SPORTS: Classified as sports (from config or title)
+ * - PM_CATEGORIES: From market-level pmCategories
+ * - PM_TAGS: From market-level pmTags
+ * - TITLE: From title keyword heuristics
+ * - UNKNOWN: Could not classify
+ */
+export function classifyPolymarketMarketV3(market: PolymarketMarketInfoV3): TopicClassification & { taxonomySource: string } {
+  // === 1. Precedence Rule: Crypto price markets override everything ===
+  if (isCryptoPriceMarket(market.title)) {
+    return {
+      topic: CanonicalTopic.CRYPTO_DAILY,
+      confidence: 0.95,
+      source: TopicSource.TITLE_KEYWORDS,
+      reason: 'Precedence: crypto price market',
+      taxonomySource: 'TITLE',
+    };
+  }
+
+  // === 2. Event tags (highest quality - from polymarket_events) ===
+  if (market.eventTags && market.eventTags.length > 0) {
+    // Try each tag in order
+    for (const tag of market.eventTags) {
+      const slug = tag.slug?.toLowerCase();
+
+      if (slug && PM_TAG_MAP[slug]) {
+        return {
+          topic: PM_TAG_MAP[slug],
+          confidence: 0.90,
+          source: TopicSource.EVENT_METADATA,
+          reason: `Event tag: ${tag.slug}`,
+          taxonomySource: 'PM_EVENT_TAGS',
+        };
+      }
+    }
+  }
+
+  // === 3. Sports detection ===
+  // 3a. By explicit sport code (from polymarket_sports config)
+  if (market.sportCode) {
+    return {
+      topic: CanonicalTopic.SPORTS,
+      confidence: 0.95,
+      source: TopicSource.EVENT_METADATA,
+      reason: `Sport: ${market.sportCode}`,
+      taxonomySource: 'PM_SPORTS',
+    };
+  }
+
+  // 3b. By event category = "Sports"
+  if (market.eventCategory?.toLowerCase() === 'sports') {
+    return {
+      topic: CanonicalTopic.SPORTS,
+      confidence: 0.90,
+      source: TopicSource.EVENT_METADATA,
+      reason: 'Event category: Sports',
+      taxonomySource: 'PM_SPORTS',
+    };
+  }
+
+  // 3c. By title patterns (spread, o/u, vs, etc.)
+  if (isSportsMarketByTitle(market.title)) {
+    return {
+      topic: CanonicalTopic.SPORTS,
+      confidence: 0.85,
+      source: TopicSource.TITLE_KEYWORDS,
+      reason: 'Sports pattern in title',
+      taxonomySource: 'PM_SPORTS',
+    };
+  }
+
+  // === 4. Market-level pmCategories ===
+  if (market.pmCategories && market.pmCategories.length > 0) {
+    const catResult = classifyPolymarketByPmCategories(market.pmCategories);
+    if (catResult && catResult.topic !== CanonicalTopic.UNKNOWN) {
+      return {
+        ...catResult,
+        taxonomySource: 'PM_CATEGORIES',
+      };
+    }
+  }
+
+  // === 5. Market-level pmTags ===
+  if (market.pmTags && market.pmTags.length > 0) {
+    const tagResult = classifyPolymarketByTags(market.pmTags);
+    if (tagResult && tagResult.topic !== CanonicalTopic.UNKNOWN) {
+      return {
+        ...tagResult,
+        taxonomySource: 'PM_TAGS',
+      };
+    }
+  }
+
+  // === 6. pmEventCategory (legacy) ===
+  if (market.pmEventCategory) {
+    const eventResult = classifyPolymarketByCategory(market.pmEventCategory);
+    if (eventResult && eventResult.topic !== CanonicalTopic.UNKNOWN) {
+      return {
+        ...eventResult,
+        source: TopicSource.EVENT_METADATA,
+        reason: `PM event category: ${market.pmEventCategory}`,
+        taxonomySource: 'PM_CATEGORIES',
+      };
+    }
+  }
+
+  // === 7. Legacy category field ===
+  if (market.category) {
+    const categoryResult = classifyPolymarketByCategory(market.category);
+    if (categoryResult && categoryResult.confidence >= 0.80 && categoryResult.topic !== CanonicalTopic.UNKNOWN) {
+      return {
+        ...categoryResult,
+        taxonomySource: 'PM_CATEGORIES',
+      };
+    }
+  }
+
+  // === 8. Title keyword heuristics ===
+  const titleResult = classifyPolymarketByTitle(market.title);
+  if (titleResult) {
+    return {
+      ...titleResult,
+      taxonomySource: 'TITLE',
+    };
+  }
+
+  // === 9. Fallback to unknown ===
+  return {
+    topic: CanonicalTopic.UNKNOWN,
+    confidence: 0.0,
+    source: TopicSource.FALLBACK,
+    reason: 'No matching rule',
+    taxonomySource: 'UNKNOWN',
+  };
+}
+

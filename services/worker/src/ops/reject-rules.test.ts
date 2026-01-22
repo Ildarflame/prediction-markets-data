@@ -50,6 +50,7 @@ describe('evaluateRejectRules', () => {
       pmEventCategory: null,
       pmEventSubcategory: null,
       taxonomySource: null,
+      pmEventId: null,
       outcomes: [],
     },
     rightMarket: {
@@ -71,6 +72,7 @@ describe('evaluateRejectRules', () => {
       pmEventCategory: null,
       pmEventSubcategory: null,
       taxonomySource: null,
+      pmEventId: null,
       outcomes: [],
     },
   });
