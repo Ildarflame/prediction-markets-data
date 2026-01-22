@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit, runCryptoTruthDateAudit, runCryptoTypeAudit, runCryptoEthDebug, runCryptoSeriesAudit, runCryptoEligibleExplain, runKalshiIngestionDiag, runKalshiSanityStatus, runQuotesFreshness, runPolymarketCursorDiag, runLinksStats, runLinksCleanup, runLinksBackfill, runIntradayBest, runVenueSanityEligible, runLinksWatchlistSync, runWatchlistStats, runWatchlistList, runWatchlistCleanup, runLinksQueue, runLinksAutoReject, runAutoConfirm, runOps, runOpsKpi } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit, runCryptoTruthDateAudit, runCryptoTypeAudit, runCryptoEthDebug, runCryptoSeriesAudit, runCryptoEligibleExplain, runKalshiIngestionDiag, runKalshiSanityStatus, runQuotesFreshness, runPolymarketCursorDiag, runLinksStats, runLinksCleanup, runLinksBackfill, runIntradayBest, runVenueSanityEligible, runLinksWatchlistSync, runWatchlistStats, runWatchlistList, runWatchlistCleanup, runLinksQueue, runLinksAutoReject, runAutoConfirm, runOps, runOpsKpi, runKalshiSeriesSync, runTaxonomyTruthAudit } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -1860,6 +1860,54 @@ program
       }
     } catch (error) {
       console.error('V3 suggest-matches error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Kalshi series sync (v3.0.1)
+program
+  .command('kalshi:series:sync')
+  .description('Sync Kalshi series metadata from API (v3.0.1: for taxonomy classification)')
+  .option('--dry-run', 'Preview without writing to DB', false)
+  .option('--limit <number>', 'Max series to process')
+  .action(async (opts) => {
+    try {
+      await runKalshiSeriesSync({
+        dryRun: opts.dryRun,
+        limit: opts.limit ? parseInt(opts.limit, 10) : undefined,
+      });
+    } catch (error) {
+      console.error('Kalshi series sync error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Taxonomy truth audit (v3.0.1)
+program
+  .command('taxonomy:truth-audit')
+  .description('Audit taxonomy classification accuracy (v3.0.1)')
+  .option('--venue <venue>', 'Venue to audit (kalshi, polymarket)', 'kalshi')
+  .option('--topic <topic>', 'Filter by specific topic')
+  .option('--sample-size <number>', 'Sample size per topic', '100')
+  .option('--no-misclassified', 'Hide misclassified samples')
+  .action(async (opts) => {
+    try {
+      const result = await runTaxonomyTruthAudit({
+        venue: opts.venue as 'kalshi' | 'polymarket',
+        topic: opts.topic ? (opts.topic.toUpperCase() as any) : undefined,
+        sampleSize: parseInt(opts.sampleSize, 10),
+        showMisclassified: opts.misclassified !== false,
+      });
+
+      if (!result.ok) {
+        process.exit(1);
+      }
+    } catch (error) {
+      console.error('Taxonomy truth audit error:', error);
       process.exit(1);
     } finally {
       await disconnect();

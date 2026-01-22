@@ -101,3 +101,7 @@ export { runOpsKpi, type OpsKpiResult } from './ops-kpi.js';
 // v3.0.0: Taxonomy and V3 engine commands
 export { runTaxonomyCoverage, type TaxonomyCoverageOptions } from './taxonomy-coverage.js';
 export { runV3SuggestMatches, type V3SuggestMatchesOptions, type V3SuggestMatchesResult } from './v3-suggest-matches.js';
+
+// v3.0.1: Taxonomy truth-audit and series sync
+export { runKalshiSeriesSync, type KalshiSeriesSyncOptions } from './kalshi-series-sync.js';
+export { runTaxonomyTruthAudit, type TaxonomyTruthAuditOptions, type TaxonomyTruthAuditResult } from './taxonomy-truth-audit.js';

@@ -1,9 +1,11 @@
 /**
- * Taxonomy Module (v3.0.0)
+ * Taxonomy Module (v3.0.1)
  *
  * Unified topic classification for cross-venue market matching.
  * Provides rules and utilities for mapping venue-specific categories
  * to canonical topics.
+ *
+ * v3.0.1: Added series-based classification support
  */
 
 // Types
@@ -26,10 +28,14 @@ export {
 export {
   KALSHI_TICKER_RULES,
   KALSHI_CATEGORY_MAP,
+  KALSHI_TAG_MAP,
   classifyKalshiByTicker,
   classifyKalshiByCategory,
+  classifyKalshiByTags,
   classifyKalshiSeries,
   classifyKalshiMarket,
+  classifyKalshiMarketWithSeries,
+  extractSeriesTickerFromEvent,
 } from './kalshiRules.js';
 
 // Polymarket rules

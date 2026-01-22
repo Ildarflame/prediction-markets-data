@@ -1,8 +1,10 @@
 /**
- * Polymarket Taxonomy Rules (v3.0.0)
+ * Polymarket Taxonomy Rules (v3.0.1)
  *
  * Maps Polymarket categories and tags to canonical topics.
- * Based on analysis of Polymarket API data.
+ * Based on analysis of Polymarket Gamma API data.
+ *
+ * v3.0.1: Updated to handle actual Gamma API category formats
  */
 
 import { CanonicalTopic, TopicRule, PolymarketMarketInfo, TopicClassification, TopicSource } from './types.js';
@@ -10,9 +12,27 @@ import { CanonicalTopic, TopicRule, PolymarketMarketInfo, TopicClassification, T
 /**
  * Polymarket category to topic mapping
  * Categories come from the market's category field or groupItemTitle
+ *
+ * Note: Polymarket Gamma API uses various category formats:
+ * - Hyphenated slugs: "US-current-affairs", "pop-culture"
+ * - Title case: "Crypto", "Sports"
+ * - Event-specific: "2024 Election", "Super Bowl"
+ *
+ * We normalize all to lowercase and handle both formats.
  */
 export const POLYMARKET_CATEGORY_MAP: Record<string, CanonicalTopic> = {
-  // Crypto
+  // === Gamma API native categories (hyphenated slugs) ===
+  'us-current-affairs': CanonicalTopic.ELECTIONS,
+  'us current affairs': CanonicalTopic.ELECTIONS,
+  'world-current-affairs': CanonicalTopic.GEOPOLITICS,
+  'world current affairs': CanonicalTopic.GEOPOLITICS,
+  'pop-culture': CanonicalTopic.ENTERTAINMENT,
+  'pop culture': CanonicalTopic.ENTERTAINMENT,
+  'science-tech': CanonicalTopic.UNKNOWN, // Broad category
+  'science tech': CanonicalTopic.UNKNOWN,
+  'business': CanonicalTopic.MACRO,
+
+  // === Crypto ===
   'crypto': CanonicalTopic.CRYPTO_DAILY,
   'cryptocurrency': CanonicalTopic.CRYPTO_DAILY,
   'bitcoin': CanonicalTopic.CRYPTO_DAILY,
@@ -21,8 +41,14 @@ export const POLYMARKET_CATEGORY_MAP: Record<string, CanonicalTopic> = {
   'eth': CanonicalTopic.CRYPTO_DAILY,
   'defi': CanonicalTopic.CRYPTO_DAILY,
   'web3': CanonicalTopic.CRYPTO_DAILY,
+  'solana': CanonicalTopic.CRYPTO_DAILY,
+  'sol': CanonicalTopic.CRYPTO_DAILY,
+  'doge': CanonicalTopic.CRYPTO_DAILY,
+  'dogecoin': CanonicalTopic.CRYPTO_DAILY,
+  'xrp': CanonicalTopic.CRYPTO_DAILY,
+  'ripple': CanonicalTopic.CRYPTO_DAILY,
 
-  // Macro
+  // === Macro / Economics ===
   'economics': CanonicalTopic.MACRO,
   'economy': CanonicalTopic.MACRO,
   'inflation': CanonicalTopic.MACRO,
@@ -32,18 +58,30 @@ export const POLYMARKET_CATEGORY_MAP: Record<string, CanonicalTopic> = {
   'employment': CanonicalTopic.MACRO,
   'unemployment': CanonicalTopic.MACRO,
   'labor': CanonicalTopic.MACRO,
+  'nfp': CanonicalTopic.MACRO,
+  'payrolls': CanonicalTopic.MACRO,
+  'recession': CanonicalTopic.MACRO,
 
-  // Rates
+  // === Rates / Central Banks ===
   'fed': CanonicalTopic.RATES,
   'fomc': CanonicalTopic.RATES,
   'federal reserve': CanonicalTopic.RATES,
+  'federal-reserve': CanonicalTopic.RATES,
   'interest rate': CanonicalTopic.RATES,
+  'interest-rate': CanonicalTopic.RATES,
   'interest rates': CanonicalTopic.RATES,
+  'interest-rates': CanonicalTopic.RATES,
   'central bank': CanonicalTopic.RATES,
+  'central-bank': CanonicalTopic.RATES,
   'ecb': CanonicalTopic.RATES,
   'bank of england': CanonicalTopic.RATES,
+  'bank-of-england': CanonicalTopic.RATES,
+  'rate cut': CanonicalTopic.RATES,
+  'rate-cut': CanonicalTopic.RATES,
+  'rate hike': CanonicalTopic.RATES,
+  'rate-hike': CanonicalTopic.RATES,
 
-  // Elections
+  // === Elections / Politics ===
   'politics': CanonicalTopic.ELECTIONS,
   'election': CanonicalTopic.ELECTIONS,
   'elections': CanonicalTopic.ELECTIONS,
@@ -55,11 +93,24 @@ export const POLYMARKET_CATEGORY_MAP: Record<string, CanonicalTopic> = {
   'house': CanonicalTopic.ELECTIONS,
   'governor': CanonicalTopic.ELECTIONS,
   '2024 election': CanonicalTopic.ELECTIONS,
+  '2024-election': CanonicalTopic.ELECTIONS,
+  '2025 election': CanonicalTopic.ELECTIONS,
+  '2025-election': CanonicalTopic.ELECTIONS,
   '2026 election': CanonicalTopic.ELECTIONS,
+  '2026-election': CanonicalTopic.ELECTIONS,
   'trump': CanonicalTopic.ELECTIONS,
   'biden': CanonicalTopic.ELECTIONS,
+  'harris': CanonicalTopic.ELECTIONS,
+  'midterms': CanonicalTopic.ELECTIONS,
+  'primary': CanonicalTopic.ELECTIONS,
+  'primaries': CanonicalTopic.ELECTIONS,
+  'democratic': CanonicalTopic.ELECTIONS,
+  'republican': CanonicalTopic.ELECTIONS,
+  'gop': CanonicalTopic.ELECTIONS,
+  'dnc': CanonicalTopic.ELECTIONS,
+  'rnc': CanonicalTopic.ELECTIONS,
 
-  // Geopolitics
+  // === Geopolitics ===
   'geopolitics': CanonicalTopic.GEOPOLITICS,
   'international': CanonicalTopic.GEOPOLITICS,
   'war': CanonicalTopic.GEOPOLITICS,
@@ -67,26 +118,64 @@ export const POLYMARKET_CATEGORY_MAP: Record<string, CanonicalTopic> = {
   'ukraine': CanonicalTopic.GEOPOLITICS,
   'russia': CanonicalTopic.GEOPOLITICS,
   'china': CanonicalTopic.GEOPOLITICS,
+  'israel': CanonicalTopic.GEOPOLITICS,
+  'gaza': CanonicalTopic.GEOPOLITICS,
+  'middle east': CanonicalTopic.GEOPOLITICS,
+  'middle-east': CanonicalTopic.GEOPOLITICS,
+  'nato': CanonicalTopic.GEOPOLITICS,
+  'sanctions': CanonicalTopic.GEOPOLITICS,
 
-  // Sports
+  // === Sports ===
   'sports': CanonicalTopic.SPORTS,
   'esports': CanonicalTopic.SPORTS,
+  'e-sports': CanonicalTopic.SPORTS,
   'nba': CanonicalTopic.SPORTS,
   'nfl': CanonicalTopic.SPORTS,
   'mlb': CanonicalTopic.SPORTS,
+  'nhl': CanonicalTopic.SPORTS,
   'soccer': CanonicalTopic.SPORTS,
   'football': CanonicalTopic.SPORTS,
   'basketball': CanonicalTopic.SPORTS,
+  'baseball': CanonicalTopic.SPORTS,
+  'hockey': CanonicalTopic.SPORTS,
+  'tennis': CanonicalTopic.SPORTS,
+  'golf': CanonicalTopic.SPORTS,
+  'boxing': CanonicalTopic.SPORTS,
+  'mma': CanonicalTopic.SPORTS,
+  'ufc': CanonicalTopic.SPORTS,
+  'olympics': CanonicalTopic.SPORTS,
+  'super bowl': CanonicalTopic.SPORTS,
+  'super-bowl': CanonicalTopic.SPORTS,
+  'world cup': CanonicalTopic.SPORTS,
+  'world-cup': CanonicalTopic.SPORTS,
+  'march madness': CanonicalTopic.SPORTS,
+  'march-madness': CanonicalTopic.SPORTS,
+  'ncaa': CanonicalTopic.SPORTS,
+  'f1': CanonicalTopic.SPORTS,
+  'formula 1': CanonicalTopic.SPORTS,
+  'formula-1': CanonicalTopic.SPORTS,
 
-  // Entertainment
+  // === Entertainment ===
   'entertainment': CanonicalTopic.ENTERTAINMENT,
-  'pop culture': CanonicalTopic.ENTERTAINMENT,
   'awards': CanonicalTopic.ENTERTAINMENT,
   'oscars': CanonicalTopic.ENTERTAINMENT,
   'grammys': CanonicalTopic.ENTERTAINMENT,
   'emmys': CanonicalTopic.ENTERTAINMENT,
+  'golden globes': CanonicalTopic.ENTERTAINMENT,
+  'golden-globes': CanonicalTopic.ENTERTAINMENT,
   'tv': CanonicalTopic.ENTERTAINMENT,
   'movies': CanonicalTopic.ENTERTAINMENT,
+  'music': CanonicalTopic.ENTERTAINMENT,
+  'celebrity': CanonicalTopic.ENTERTAINMENT,
+  'celebrities': CanonicalTopic.ENTERTAINMENT,
+
+  // === Climate / Weather ===
+  'climate': CanonicalTopic.CLIMATE,
+  'weather': CanonicalTopic.CLIMATE,
+  'hurricane': CanonicalTopic.CLIMATE,
+  'temperature': CanonicalTopic.CLIMATE,
+  'global warming': CanonicalTopic.CLIMATE,
+  'global-warming': CanonicalTopic.CLIMATE,
 };
 
 /**
@@ -138,20 +227,62 @@ export const POLYMARKET_TITLE_RULES: TopicRule[] = [
 ];
 
 /**
+ * Normalize a category string for lookup
+ * Handles hyphenated slugs, title case, etc.
+ */
+function normalizeCategory(category: string): string[] {
+  const base = category.toLowerCase().trim();
+
+  // Return multiple variants to check
+  const variants = [base];
+
+  // Add hyphen-to-space variant: "us-current-affairs" -> "us current affairs"
+  if (base.includes('-')) {
+    variants.push(base.replace(/-/g, ' '));
+  }
+
+  // Add space-to-hyphen variant: "pop culture" -> "pop-culture"
+  if (base.includes(' ')) {
+    variants.push(base.replace(/\s+/g, '-'));
+  }
+
+  return variants;
+}
+
+/**
  * Classify by Polymarket category
+ * Handles various category formats from Gamma API
  */
 export function classifyPolymarketByCategory(category: string): TopicClassification | null {
-  const normalized = category.toLowerCase().trim();
-  const topic = POLYMARKET_CATEGORY_MAP[normalized];
+  const variants = normalizeCategory(category);
 
-  if (topic) {
-    return {
-      topic,
-      confidence: 0.85,
-      source: TopicSource.CATEGORY,
-      reason: `Category: ${category}`,
-    };
+  for (const variant of variants) {
+    const topic = POLYMARKET_CATEGORY_MAP[variant];
+    if (topic) {
+      return {
+        topic,
+        confidence: 0.85,
+        source: TopicSource.CATEGORY,
+        reason: `Category: ${category}`,
+      };
+    }
   }
+
+  // Try partial word matching for compound categories
+  // e.g., "us-current-affairs" contains "politics"
+  const words = category.toLowerCase().replace(/-/g, ' ').split(/\s+/);
+  for (const word of words) {
+    const topic = POLYMARKET_CATEGORY_MAP[word];
+    if (topic && topic !== CanonicalTopic.UNKNOWN) {
+      return {
+        topic,
+        confidence: 0.70, // Lower confidence for partial match
+        source: TopicSource.CATEGORY,
+        reason: `Category word: ${word} (from ${category})`,
+      };
+    }
+  }
+
   return null;
 }
 

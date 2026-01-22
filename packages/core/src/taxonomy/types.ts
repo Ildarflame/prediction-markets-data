@@ -1,8 +1,10 @@
 /**
- * Taxonomy Types (v3.0.0)
+ * Taxonomy Types (v3.0.1)
  *
  * Unified topic classification system for cross-venue market matching.
  * Maps venue-specific categories/tags to canonical topics.
+ *
+ * v3.0.1: Added series-based classification support
  */
 
 /**
@@ -18,6 +20,7 @@ export enum CanonicalTopic {
   GEOPOLITICS = 'GEOPOLITICS',
   SPORTS = 'SPORTS',
   ENTERTAINMENT = 'ENTERTAINMENT',
+  CLIMATE = 'CLIMATE',
   UNKNOWN = 'UNKNOWN',
 }
 
@@ -53,6 +56,10 @@ export enum TopicSource {
   CATEGORY = 'category',
   /** From metadata analysis */
   METADATA = 'metadata',
+  /** From series metadata (category + tags) */
+  SERIES_METADATA = 'series_metadata',
+  /** From event metadata */
+  EVENT_METADATA = 'event_metadata',
   /** Fallback/unknown */
   FALLBACK = 'fallback',
 }

@@ -66,45 +66,108 @@ export const KALSHI_TICKER_RULES: TopicRule[] = [
 ];
 
 /**
- * Kalshi category to topic mapping
+ * Kalshi series CATEGORY to topic mapping (case-insensitive)
+ * Based on actual Kalshi API series categories
  */
 export const KALSHI_CATEGORY_MAP: Record<string, CanonicalTopic> = {
-  // Crypto
+  // Crypto - primary category
   'crypto': CanonicalTopic.CRYPTO_DAILY,
   'cryptocurrency': CanonicalTopic.CRYPTO_DAILY,
-  'bitcoin': CanonicalTopic.CRYPTO_DAILY,
-  'ethereum': CanonicalTopic.CRYPTO_DAILY,
 
-  // Macro
+  // Economics/Macro - primary category
   'economics': CanonicalTopic.MACRO,
   'economy': CanonicalTopic.MACRO,
-  'inflation': CanonicalTopic.MACRO,
-  'gdp': CanonicalTopic.MACRO,
-  'employment': CanonicalTopic.MACRO,
 
-  // Rates
+  // Financial - often contains rates
+  'financial': CanonicalTopic.RATES,
+  'financials': CanonicalTopic.RATES,
+
+  // Politics - elections
+  'politics': CanonicalTopic.ELECTIONS,
+  'elections': CanonicalTopic.ELECTIONS,
+
+  // Sports - primary category
+  'sports': CanonicalTopic.SPORTS,
+
+  // Entertainment - primary category
+  'entertainment': CanonicalTopic.ENTERTAINMENT,
+
+  // Climate/Weather
+  'climate': CanonicalTopic.CLIMATE,
+  'weather': CanonicalTopic.CLIMATE,
+
+  // Tech - map to UNKNOWN for now (could be its own topic)
+  'tech': CanonicalTopic.UNKNOWN,
+  'technology': CanonicalTopic.UNKNOWN,
+
+  // World events - geopolitics
+  'world': CanonicalTopic.GEOPOLITICS,
+  'geopolitics': CanonicalTopic.GEOPOLITICS,
+};
+
+/**
+ * Kalshi series TAG to topic mapping (case-insensitive)
+ * Tags provide more specific classification than categories
+ */
+export const KALSHI_TAG_MAP: Record<string, CanonicalTopic> = {
+  // Crypto tags
+  'bitcoin': CanonicalTopic.CRYPTO_DAILY,
+  'ethereum': CanonicalTopic.CRYPTO_DAILY,
+  'solana': CanonicalTopic.CRYPTO_DAILY,
+  'crypto': CanonicalTopic.CRYPTO_DAILY,
+
+  // Macro tags
+  'cpi': CanonicalTopic.MACRO,
+  'gdp': CanonicalTopic.MACRO,
+  'inflation': CanonicalTopic.MACRO,
+  'jobs': CanonicalTopic.MACRO,
+  'employment': CanonicalTopic.MACRO,
+  'nfp': CanonicalTopic.MACRO,
+  'pce': CanonicalTopic.MACRO,
+  'pmi': CanonicalTopic.MACRO,
+  'unemployment': CanonicalTopic.MACRO,
+
+  // Rates tags
   'fed': CanonicalTopic.RATES,
   'fomc': CanonicalTopic.RATES,
   'interest rates': CanonicalTopic.RATES,
-  'central bank': CanonicalTopic.RATES,
+  'federal reserve': CanonicalTopic.RATES,
 
-  // Elections
-  'politics': CanonicalTopic.ELECTIONS,
+  // Elections tags
   'election': CanonicalTopic.ELECTIONS,
-  'elections': CanonicalTopic.ELECTIONS,
-  'us politics': CanonicalTopic.ELECTIONS,
+  'president': CanonicalTopic.ELECTIONS,
+  'presidential': CanonicalTopic.ELECTIONS,
+  'congress': CanonicalTopic.ELECTIONS,
+  'senate': CanonicalTopic.ELECTIONS,
+  'governor': CanonicalTopic.ELECTIONS,
 
-  // Sports
-  'sports': CanonicalTopic.SPORTS,
-  'esports': CanonicalTopic.SPORTS,
+  // Sports tags
   'nba': CanonicalTopic.SPORTS,
   'nfl': CanonicalTopic.SPORTS,
   'mlb': CanonicalTopic.SPORTS,
+  'nhl': CanonicalTopic.SPORTS,
+  'ncaa': CanonicalTopic.SPORTS,
+  'soccer': CanonicalTopic.SPORTS,
+  'olympics': CanonicalTopic.SPORTS,
+  'ufc': CanonicalTopic.SPORTS,
+  'mma': CanonicalTopic.SPORTS,
+  'tennis': CanonicalTopic.SPORTS,
+  'golf': CanonicalTopic.SPORTS,
+  'f1': CanonicalTopic.SPORTS,
+  'formula 1': CanonicalTopic.SPORTS,
 
-  // Entertainment
-  'entertainment': CanonicalTopic.ENTERTAINMENT,
-  'awards': CanonicalTopic.ENTERTAINMENT,
+  // Entertainment tags
+  'movies': CanonicalTopic.ENTERTAINMENT,
+  'tv': CanonicalTopic.ENTERTAINMENT,
   'oscars': CanonicalTopic.ENTERTAINMENT,
+  'grammys': CanonicalTopic.ENTERTAINMENT,
+  'emmys': CanonicalTopic.ENTERTAINMENT,
+  'awards': CanonicalTopic.ENTERTAINMENT,
+
+  // Climate tags
+  'hurricane': CanonicalTopic.CLIMATE,
+  'temperature': CanonicalTopic.CLIMATE,
+  'weather': CanonicalTopic.CLIMATE,
 };
 
 /**
@@ -148,52 +211,66 @@ export function classifyKalshiByCategory(category: string): TopicClassification 
 }
 
 /**
- * Classify a Kalshi series using all available info
+ * Classify a Kalshi series by tags
+ */
+export function classifyKalshiByTags(tags: string[]): TopicClassification | null {
+  for (const tag of tags) {
+    const tagLower = tag.toLowerCase().trim();
+    const topic = KALSHI_TAG_MAP[tagLower];
+    if (topic && topic !== CanonicalTopic.UNKNOWN) {
+      return {
+        topic,
+        confidence: 0.85,
+        source: TopicSource.SERIES_METADATA,
+        reason: `Tag: ${tag}`,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Classify a Kalshi series using all available info (v3.0.1)
+ * Priority: 1) Category 2) Tags 3) Ticker pattern
+ * Series metadata takes priority over ticker heuristics
  */
 export function classifyKalshiSeries(series: KalshiSeriesInfo): TopicClassification {
-  // 1. Try ticker pattern first (highest priority)
-  const tickerResult = classifyKalshiByTicker(series.ticker);
-  if (tickerResult && tickerResult.confidence >= 0.85) {
-    return tickerResult;
-  }
-
-  // 2. Try category mapping
+  // 1. Try category mapping first (most reliable for series)
   if (series.category) {
     const categoryResult = classifyKalshiByCategory(series.category);
-    if (categoryResult) {
-      // If ticker also matched but with lower confidence, boost category result
-      if (tickerResult) {
+    if (categoryResult && categoryResult.topic !== CanonicalTopic.UNKNOWN) {
+      // Boost confidence if tags also match
+      const tagResult = classifyKalshiByTags(series.tags);
+      if (tagResult && tagResult.topic === categoryResult.topic) {
         return {
-          ...tickerResult,
-          confidence: Math.min(1.0, tickerResult.confidence + 0.05),
+          ...categoryResult,
+          confidence: Math.min(1.0, categoryResult.confidence + 0.10),
+          reason: `Category: ${series.category}, Tag: ${series.tags.join(',')}`,
         };
       }
       return categoryResult;
     }
   }
 
-  // 3. Try tag analysis
+  // 2. Try tag analysis
   if (series.tags.length > 0) {
-    for (const tag of series.tags) {
-      const tagLower = tag.toLowerCase();
-      const topic = KALSHI_CATEGORY_MAP[tagLower];
-      if (topic) {
-        return {
-          topic,
-          confidence: 0.70,
-          source: TopicSource.METADATA,
-          reason: `Tag: ${tag}`,
-        };
-      }
+    const tagResult = classifyKalshiByTags(series.tags);
+    if (tagResult) {
+      return tagResult;
     }
   }
 
-  // 4. Return ticker result if it exists (even with lower confidence)
+  // 3. Fallback to ticker pattern (only for crypto daily/intraday split)
+  const tickerResult = classifyKalshiByTicker(series.ticker);
   if (tickerResult) {
-    return tickerResult;
+    return {
+      ...tickerResult,
+      confidence: tickerResult.confidence * 0.9, // Slightly lower confidence for ticker-only
+      reason: `Ticker fallback: ${tickerResult.reason}`,
+    };
   }
 
-  // 5. Fallback to unknown
+  // 4. Fallback to unknown
   return {
     topic: CanonicalTopic.UNKNOWN,
     confidence: 0.0,
@@ -203,23 +280,64 @@ export function classifyKalshiSeries(series: KalshiSeriesInfo): TopicClassificat
 }
 
 /**
- * Classify a Kalshi market using metadata
+ * Extract series ticker from event ticker
+ * Event tickers are formatted as: SERIES-EVENT_SUFFIX
+ * e.g., "KXBTC-24JAN01" -> "KXBTC"
+ * e.g., "KXMVESPORTSMULTIGAMEEXTENDED-S2025ABC" -> "KXMVESPORTSMULTIGAMEEXTENDED"
+ */
+export function extractSeriesTickerFromEvent(eventTicker: string): string | null {
+  if (!eventTicker) return null;
+
+  // Common patterns:
+  // 1. SERIES-DATE (e.g., KXBTC-24JAN01)
+  // 2. SERIES-S2025XXX (e.g., KXMVESPORTS-S2025ABC)
+  // 3. SERIES-E2025XXX (e.g., KXCPI-E2025JAN)
+
+  const match = eventTicker.match(/^([A-Z0-9]+?)(?:-[0-9]{2}[A-Z]{3}|-[SE][0-9]{4}|-[A-Z0-9]+$)/i);
+  if (match) {
+    return match[1];
+  }
+
+  // Fallback: take everything before the first hyphen followed by digits or S/E
+  const parts = eventTicker.split('-');
+  if (parts.length > 1) {
+    return parts[0];
+  }
+
+  return eventTicker;
+}
+
+/**
+ * Classify a Kalshi market using series info from database
+ * This is the preferred method when series data is available
+ */
+export function classifyKalshiMarketWithSeries(
+  seriesCategory: string | null,
+  seriesTags: string[] | null
+): TopicClassification | null {
+  if (!seriesCategory && (!seriesTags || seriesTags.length === 0)) {
+    return null;
+  }
+
+  // Use series classification logic
+  return classifyKalshiSeries({
+    ticker: '', // Not needed for classification
+    title: '',
+    category: seriesCategory || undefined,
+    tags: seriesTags || [],
+  });
+}
+
+/**
+ * Classify a Kalshi market using metadata (v3.0.1)
+ * Priority: 1) Series metadata 2) Ticker patterns 3) Category field
  */
 export function classifyKalshiMarket(
   _title: string,
   category?: string | null,
   metadata?: Record<string, unknown> | null
 ): TopicClassification {
-  // 1. Try event ticker from metadata
-  const eventTicker = getKalshiEventTicker(metadata);
-  if (eventTicker) {
-    const tickerResult = classifyKalshiByTicker(eventTicker);
-    if (tickerResult && tickerResult.confidence >= 0.85) {
-      return tickerResult;
-    }
-  }
-
-  // 2. Try series ticker from metadata
+  // 1. Try series ticker from metadata and classify by ticker pattern
   const seriesTicker = getKalshiSeriesTicker(metadata);
   if (seriesTicker) {
     const tickerResult = classifyKalshiByTicker(seriesTicker);
@@ -228,10 +346,41 @@ export function classifyKalshiMarket(
     }
   }
 
-  // 3. Try category
+  // 2. Try event ticker from metadata
+  const eventTicker = getKalshiEventTicker(metadata);
+  if (eventTicker) {
+    // Try to extract series ticker from event ticker
+    const derivedSeriesTicker = extractSeriesTickerFromEvent(eventTicker);
+    if (derivedSeriesTicker) {
+      const tickerResult = classifyKalshiByTicker(derivedSeriesTicker);
+      if (tickerResult && tickerResult.confidence >= 0.85) {
+        return tickerResult;
+      }
+    }
+
+    // Try event ticker directly
+    const eventTickerResult = classifyKalshiByTicker(eventTicker);
+    if (eventTickerResult && eventTickerResult.confidence >= 0.85) {
+      return eventTickerResult;
+    }
+  }
+
+  // 3. Try category (may contain event ticker, not actual category)
   if (category) {
+    // Check if category looks like a ticker (starts with KX)
+    if (category.startsWith('KX') || category.startsWith('kx')) {
+      const derivedSeriesTicker = extractSeriesTickerFromEvent(category);
+      if (derivedSeriesTicker) {
+        const tickerResult = classifyKalshiByTicker(derivedSeriesTicker);
+        if (tickerResult) {
+          return tickerResult;
+        }
+      }
+    }
+
+    // Try as actual category
     const categoryResult = classifyKalshiByCategory(category);
-    if (categoryResult) {
+    if (categoryResult && categoryResult.topic !== CanonicalTopic.UNKNOWN) {
       return categoryResult;
     }
   }
