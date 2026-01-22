@@ -1,18 +1,31 @@
 /**
- * links:watchlist:sync - Sync market_links to quote_watchlist (v2.6.7)
+ * links:watchlist:sync - Sync market_links to quote_watchlist (v2.6.8)
  *
- * Populates the watchlist with markets from:
+ * Uses Policy v2 to populate the watchlist with markets from:
  * 1. Confirmed links (both sides) - priority 100
- * 2. Top suggested links (score >= minScore) - priority 50
+ * 2. Candidate-safe (passed SAFE_RULES but not confirmed) - priority 80
+ * 3. Top suggested links (score >= minScore) - priority 50
+ *
+ * Respects caps: max per venue and max total.
  *
  * Run: pnpm --filter @data-module/worker links:watchlist:sync --dry-run
  */
 
-import { getClient, WatchlistRepository, type WatchlistItem, type Venue } from '@data-module/db';
+import { getClient, WatchlistRepository, type WatchlistItem, type LinkStatus } from '@data-module/db';
+import {
+  applyWatchlistPolicy,
+  formatPolicyResult,
+  DEFAULT_POLICY_CONFIG,
+  type WatchlistPolicyConfig,
+} from '../ops/watchlist-policy.js';
 
 export interface LinksWatchlistSyncOptions {
-  /** Minimum score for suggested links (default: 0.92) */
-  minScore?: number;
+  /** Minimum score for top suggested links (default from env or 0.85) */
+  minScoreSuggested?: number;
+  /** Maximum total watchlist entries (default: 2000) */
+  maxTotal?: number;
+  /** Maximum per venue (default: 1000) */
+  maxPerVenue?: number;
   /** Maximum suggested links to include (default: 500) */
   maxSuggested?: number;
   /** Preview changes without applying */
@@ -23,9 +36,11 @@ export interface LinksWatchlistSyncResult {
   dryRun: boolean;
   confirmedLinks: number;
   confirmedMarkets: number;
-  suggestedLinks: number;
+  candidateSafeMarkets: number;
   suggestedMarkets: number;
   totalItems: number;
+  byVenue: Record<string, number>;
+  byPriority: Record<number, number>;
   created: number;
   updated: number;
 }
@@ -34,8 +49,10 @@ export async function runLinksWatchlistSync(
   options: LinksWatchlistSyncOptions = {}
 ): Promise<LinksWatchlistSyncResult> {
   const {
-    minScore = parseFloat(process.env.WATCHLIST_MIN_SCORE || '0.92'),
-    maxSuggested = 500,
+    minScoreSuggested = DEFAULT_POLICY_CONFIG.minScoreTopSuggested,
+    maxTotal = DEFAULT_POLICY_CONFIG.maxTotal,
+    maxPerVenue = DEFAULT_POLICY_CONFIG.maxPerVenue,
+    maxSuggested = DEFAULT_POLICY_CONFIG.maxTopSuggested,
     dryRun = false,
   } = options;
 
@@ -43,145 +60,99 @@ export async function runLinksWatchlistSync(
   const watchlistRepo = new WatchlistRepository(prisma);
 
   console.log(`\n${'='.repeat(60)}`);
-  console.log(`[links:watchlist:sync] Sync Links to Watchlist (v2.6.7)`);
+  console.log(`[links:watchlist:sync] Sync Links to Watchlist (v2.6.8 Policy v2)`);
   console.log(`${'='.repeat(60)}`);
   console.log(`Options:`);
-  console.log(`  minScore: ${minScore}`);
+  console.log(`  minScoreSuggested: ${minScoreSuggested}`);
+  console.log(`  maxTotal: ${maxTotal}`);
+  console.log(`  maxPerVenue: ${maxPerVenue}`);
   console.log(`  maxSuggested: ${maxSuggested}`);
   console.log(`  dryRun: ${dryRun}`);
   console.log();
 
-  const items: WatchlistItem[] = [];
+  console.log('[Safe Score Thresholds by Topic]');
+  for (const [topic, score] of Object.entries(DEFAULT_POLICY_CONFIG.minScoreSafe)) {
+    console.log(`  ${topic}: ${score}`);
+  }
+  console.log();
 
-  // 1. Get confirmed links (both markets)
+  // 1. Fetch confirmed links
   console.log('[1/3] Fetching confirmed links...');
   const confirmedLinks = await prisma.marketLink.findMany({
-    where: { status: 'confirmed' },
+    where: { status: 'confirmed' as LinkStatus },
     include: {
-      leftMarket: { select: { id: true, venue: true } },
-      rightMarket: { select: { id: true, venue: true } },
+      leftMarket: { include: { outcomes: true } },
+      rightMarket: { include: { outcomes: true } },
     },
   });
-
   console.log(`  Found ${confirmedLinks.length} confirmed links`);
 
-  const confirmedMarketIds = new Set<string>();
-  for (const link of confirmedLinks) {
-    // Add left market
-    const leftKey = `${link.leftMarket.venue}:${link.leftMarket.id}`;
-    if (!confirmedMarketIds.has(leftKey)) {
-      confirmedMarketIds.add(leftKey);
-      items.push({
-        venue: link.leftMarket.venue as Venue,
-        marketId: link.leftMarket.id,
-        priority: 100,
-        reason: 'confirmed_link',
-      });
-    }
-
-    // Add right market
-    const rightKey = `${link.rightMarket.venue}:${link.rightMarket.id}`;
-    if (!confirmedMarketIds.has(rightKey)) {
-      confirmedMarketIds.add(rightKey);
-      items.push({
-        venue: link.rightMarket.venue as Venue,
-        marketId: link.rightMarket.id,
-        priority: 100,
-        reason: 'confirmed_link',
-      });
-    }
-  }
-
-  console.log(`  Added ${confirmedMarketIds.size} unique markets from confirmed links`);
-
-  // 2. Get top suggested links
-  console.log('[2/3] Fetching top suggested links...');
+  // 2. Fetch suggested links (higher score first)
+  console.log('[2/3] Fetching suggested links...');
   const suggestedLinks = await prisma.marketLink.findMany({
     where: {
-      status: 'suggested',
-      score: { gte: minScore },
+      status: 'suggested' as LinkStatus,
+      score: { gte: 0.80 }, // Lower bound to get candidates for safe rules evaluation
     },
     include: {
-      leftMarket: { select: { id: true, venue: true } },
-      rightMarket: { select: { id: true, venue: true } },
+      leftMarket: { include: { outcomes: true } },
+      rightMarket: { include: { outcomes: true } },
     },
     orderBy: { score: 'desc' },
-    take: maxSuggested,
+    take: 2000, // Enough to evaluate candidate-safe + top suggested
   });
-
-  console.log(`  Found ${suggestedLinks.length} suggested links with score >= ${minScore}`);
-
-  const suggestedMarketIds = new Set<string>();
-  for (const link of suggestedLinks) {
-    // Add left market (skip if already in confirmed)
-    const leftKey = `${link.leftMarket.venue}:${link.leftMarket.id}`;
-    if (!confirmedMarketIds.has(leftKey) && !suggestedMarketIds.has(leftKey)) {
-      suggestedMarketIds.add(leftKey);
-      items.push({
-        venue: link.leftMarket.venue as Venue,
-        marketId: link.leftMarket.id,
-        priority: 50,
-        reason: 'top_suggested',
-      });
-    }
-
-    // Add right market (skip if already in confirmed)
-    const rightKey = `${link.rightMarket.venue}:${link.rightMarket.id}`;
-    if (!confirmedMarketIds.has(rightKey) && !suggestedMarketIds.has(rightKey)) {
-      suggestedMarketIds.add(rightKey);
-      items.push({
-        venue: link.rightMarket.venue as Venue,
-        marketId: link.rightMarket.id,
-        priority: 50,
-        reason: 'top_suggested',
-      });
-    }
-  }
-
-  console.log(`  Added ${suggestedMarketIds.size} unique markets from suggested links`);
-
-  // Summary before apply
-  console.log();
-  console.log('[Summary]');
-  console.log(`  Confirmed links: ${confirmedLinks.length}`);
-  console.log(`  Confirmed markets: ${confirmedMarketIds.size}`);
-  console.log(`  Suggested links: ${suggestedLinks.length}`);
-  console.log(`  Suggested markets: ${suggestedMarketIds.size}`);
-  console.log(`  Total watchlist items: ${items.length}`);
+  console.log(`  Found ${suggestedLinks.length} suggested links (score >= 0.80)`);
   console.log();
 
-  // Group by venue for display
-  const byVenue: Record<string, number> = {};
-  for (const item of items) {
-    byVenue[item.venue] = (byVenue[item.venue] || 0) + 1;
-  }
-  console.log('[By Venue]');
-  for (const [venue, count] of Object.entries(byVenue)) {
-    console.log(`  ${venue}: ${count}`);
-  }
+  // 3. Apply policy
+  console.log('[3/3] Applying watchlist policy v2...');
+  const policyConfig: WatchlistPolicyConfig = {
+    maxTotal,
+    maxPerVenue,
+    minScoreSafe: DEFAULT_POLICY_CONFIG.minScoreSafe,
+    minScoreTopSuggested: minScoreSuggested,
+    maxTopSuggested: maxSuggested,
+  };
+
+  const policyResult = applyWatchlistPolicy(confirmedLinks, suggestedLinks, policyConfig);
+
+  console.log();
+  console.log(formatPolicyResult(policyResult));
   console.log();
 
-  // 3. Apply to watchlist
+  // Convert to WatchlistItems
+  const items: WatchlistItem[] = policyResult.candidates.map(c => ({
+    venue: c.venue,
+    marketId: c.marketId,
+    priority: c.priority,
+    reason: c.reason,
+  }));
+
+  // Apply or dry-run
   if (dryRun) {
     console.log('[DRY RUN] Would upsert the following items:');
-    console.log(`  - ${confirmedMarketIds.size} confirmed markets (priority 100)`);
-    console.log(`  - ${suggestedMarketIds.size} suggested markets (priority 50)`);
+    console.log(`  - ${policyResult.stats.confirmedMarkets} confirmed markets (priority 100)`);
+    console.log(`  - ${policyResult.stats.candidateSafeMarkets} candidate-safe markets (priority 80)`);
+    console.log(`  - ${policyResult.stats.topSuggestedMarkets} top-suggested markets (priority 50)`);
+    console.log(`  - Total: ${policyResult.stats.totalUnique}`);
     console.log();
     console.log('Run without --dry-run to apply changes.');
 
     return {
       dryRun: true,
       confirmedLinks: confirmedLinks.length,
-      confirmedMarkets: confirmedMarketIds.size,
-      suggestedLinks: suggestedLinks.length,
-      suggestedMarkets: suggestedMarketIds.size,
-      totalItems: items.length,
+      confirmedMarkets: policyResult.stats.confirmedMarkets,
+      candidateSafeMarkets: policyResult.stats.candidateSafeMarkets,
+      suggestedMarkets: policyResult.stats.topSuggestedMarkets,
+      totalItems: policyResult.stats.totalUnique,
+      byVenue: policyResult.stats.byVenue,
+      byPriority: policyResult.stats.byPriority,
       created: 0,
       updated: 0,
     };
   }
 
-  console.log('[3/3] Upserting to watchlist...');
+  console.log('[Upserting to watchlist...]');
   const result = await watchlistRepo.upsertMany(items);
 
   console.log(`  Created: ${result.created}`);
@@ -196,16 +167,19 @@ export async function runLinksWatchlistSync(
     console.log(`  ${venue}: ${count}`);
   }
   for (const { priority, count } of stats.byPriority) {
-    console.log(`  Priority ${priority}: ${count}`);
+    const label = priority === 100 ? 'confirmed' : priority === 80 ? 'candidate-safe' : 'top_suggested';
+    console.log(`  Priority ${priority} (${label}): ${count}`);
   }
 
   return {
     dryRun: false,
     confirmedLinks: confirmedLinks.length,
-    confirmedMarkets: confirmedMarketIds.size,
-    suggestedLinks: suggestedLinks.length,
-    suggestedMarkets: suggestedMarketIds.size,
-    totalItems: items.length,
+    confirmedMarkets: policyResult.stats.confirmedMarkets,
+    candidateSafeMarkets: policyResult.stats.candidateSafeMarkets,
+    suggestedMarkets: policyResult.stats.topSuggestedMarkets,
+    totalItems: policyResult.stats.totalUnique,
+    byVenue: policyResult.stats.byVenue,
+    byPriority: policyResult.stats.byPriority,
     created: result.created,
     updated: result.updated,
   };

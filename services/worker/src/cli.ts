@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit, runCryptoTruthDateAudit, runCryptoTypeAudit, runCryptoEthDebug, runCryptoSeriesAudit, runCryptoEligibleExplain, runKalshiIngestionDiag, runKalshiSanityStatus, runQuotesFreshness, runPolymarketCursorDiag, runLinksStats, runLinksCleanup, runLinksBackfill, runIntradayBest, runVenueSanityEligible, runLinksWatchlistSync, runWatchlistStats, runWatchlistList, runWatchlistCleanup, runLinksQueue, runLinksAutoReject } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit, runCryptoTruthDateAudit, runCryptoTypeAudit, runCryptoEthDebug, runCryptoSeriesAudit, runCryptoEligibleExplain, runKalshiIngestionDiag, runKalshiSanityStatus, runQuotesFreshness, runPolymarketCursorDiag, runLinksStats, runLinksCleanup, runLinksBackfill, runIntradayBest, runVenueSanityEligible, runLinksWatchlistSync, runWatchlistStats, runWatchlistList, runWatchlistCleanup, runLinksQueue, runLinksAutoReject, runAutoConfirm, runOps, runOpsKpi } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -1458,17 +1458,21 @@ program
     }
   });
 
-// v2.6.7: links:watchlist:sync - Sync links to watchlist
+// v2.6.8: links:watchlist:sync - Sync links to watchlist (Policy v2)
 program
   .command('links:watchlist:sync')
-  .description('Sync confirmed/top-suggested links to quote watchlist (v2.6.7)')
-  .option('--min-score <number>', 'Min score for suggested links', '0.92')
+  .description('Sync links to quote watchlist (v2.6.8: Policy v2 with candidate-safe tier)')
+  .option('--min-score-suggested <number>', 'Min score for top suggested links', '0.85')
+  .option('--max-total <number>', 'Max total watchlist entries', '2000')
+  .option('--max-per-venue <number>', 'Max per venue', '1000')
   .option('--max-suggested <number>', 'Max suggested links to include', '500')
   .option('--dry-run', 'Preview changes without applying', false)
   .action(async (opts) => {
     try {
       await runLinksWatchlistSync({
-        minScore: parseFloat(opts.minScore),
+        minScoreSuggested: parseFloat(opts.minScoreSuggested),
+        maxTotal: parseInt(opts.maxTotal, 10),
+        maxPerVenue: parseInt(opts.maxPerVenue, 10),
         maxSuggested: parseInt(opts.maxSuggested, 10),
         dryRun: opts.dryRun,
       });
@@ -1502,24 +1506,108 @@ program
     }
   });
 
-// v2.6.7: links:auto-reject - Auto-reject low-quality links
+// v2.6.8: links:auto-reject - Auto-reject low-quality links (enhanced)
 program
   .command('links:auto-reject')
-  .description('Auto-reject low-quality suggested links (v2.6.7, default: dry-run)')
-  .option('--max-score <number>', 'Reject links with score below this', '0.55')
-  .option('--older-than-days <days>', 'Only reject links older than N days', '14')
-  .option('--topic <topic>', 'Filter by topic')
+  .description('Auto-reject low-quality suggested links (v2.6.8: topic-specific floors, min-age)')
+  .option('--topic <topic>', 'Filter by topic (crypto_daily, crypto_intraday, macro, all)', 'all')
+  .option('--min-age-hours <hours>', 'Only reject links older than N hours', '24')
+  .option('--limit <number>', 'Maximum links to process', '5000')
   .option('--apply', 'Actually reject (default: dry-run)', false)
+  .option('--explain', 'Show detailed evaluation for each link', false)
   .action(async (opts) => {
     try {
       await runLinksAutoReject({
-        maxScore: parseFloat(opts.maxScore),
-        olderThanDays: parseInt(opts.olderThanDays, 10),
         topic: opts.topic,
+        minAgeHours: parseInt(opts.minAgeHours, 10),
+        limit: parseInt(opts.limit, 10),
         apply: opts.apply,
+        explain: opts.explain,
       });
     } catch (error) {
       console.error('Links auto-reject error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// v2.6.8: links:auto-confirm - Auto-confirm high-quality links
+program
+  .command('links:auto-confirm')
+  .description('Auto-confirm high-quality links using SAFE_RULES (v2.6.8, default: dry-run)')
+  .option('--topic <topic>', 'Filter by topic (crypto_daily, crypto_intraday, macro, all)', 'all')
+  .option('--min-score <number>', 'Minimum score (default: per-topic)')
+  .option('--limit <number>', 'Maximum links to process', '500')
+  .option('--apply', 'Actually confirm (default: dry-run)', false)
+  .option('--explain', 'Show detailed rule evaluation', false)
+  .action(async (opts) => {
+    try {
+      await runAutoConfirm({
+        topic: opts.topic,
+        minScore: opts.minScore ? parseFloat(opts.minScore) : undefined,
+        limit: parseInt(opts.limit, 10),
+        dryRun: !opts.apply,
+        apply: opts.apply,
+        explain: opts.explain,
+      });
+    } catch (error) {
+      console.error('Links auto-confirm error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// v2.6.8: ops:run - Scheduled operations runner
+program
+  .command('ops:run')
+  .description('Run scheduled operations loop (v2.6.8: suggest, confirm, reject, sync)')
+  .option('--topics <topics>', 'Topics to process (comma-separated)', 'crypto_daily,macro')
+  .option('--suggest-matches', 'Run suggest-matches per topic', false)
+  .option('--auto-confirm', 'Run auto-confirm', false)
+  .option('--auto-reject', 'Run auto-reject', false)
+  .option('--watchlist-sync', 'Run watchlist sync', false)
+  .option('--quotes-freshness-check', 'Run quotes freshness check', false)
+  .option('--apply', 'Apply changes (default: dry-run)', false)
+  .option('--match-limit <number>', 'Limit for suggest-matches', '500')
+  .option('--confirm-limit <number>', 'Limit for auto-confirm', '500')
+  .option('--reject-limit <number>', 'Limit for auto-reject', '2000')
+  .action(async (opts) => {
+    try {
+      const result = await runOps({
+        topics: opts.topics,
+        suggestMatches: opts.suggestMatches,
+        autoConfirm: opts.autoConfirm,
+        autoReject: opts.autoReject,
+        watchlistSync: opts.watchlistSync,
+        quotesFreshnessCheck: opts.quotesFreshnessCheck,
+        apply: opts.apply,
+        matchLimit: parseInt(opts.matchLimit, 10),
+        confirmLimit: parseInt(opts.confirmLimit, 10),
+        rejectLimit: parseInt(opts.rejectLimit, 10),
+      });
+
+      if (!result.success) {
+        process.exit(1);
+      }
+    } catch (error) {
+      console.error('Ops run error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// v2.6.8: ops:kpi - KPI dashboard
+program
+  .command('ops:kpi')
+  .description('Show key performance indicators dashboard (v2.6.8)')
+  .action(async () => {
+    try {
+      await runOpsKpi();
+    } catch (error) {
+      console.error('Ops KPI error:', error);
       process.exit(1);
     } finally {
       await disconnect();

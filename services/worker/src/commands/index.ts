@@ -92,3 +92,8 @@ export { runWatchlistCleanup, type WatchlistCleanupOptions, type WatchlistCleanu
 // v2.6.7: Review loop commands
 export { runLinksQueue, type LinksQueueOptions, type LinksQueueResult } from './links-queue.js';
 export { runLinksAutoReject, type LinksAutoRejectOptions, type LinksAutoRejectResult } from './links-auto-reject.js';
+
+// v2.6.8: Auto-confirm and ops commands
+export { runAutoConfirm, type AutoConfirmOptions, type AutoConfirmResult } from './links-auto-confirm.js';
+export { runOps, type OpsRunOptions, type OpsRunResult } from './ops-run.js';
+export { runOpsKpi, type OpsKpiResult } from './ops-kpi.js';
