@@ -399,3 +399,106 @@ export function getTickerPrefix(ticker: string | null | undefined, maxLength: nu
   }
   return prefix;
 }
+
+// ============================================================
+// v2.6.6: Score Sanity Utilities
+// ============================================================
+
+/**
+ * Diagnostics for score clamping (v2.6.6)
+ */
+export interface ScoreDiagnostics {
+  /** Original score before clamping */
+  rawScore: number;
+  /** Final score after clamping to [0, 1] */
+  finalScore: number;
+  /** Whether the score was clamped */
+  wasClamped: boolean;
+  /** Whether the original was NaN or Infinity */
+  wasInvalid: boolean;
+  /** Human-readable clamp reason */
+  clampReason?: string;
+}
+
+/**
+ * Clamp a score to [0, 1] range and handle invalid values (v2.6.6)
+ *
+ * Guarantees:
+ * - finalScore is always in [0, 1]
+ * - NaN becomes 0
+ * - Infinity/-Infinity become 1/0
+ * - Values > 1 become 1
+ * - Values < 0 become 0
+ *
+ * @param score - Raw score value
+ * @param context - Optional context for logging (e.g., "crypto", "macro")
+ * @returns Clamped score and diagnostics
+ */
+export function clampScore(score: number, context?: string): ScoreDiagnostics {
+  const result: ScoreDiagnostics = {
+    rawScore: score,
+    finalScore: score,
+    wasClamped: false,
+    wasInvalid: false,
+  };
+
+  // Handle NaN
+  if (Number.isNaN(score)) {
+    result.finalScore = 0;
+    result.wasClamped = true;
+    result.wasInvalid = true;
+    result.clampReason = 'NaN->0';
+    console.warn(`[score-sanity${context ? `:${context}` : ''}] NaN score replaced with 0`);
+    return result;
+  }
+
+  // Handle Infinity
+  if (!Number.isFinite(score)) {
+    result.finalScore = score > 0 ? 1 : 0;
+    result.wasClamped = true;
+    result.wasInvalid = true;
+    result.clampReason = score > 0 ? 'Inf->1' : '-Inf->0';
+    console.warn(`[score-sanity${context ? `:${context}` : ''}] Infinite score replaced with ${result.finalScore}`);
+    return result;
+  }
+
+  // Handle > 1
+  if (score > 1) {
+    result.finalScore = 1;
+    result.wasClamped = true;
+    result.clampReason = `${score.toFixed(4)}>1->1`;
+    // Only warn if significantly over (>1.001 to avoid float precision issues)
+    if (score > 1.001) {
+      console.warn(`[score-sanity${context ? `:${context}` : ''}] Score ${score.toFixed(4)} clamped to 1`);
+    }
+    return result;
+  }
+
+  // Handle < 0
+  if (score < 0) {
+    result.finalScore = 0;
+    result.wasClamped = true;
+    result.clampReason = `${score.toFixed(4)}<0->0`;
+    console.warn(`[score-sanity${context ? `:${context}` : ''}] Negative score ${score.toFixed(4)} clamped to 0`);
+    return result;
+  }
+
+  return result;
+}
+
+/**
+ * Simple score clamp without diagnostics (v2.6.6)
+ * Use when you don't need detailed diagnostics
+ */
+export function clampScoreSimple(score: number): number {
+  if (Number.isNaN(score)) return 0;
+  if (!Number.isFinite(score)) return score > 0 ? 1 : 0;
+  return Math.max(0, Math.min(1, score));
+}
+
+/**
+ * Validate that a score is in valid range [0, 1] (v2.6.6)
+ */
+export function isValidScore(score: number): boolean {
+  return Number.isFinite(score) && score >= 0 && score <= 1;
+}

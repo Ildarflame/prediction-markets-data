@@ -11,6 +11,7 @@ import {
   tokenizeForEntities,
   MarketIntent,
   extractPeriod,
+  clampScoreSimple,
   type MarketFingerprint,
   type MacroPeriod,
 } from '@data-module/core';
@@ -903,13 +904,15 @@ function calculateMatchScore(
     // Calculate period score with compatibility kind (v2.4.3)
     const { score: perScore, kind: periodKind } = periodScoreWithKind(leftPeriod, rightPeriod);
 
-    // MACRO_PERIOD scoring formula (v2.4.3):
+    // MACRO_PERIOD scoring formula (v2.4.3, v2.6.6 fix):
     // macroEntity (0.5) + period (0.4 * compatScore) + number (0.05) + text bonus (0.05)
     // Period scores by kind: exact=0.40, month_in_quarter=0.24, quarter_in_year=0.22, month_in_year=0.18
-    const textBonus = (fzScore + jcScore) / 2 * 0.1; // Up to 0.05 contribution
-    const numberBonus = numScore * 0.1; // Up to 0.05 contribution
+    // v2.6.6: Fixed multipliers from 0.1 to 0.05 to ensure max score = 1.0
+    const textBonus = (fzScore + jcScore) / 2 * 0.05; // Up to 0.05 contribution
+    const numberBonus = numScore * 0.05; // Up to 0.05 contribution
 
-    const score = macroEntScore + perScore + numberBonus + textBonus;
+    const rawScore = macroEntScore + perScore + numberBonus + textBonus;
+    const score = clampScoreSimple(rawScore);
 
     const leftPeriodStr = buildPeriodKey(leftPeriod) || 'null';
     const rightPeriodStr = buildPeriodKey(rightPeriod) || 'null';
@@ -999,13 +1002,14 @@ function calculateMatchScore(
     };
   }
 
-  // Weighted combination
-  const score =
+  // Weighted combination (v2.6.6: add clamp for safety)
+  const rawScore =
     0.35 * entScore +
     0.25 * dtScore +
     0.25 * numScore +
     0.10 * fzScore +
     0.05 * jcScore;
+  const score = clampScoreSimple(rawScore);
 
   const breakdown = {
     entity: entScore,

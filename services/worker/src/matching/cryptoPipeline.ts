@@ -35,6 +35,7 @@ import {
   DatePrecision,
   isKalshiIntradayTicker,
   getKalshiEventTicker,
+  clampScoreSimple,
   type MarketFingerprint,
   type ExtractedDate,
 } from '@data-module/core';
@@ -1386,12 +1387,13 @@ export function cryptoMatchScore(left: CryptoMarket, right: CryptoMarket): Crypt
   const union = lTokens.size + rTokens.size - intersection;
   const textScoreVal = union > 0 ? intersection / union : 0;
 
-  // Weighted score
-  const score =
+  // Weighted score (v2.6.6: add clamp for safety)
+  const rawScore =
     0.45 * entityScoreVal +
     0.35 * dateScoreVal +
     0.15 * numberScoreVal +
     0.05 * textScoreVal;
+  const score = clampScoreSimple(rawScore);
 
   // Tier determination (v2.5.3: consider dateType)
   const isDayMatch = isDayType(lSig.dateType) && dayDiff === 0;
@@ -1754,8 +1756,9 @@ export function intradayMatchScore(left: IntradayMarket, right: IntradayMarket):
   // Direction match bonus (not used in score, but tracked)
   const directionMatch = lSig.direction !== null && rSig.direction !== null && lSig.direction === rSig.direction;
 
-  // Weighted score: entity 0.6 + time 0.3 + text 0.1
-  const score = 0.6 * entityScore + 0.3 * timeScore + 0.1 * textScore;
+  // Weighted score: entity 0.6 + time 0.3 + text 0.1 (v2.6.6: add clamp for safety)
+  const rawScore = 0.6 * entityScore + 0.3 * timeScore + 0.1 * textScore;
+  const score = clampScoreSimple(rawScore);
 
   const reason = `entity=${lSig.entity} bucket=${lSig.timeBucket} dir=${lSig.direction || 'any'}/${rSig.direction || 'any'} text=${textScore.toFixed(2)}`;
 
