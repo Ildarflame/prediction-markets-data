@@ -4,3 +4,4 @@ export * from './config.js';
 export * from './matching.js';
 export * from './aliases.js';
 export * from './extractor.js';
+export * from './taxonomy/index.js';

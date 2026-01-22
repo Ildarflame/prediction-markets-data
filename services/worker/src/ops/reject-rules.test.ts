@@ -44,6 +44,7 @@ describe('evaluateRejectRules', () => {
       sourceUpdatedAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
+      derivedTopic: null,
       outcomes: [],
     },
     rightMarket: {
@@ -57,6 +58,7 @@ describe('evaluateRejectRules', () => {
       closeTime: new Date(),
       metadata: null,
       sourceUpdatedAt: null,
+      derivedTopic: null,
       createdAt: new Date(),
       updatedAt: new Date(),
       outcomes: [],

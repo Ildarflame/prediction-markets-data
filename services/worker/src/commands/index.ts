@@ -97,3 +97,7 @@ export { runLinksAutoReject, type LinksAutoRejectOptions, type LinksAutoRejectRe
 export { runAutoConfirm, type AutoConfirmOptions, type AutoConfirmResult } from './links-auto-confirm.js';
 export { runOps, type OpsRunOptions, type OpsRunResult } from './ops-run.js';
 export { runOpsKpi, type OpsKpiResult } from './ops-kpi.js';
+
+// v3.0.0: Taxonomy and V3 engine commands
+export { runTaxonomyCoverage, type TaxonomyCoverageOptions } from './taxonomy-coverage.js';
+export { runV3SuggestMatches, type V3SuggestMatchesOptions, type V3SuggestMatchesResult } from './v3-suggest-matches.js';

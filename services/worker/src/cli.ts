@@ -1778,6 +1778,94 @@ program
     }
   });
 
+// ============================================================
+// v3.0.0: Taxonomy and V3 Engine Commands
+// ============================================================
+
+// Taxonomy coverage report
+program
+  .command('taxonomy:coverage')
+  .description('Show topic coverage report across venues (v3.0.0)')
+  .option('--topic <topic>', 'Filter by specific topic')
+  .option('--lookback-hours <hours>', 'Lookback window', '720')
+  .option('--limit <number>', 'Max markets per venue', '10000')
+  .option('--sample-size <number>', 'Sample titles per topic', '3')
+  .action(async (opts) => {
+    const { runTaxonomyCoverage } = await import('./commands/index.js');
+
+    try {
+      await runTaxonomyCoverage({
+        topic: opts.topic ? (opts.topic.toUpperCase() as any) : undefined,
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+        limit: parseInt(opts.limit, 10),
+        sampleSize: parseInt(opts.sampleSize, 10),
+      });
+    } catch (error) {
+      console.error('Taxonomy coverage error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// V3 suggest-matches (new engine)
+program
+  .command('v3:suggest-matches')
+  .description('Run V3 matching engine for a topic (v3.0.0: RATES, ELECTIONS)')
+  .requiredOption('--topic <topic>', 'Topic to match (RATES, ELECTIONS, CRYPTO_DAILY, etc.)')
+  .option('--from <venue>', 'Source venue', 'kalshi')
+  .option('--to <venue>', 'Target venue', 'polymarket')
+  .option('--lookback-hours <hours>', 'Lookback window', '720')
+  .option('--limit-left <number>', 'Max source markets', '2000')
+  .option('--limit-right <number>', 'Max target markets', '20000')
+  .option('--max-per-left <number>', 'Max suggestions per source', '5')
+  .option('--max-per-right <number>', 'Max suggestions per target', '5')
+  .option('--min-score <number>', 'Minimum score threshold', '0.60')
+  .option('--dry-run', 'Preview without writing to DB', false)
+  .option('--auto-confirm', 'Auto-confirm safe matches', false)
+  .option('--auto-reject', 'Auto-reject bad matches', false)
+  .option('--debug-one <marketId>', 'Debug single market')
+  .action(async (opts) => {
+    const { runV3SuggestMatches } = await import('./commands/index.js');
+    const supportedVenues = getSupportedVenues();
+
+    if (!supportedVenues.includes(opts.from)) {
+      console.error(`Invalid --from venue: ${opts.from}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+    if (!supportedVenues.includes(opts.to)) {
+      console.error(`Invalid --to venue: ${opts.to}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    try {
+      const result = await runV3SuggestMatches({
+        fromVenue: opts.from as Venue,
+        toVenue: opts.to as Venue,
+        topic: opts.topic,
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+        limitLeft: parseInt(opts.limitLeft, 10),
+        limitRight: parseInt(opts.limitRight, 10),
+        maxPerLeft: parseInt(opts.maxPerLeft, 10),
+        maxPerRight: parseInt(opts.maxPerRight, 10),
+        minScore: parseFloat(opts.minScore),
+        dryRun: opts.dryRun,
+        autoConfirm: opts.autoConfirm,
+        autoReject: opts.autoReject,
+        debugMarketId: opts.debugOne ? parseInt(opts.debugOne, 10) : undefined,
+      });
+
+      if (!result.ok) {
+        process.exit(1);
+      }
+    } catch (error) {
+      console.error('V3 suggest-matches error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
 // Handle graceful shutdown
 process.on('SIGINT', async () => {
   console.log('\nShutting down...');

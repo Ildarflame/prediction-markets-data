@@ -16,6 +16,19 @@ enum Venue {
   kalshi
 }
 
+// Canonical topics for cross-venue matching (v3.0.0)
+enum CanonicalTopic {
+  CRYPTO_DAILY
+  CRYPTO_INTRADAY
+  MACRO
+  RATES
+  ELECTIONS
+  GEOPOLITICS
+  SPORTS
+  ENTERTAINMENT
+  UNKNOWN
+}
+
 // Market lifecycle status
 enum MarketStatus {
   active
@@ -50,6 +63,7 @@ model Market {
   closeTime       DateTime?    @map("close_time") @db.Timestamptz
   sourceUpdatedAt DateTime?    @map("source_updated_at") @db.Timestamptz // Last update from source
   metadata        Json?        @db.JsonB
+  derivedTopic    String?      @map("derived_topic") // v3.0.0: Computed canonical topic
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -60,6 +74,7 @@ model Market {
 
   @@unique([venue, externalId])
   @@index([status, closeTime])
+  @@index([derivedTopic])
   @@map("markets")
 }
 
@@ -200,4 +215,62 @@ model QuoteWatchlist {
   @@index([venue, priority(sort: Desc)])
   @@index([reason])
   @@map("quote_watchlist")
+}
+
+// ============================================================
+// Taxonomy Tables (v3.0.0)
+// ============================================================
+
+// KalshiSeries - Cached series metadata from Kalshi API
+model KalshiSeries {
+  id         Int      @id @default(autoincrement())
+  ticker     String   @unique
+  title      String
+  category   String?
+  frequency  String?
+  tags       String[] @default([])
+  lastSyncAt DateTime @map("last_sync_at") @db.Timestamptz
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([category])
+  @@map("kalshi_series")
+}
+
+// KalshiTag - Aggregated tag counts from Kalshi series
+model KalshiTag {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  seriesCount Int      @default(0) @map("series_count")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("kalshi_tags")
+}
+
+// PolymarketTag - Extracted tags from Polymarket markets
+model PolymarketTag {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  source      String   // "category" | "groupItemTitle"
+  marketCount Int      @default(0) @map("market_count")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("polymarket_tags")
+}
+
+// TopicMap - Mapping from venue-specific topics to canonical topics
+model TopicMap {
+  id             Int            @id @default(autoincrement())
+  venue          Venue
+  venueTopic     String         @map("venue_topic")
+  canonicalTopic CanonicalTopic @map("canonical_topic")
+  confidence     Float          @default(1.0)
+  source         String         @default("manual") // "manual" | "auto" | "rule"
+  enabled        Boolean        @default(true)
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@unique([venue, venueTopic])
+  @@index([canonicalTopic])
+  @@map("topic_map")
 }

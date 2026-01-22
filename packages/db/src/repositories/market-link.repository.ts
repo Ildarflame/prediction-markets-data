@@ -18,6 +18,21 @@ export interface UpsertSuggestionResult {
 }
 
 /**
+ * V3 options for upserting suggestions with full control
+ */
+export interface UpsertSuggestionV3Options {
+  leftVenue: Venue;
+  leftMarketId: number;
+  rightVenue: Venue;
+  rightMarketId: number;
+  score: number;
+  reason: string | null;
+  algoVersion?: string | null;
+  topic?: string | null;
+  status?: LinkStatus;
+}
+
+/**
  * Repository for market link operations
  */
 export class MarketLinkRepository {
@@ -88,6 +103,78 @@ export class MarketLinkRepository {
         algoVersion,
         topic: effectiveTopic,
         status: 'suggested',
+      },
+    });
+
+    return { link, created: true };
+  }
+
+  /**
+   * Upsert suggestion with V3 engine options
+   * Supports setting initial status (suggested, confirmed, rejected)
+   * v3.0.0: Added for unified engine support
+   */
+  async upsertSuggestionV3(options: UpsertSuggestionV3Options): Promise<UpsertSuggestionResult> {
+    const {
+      leftVenue,
+      leftMarketId,
+      rightVenue,
+      rightMarketId,
+      score,
+      reason,
+      algoVersion,
+      topic,
+      status = 'suggested',
+    } = options;
+
+    // Derive topic from algoVersion if not provided
+    const effectiveTopic = topic ?? (algoVersion?.split('@')[0] || null);
+
+    // Check if exists
+    const existing = await this.prisma.marketLink.findUnique({
+      where: {
+        leftVenue_leftMarketId_rightVenue_rightMarketId: {
+          leftVenue,
+          leftMarketId,
+          rightVenue,
+          rightMarketId,
+        },
+      },
+    });
+
+    if (existing) {
+      // If already confirmed, don't override unless new status is also confirmed
+      if (existing.status === 'confirmed' && status !== 'confirmed') {
+        return { link: existing, created: false };
+      }
+
+      // Update
+      const updated = await this.prisma.marketLink.update({
+        where: { id: existing.id },
+        data: {
+          score,
+          reason,
+          algoVersion,
+          topic: effectiveTopic,
+          status,
+        },
+      });
+
+      return { link: updated, created: false };
+    }
+
+    // Create new
+    const link = await this.prisma.marketLink.create({
+      data: {
+        leftVenue,
+        leftMarketId,
+        rightVenue,
+        rightMarketId,
+        score,
+        reason,
+        algoVersion,
+        topic: effectiveTopic,
+        status,
       },
     });
 

@@ -214,6 +214,7 @@ describe('evaluateSafeRules', () => {
       sourceUpdatedAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
+      derivedTopic: null,
       outcomes: [],
     },
     rightMarket: {
@@ -227,6 +228,7 @@ describe('evaluateSafeRules', () => {
       closeTime: new Date(),
       metadata: null,
       sourceUpdatedAt: null,
+      derivedTopic: null,
       createdAt: new Date(),
       updatedAt: new Date(),
       outcomes: [],

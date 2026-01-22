@@ -2,6 +2,96 @@
  * Matching module exports
  */
 
+// Engine V3 (v3.0.0)
+export {
+  runMatchingV3,
+  runMatchingV3Multi,
+  printEngineV3Summary,
+} from './engineV3.js';
+
+export type {
+  EngineV3Options,
+  EngineV3Result,
+  EngineV3Stats,
+  BaseSignals,
+  BaseScoreResult,
+  ScoredCandidate,
+  HardGateResult,
+  FetchOptions,
+  PipelineLimits,
+  AutoConfirmResult,
+  AutoRejectResult,
+  SuggestionToWrite,
+  MarketWithSignals,
+  PipelineInfo,
+} from './engineV3.types.js';
+
+export {
+  DEFAULT_LIMITS,
+  DEFAULT_MIN_SCORES,
+  DEFAULT_LOOKBACK_HOURS,
+} from './engineV3.types.js';
+
+// Dispatcher (v3.0.0)
+export {
+  registerPipeline,
+  getPipeline,
+  hasPipeline,
+  getRegisteredTopics,
+  getRegisteredPipelineInfos,
+  clearPipelines,
+  IMPLEMENTED_TOPICS,
+  isTopicImplemented,
+  parseTopicString,
+  getMatchableTopics,
+} from './dispatcher.js';
+
+// Pipeline base (v3.0.0)
+export {
+  type TopicPipeline,
+  BasePipeline,
+} from './pipelines/index.js';
+
+// Rates Pipeline (v3.0.0)
+export {
+  RatesPipeline,
+  ratesPipeline,
+  type RatesMarket,
+  type RatesScoreResult,
+} from './pipelines/index.js';
+
+// Elections Pipeline (v3.0.0)
+export {
+  ElectionsPipeline,
+  electionsPipeline,
+  type ElectionsMarket,
+  type ElectionsScoreResult,
+} from './pipelines/index.js';
+
+// Signal extraction (v3.0.0)
+export {
+  // Rates signals
+  CentralBank,
+  RateAction,
+  type RatesSignals,
+  extractRatesSignals,
+  isRatesMarket,
+  // Elections signals
+  ElectionCountry,
+  ElectionOffice,
+  ElectionIntent,
+  type ElectionsSignals,
+  extractElectionsSignals,
+  isElectionsMarket,
+} from './signals/index.js';
+
+// Pipeline registration (v3.0.0)
+export {
+  registerAllPipelines,
+  resetPipelineRegistration,
+} from './registerPipelines.js';
+
+// Macro Pipeline (legacy)
 export {
   // Constants
   KALSHI_SPORTS_PREFIXES,
