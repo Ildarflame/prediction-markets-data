@@ -27,8 +27,12 @@ interface SyncResult {
   error?: string;
 }
 
+// v2.6.6: Track consecutive zero-fetch cycles for cursor reset protection
+const zeroFetchCycles = new Map<string, number>();
+
 /**
  * Sync markets only (no quotes)
+ * v2.6.6: Added cursor reset protection when consecutive zero-fetch cycles detected
  */
 async function syncMarkets(
   adapter: VenueAdapter,
@@ -53,11 +57,31 @@ async function syncMarkets(
       totalFetched += result.items.length;
       console.log(`[${venue}:markets] Fetched ${result.items.length} (total: ${totalFetched})`);
 
+      // v2.6.6: If we got 0 results but had a cursor, check for stuck cursor
+      if (result.items.length === 0 && cursor) {
+        const key = `${venue}:markets`;
+        const prevZero = zeroFetchCycles.get(key) || 0;
+        zeroFetchCycles.set(key, prevZero + 1);
+
+        if (prevZero + 1 >= 3) {
+          console.warn(`[${venue}:markets] Detected ${prevZero + 1} consecutive zero-fetch cycles with cursor=${cursor}. Resetting cursor.`);
+          await ingestionRepo.updateCursor(venue, 'markets', null);
+          zeroFetchCycles.set(key, 0);
+          break;
+        }
+      } else if (result.items.length > 0) {
+        // Reset zero-fetch counter on successful fetch
+        zeroFetchCycles.set(`${venue}:markets`, 0);
+      }
+
       if (result.nextCursor) {
         await ingestionRepo.updateCursor(venue, 'markets', result.nextCursor);
         cursor = result.nextCursor;
       } else {
+        // v2.6.6: Explicitly reset cursor when no nextCursor (end of data)
+        console.log(`[${venue}:markets] Reached end of data, resetting cursor`);
         await ingestionRepo.updateCursor(venue, 'markets', null);
+        zeroFetchCycles.set(`${venue}:markets`, 0);
         break;
       }
       await new Promise((r) => setTimeout(r, 100));
