@@ -45,6 +45,11 @@ describe('evaluateRejectRules', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
       derivedTopic: null,
+      pmCategories: null,
+      pmTags: null,
+      pmEventCategory: null,
+      pmEventSubcategory: null,
+      taxonomySource: null,
       outcomes: [],
     },
     rightMarket: {
@@ -61,6 +66,11 @@ describe('evaluateRejectRules', () => {
       derivedTopic: null,
       createdAt: new Date(),
       updatedAt: new Date(),
+      pmCategories: null,
+      pmTags: null,
+      pmEventCategory: null,
+      pmEventSubcategory: null,
+      taxonomySource: null,
       outcomes: [],
     },
   });

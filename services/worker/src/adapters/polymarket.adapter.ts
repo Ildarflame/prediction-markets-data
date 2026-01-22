@@ -16,6 +16,25 @@ import { type VenueAdapter, type AdapterConfig, DEFAULT_ADAPTER_CONFIG } from '.
 const GAMMA_API_BASE = 'https://gamma-api.polymarket.com';
 const CLOB_API_BASE = 'https://clob.polymarket.com';
 
+/**
+ * Gamma API category structure (v3.0.2)
+ */
+interface GammaCategory {
+  id?: string;
+  label?: string;
+  slug?: string;
+  parentCategory?: string;
+}
+
+/**
+ * Gamma API tag structure (v3.0.2)
+ */
+interface GammaTag {
+  id?: string;
+  label?: string;
+  slug?: string;
+}
+
 interface GammaMarket {
   id: number;
   question: string;
@@ -35,6 +54,9 @@ interface GammaMarket {
   endDate?: string;
   groupItemTitle?: string;
   category?: string;
+  // v3.0.2: Taxonomy fields from Gamma API
+  categories?: GammaCategory[] | string; // Can be JSON string or array
+  tags?: GammaTag[] | string; // Can be JSON string or array
 }
 
 /**
@@ -230,6 +252,21 @@ export class PolymarketAdapter implements VenueAdapter {
     const outcomePrices = parseJsonArray<string>(m.outcomePrices);
     const clobTokenIds = parseJsonArray<string>(m.clobTokenIds);
 
+    // v3.0.2: Parse categories and tags
+    const categories = parseJsonArray<GammaCategory>(m.categories as GammaCategory[] | string);
+    const tags = parseJsonArray<GammaTag>(m.tags as GammaTag[] | string);
+
+    // Extract category/tag slugs and labels for taxonomy
+    const pmCategories = categories.map(c => ({
+      slug: c.slug || '',
+      label: c.label || '',
+    })).filter(c => c.slug || c.label);
+
+    const pmTags = tags.map(t => ({
+      slug: t.slug || '',
+      label: t.label || '',
+    })).filter(t => t.slug || t.label);
+
     // Map outcomes
     const outcomes = outcomeNames.map((name, i): { externalId?: string; name: string; side: OutcomeSide; metadata?: Record<string, unknown> } => {
       const side: OutcomeSide =
@@ -258,7 +295,11 @@ export class PolymarketAdapter implements VenueAdapter {
         clobTokenIds: clobTokenIds,
         liquidity: m.liquidity,
         volume: m.volume,
+        groupItemTitle: m.groupItemTitle,
       },
+      // v3.0.2: Polymarket taxonomy fields
+      pmCategories: pmCategories.length > 0 ? pmCategories : undefined,
+      pmTags: pmTags.length > 0 ? pmTags : undefined,
     };
   }
 

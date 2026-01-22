@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit, runCryptoTruthDateAudit, runCryptoTypeAudit, runCryptoEthDebug, runCryptoSeriesAudit, runCryptoEligibleExplain, runKalshiIngestionDiag, runKalshiSanityStatus, runQuotesFreshness, runPolymarketCursorDiag, runLinksStats, runLinksCleanup, runLinksBackfill, runIntradayBest, runVenueSanityEligible, runLinksWatchlistSync, runWatchlistStats, runWatchlistList, runWatchlistCleanup, runLinksQueue, runLinksAutoReject, runAutoConfirm, runOps, runOpsKpi, runKalshiSeriesSync, runTaxonomyTruthAudit } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit, runCryptoTruthDateAudit, runCryptoTypeAudit, runCryptoEthDebug, runCryptoSeriesAudit, runCryptoEligibleExplain, runKalshiIngestionDiag, runKalshiSanityStatus, runQuotesFreshness, runPolymarketCursorDiag, runLinksStats, runLinksCleanup, runLinksBackfill, runIntradayBest, runVenueSanityEligible, runLinksWatchlistSync, runWatchlistStats, runWatchlistList, runWatchlistCleanup, runLinksQueue, runLinksAutoReject, runAutoConfirm, runOps, runOpsKpi, runKalshiSeriesSync, runTaxonomyTruthAudit, runPolymarketTaxonomyBackfill } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -1886,14 +1886,15 @@ program
     }
   });
 
-// Taxonomy truth audit (v3.0.1)
+// Taxonomy truth audit (v3.0.2: CSV output, pmCategories/pmTags display)
 program
   .command('taxonomy:truth-audit')
-  .description('Audit taxonomy classification accuracy (v3.0.1)')
+  .description('Audit taxonomy classification accuracy (v3.0.2: CSV output, PM metadata)')
   .option('--venue <venue>', 'Venue to audit (kalshi, polymarket)', 'kalshi')
   .option('--topic <topic>', 'Filter by specific topic')
   .option('--sample-size <number>', 'Sample size per topic', '100')
   .option('--no-misclassified', 'Hide misclassified samples')
+  .option('--out <path>', 'Output CSV file path')
   .action(async (opts) => {
     try {
       const result = await runTaxonomyTruthAudit({
@@ -1901,6 +1902,7 @@ program
         topic: opts.topic ? (opts.topic.toUpperCase() as any) : undefined,
         sampleSize: parseInt(opts.sampleSize, 10),
         showMisclassified: opts.misclassified !== false,
+        csvOutput: opts.out,
       });
 
       if (!result.ok) {
@@ -1908,6 +1910,30 @@ program
       }
     } catch (error) {
       console.error('Taxonomy truth audit error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Polymarket taxonomy backfill (v3.0.2)
+program
+  .command('polymarket:taxonomy:backfill')
+  .description('Backfill Polymarket taxonomy from Gamma API (v3.0.2)')
+  .option('--lookback-hours <hours>', 'Only backfill markets updated in last N hours', '720')
+  .option('--db-limit <number>', 'Max markets to fetch from DB', '10000')
+  .option('--batch-size <number>', 'API batch size', '100')
+  .option('--apply', 'Apply changes (default: dry-run)', false)
+  .action(async (opts) => {
+    try {
+      await runPolymarketTaxonomyBackfill({
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+        dbLimit: parseInt(opts.dbLimit, 10),
+        batchSize: parseInt(opts.batchSize, 10),
+        apply: opts.apply,
+      });
+    } catch (error) {
+      console.error('Polymarket taxonomy backfill error:', error);
       process.exit(1);
     } finally {
       await disconnect();

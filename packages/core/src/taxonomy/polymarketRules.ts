@@ -1,13 +1,25 @@
 /**
- * Polymarket Taxonomy Rules (v3.0.1)
+ * Polymarket Taxonomy Rules (v3.0.2)
  *
  * Maps Polymarket categories and tags to canonical topics.
  * Based on analysis of Polymarket Gamma API data.
  *
  * v3.0.1: Updated to handle actual Gamma API category formats
+ * v3.0.2: Metadata-first classification using pmCategories/pmTags from DB
+ *         Added precedence rules (crypto overrides politics for price markets)
  */
 
 import { CanonicalTopic, TopicRule, PolymarketMarketInfo, TopicClassification, TopicSource } from './types.js';
+
+/**
+ * Extended market info with v3.0.2 taxonomy fields
+ */
+export interface PolymarketMarketInfoV2 extends PolymarketMarketInfo {
+  pmCategories?: Array<{ slug: string; label: string }>;
+  pmTags?: Array<{ slug: string; label: string }>;
+  pmEventCategory?: string;
+  pmEventSubcategory?: string;
+}
 
 /**
  * Polymarket category to topic mapping
@@ -176,6 +188,89 @@ export const POLYMARKET_CATEGORY_MAP: Record<string, CanonicalTopic> = {
   'temperature': CanonicalTopic.CLIMATE,
   'global warming': CanonicalTopic.CLIMATE,
   'global-warming': CanonicalTopic.CLIMATE,
+};
+
+/**
+ * Polymarket tag slug to topic mapping (v3.0.2)
+ * Tags come from market.tags[] array in Gamma API
+ */
+export const PM_TAG_MAP: Record<string, CanonicalTopic> = {
+  // Crypto
+  'crypto': CanonicalTopic.CRYPTO_DAILY,
+  'bitcoin': CanonicalTopic.CRYPTO_DAILY,
+  'btc': CanonicalTopic.CRYPTO_DAILY,
+  'ethereum': CanonicalTopic.CRYPTO_DAILY,
+  'eth': CanonicalTopic.CRYPTO_DAILY,
+  'solana': CanonicalTopic.CRYPTO_DAILY,
+  'sol': CanonicalTopic.CRYPTO_DAILY,
+  'dogecoin': CanonicalTopic.CRYPTO_DAILY,
+  'doge': CanonicalTopic.CRYPTO_DAILY,
+  'xrp': CanonicalTopic.CRYPTO_DAILY,
+  'cryptocurrency': CanonicalTopic.CRYPTO_DAILY,
+  'defi': CanonicalTopic.CRYPTO_DAILY,
+
+  // Macro
+  'inflation': CanonicalTopic.MACRO,
+  'cpi': CanonicalTopic.MACRO,
+  'gdp': CanonicalTopic.MACRO,
+  'jobs': CanonicalTopic.MACRO,
+  'employment': CanonicalTopic.MACRO,
+  'unemployment': CanonicalTopic.MACRO,
+  'economy': CanonicalTopic.MACRO,
+  'recession': CanonicalTopic.MACRO,
+
+  // Rates
+  'fed': CanonicalTopic.RATES,
+  'fomc': CanonicalTopic.RATES,
+  'interest-rates': CanonicalTopic.RATES,
+  'federal-reserve': CanonicalTopic.RATES,
+
+  // Elections
+  'politics': CanonicalTopic.ELECTIONS,
+  'elections': CanonicalTopic.ELECTIONS,
+  'us-politics': CanonicalTopic.ELECTIONS,
+  'trump': CanonicalTopic.ELECTIONS,
+  'biden': CanonicalTopic.ELECTIONS,
+  '2024-election': CanonicalTopic.ELECTIONS,
+  '2026-election': CanonicalTopic.ELECTIONS,
+
+  // Sports
+  'sports': CanonicalTopic.SPORTS,
+  'nba': CanonicalTopic.SPORTS,
+  'nfl': CanonicalTopic.SPORTS,
+  'mlb': CanonicalTopic.SPORTS,
+  'soccer': CanonicalTopic.SPORTS,
+  'tennis': CanonicalTopic.SPORTS,
+  'golf': CanonicalTopic.SPORTS,
+  'ufc': CanonicalTopic.SPORTS,
+  'mma': CanonicalTopic.SPORTS,
+  'boxing': CanonicalTopic.SPORTS,
+  'esports': CanonicalTopic.SPORTS,
+  'olympics': CanonicalTopic.SPORTS,
+  'f1': CanonicalTopic.SPORTS,
+
+  // Entertainment
+  'entertainment': CanonicalTopic.ENTERTAINMENT,
+  'pop-culture': CanonicalTopic.ENTERTAINMENT,
+  'movies': CanonicalTopic.ENTERTAINMENT,
+  'tv': CanonicalTopic.ENTERTAINMENT,
+  'music': CanonicalTopic.ENTERTAINMENT,
+  'oscars': CanonicalTopic.ENTERTAINMENT,
+  'grammys': CanonicalTopic.ENTERTAINMENT,
+  'emmys': CanonicalTopic.ENTERTAINMENT,
+
+  // Geopolitics
+  'geopolitics': CanonicalTopic.GEOPOLITICS,
+  'war': CanonicalTopic.GEOPOLITICS,
+  'ukraine': CanonicalTopic.GEOPOLITICS,
+  'russia': CanonicalTopic.GEOPOLITICS,
+  'china': CanonicalTopic.GEOPOLITICS,
+  'middle-east': CanonicalTopic.GEOPOLITICS,
+
+  // Climate
+  'climate': CanonicalTopic.CLIMATE,
+  'weather': CanonicalTopic.CLIMATE,
+  'hurricane': CanonicalTopic.CLIMATE,
 };
 
 /**
@@ -391,4 +486,205 @@ export function extractPolymarketTags(metadata: Record<string, unknown> | null |
   }
 
   return tags;
+}
+
+/**
+ * Check if title indicates a crypto price market (for precedence rules)
+ */
+function isCryptoPriceMarket(title: string): boolean {
+  const cryptoAssets = /\b(bitcoin|btc|ethereum|eth|solana|sol|doge|xrp)\b/i;
+  const priceIndicators = /(\$\d|price|above|below|reach|hit|\d+k|\d+,\d{3})/i;
+
+  return cryptoAssets.test(title) && priceIndicators.test(title);
+}
+
+/**
+ * Classify by pmTags array (v3.0.2)
+ */
+export function classifyPolymarketByTags(
+  pmTags: Array<{ slug: string; label: string }> | null | undefined
+): TopicClassification | null {
+  if (!pmTags || pmTags.length === 0) return null;
+
+  for (const tag of pmTags) {
+    const slug = tag.slug?.toLowerCase();
+    const label = tag.label?.toLowerCase();
+
+    // Try slug first
+    if (slug && PM_TAG_MAP[slug]) {
+      return {
+        topic: PM_TAG_MAP[slug],
+        confidence: 0.85,
+        source: TopicSource.METADATA,
+        reason: `PM tag: ${tag.slug}`,
+      };
+    }
+
+    // Try label
+    if (label && PM_TAG_MAP[label]) {
+      return {
+        topic: PM_TAG_MAP[label],
+        confidence: 0.80,
+        source: TopicSource.METADATA,
+        reason: `PM tag label: ${tag.label}`,
+      };
+    }
+
+    // Try in main category map
+    if (slug && POLYMARKET_CATEGORY_MAP[slug]) {
+      return {
+        topic: POLYMARKET_CATEGORY_MAP[slug],
+        confidence: 0.80,
+        source: TopicSource.METADATA,
+        reason: `PM tag (category map): ${tag.slug}`,
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Classify by pmCategories array (v3.0.2)
+ */
+export function classifyPolymarketByPmCategories(
+  pmCategories: Array<{ slug: string; label: string }> | null | undefined
+): TopicClassification | null {
+  if (!pmCategories || pmCategories.length === 0) return null;
+
+  for (const cat of pmCategories) {
+    const slug = cat.slug?.toLowerCase();
+    const label = cat.label?.toLowerCase();
+
+    // Try slug first
+    if (slug) {
+      const topic = POLYMARKET_CATEGORY_MAP[slug];
+      if (topic && topic !== CanonicalTopic.UNKNOWN) {
+        return {
+          topic,
+          confidence: 0.90,
+          source: TopicSource.CATEGORY,
+          reason: `PM category: ${cat.slug}`,
+        };
+      }
+    }
+
+    // Try label
+    if (label) {
+      const topic = POLYMARKET_CATEGORY_MAP[label];
+      if (topic && topic !== CanonicalTopic.UNKNOWN) {
+        return {
+          topic,
+          confidence: 0.85,
+          source: TopicSource.CATEGORY,
+          reason: `PM category label: ${cat.label}`,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Classify a Polymarket market using metadata-first approach (v3.0.2)
+ *
+ * Priority:
+ * 1. Precedence rules (crypto price market overrides politics)
+ * 2. pmCategories (from Gamma API categories[])
+ * 3. pmTags (from Gamma API tags[])
+ * 4. pmEventCategory/pmEventSubcategory
+ * 5. Legacy category field
+ * 6. Title keyword heuristics
+ */
+export function classifyPolymarketMarketV2(market: PolymarketMarketInfoV2): TopicClassification {
+  // === Precedence Rule: Crypto price markets override other classifications ===
+  // If the title clearly indicates a crypto price market, classify as CRYPTO_DAILY
+  // even if categories/tags suggest politics (e.g., "Will Bitcoin reach $100k before Trump...")
+  if (isCryptoPriceMarket(market.title)) {
+    return {
+      topic: CanonicalTopic.CRYPTO_DAILY,
+      confidence: 0.95,
+      source: TopicSource.TITLE_KEYWORDS,
+      reason: 'Precedence: crypto price market',
+    };
+  }
+
+  // 1. Try pmCategories (highest priority metadata)
+  if (market.pmCategories && market.pmCategories.length > 0) {
+    const catResult = classifyPolymarketByPmCategories(market.pmCategories);
+    if (catResult && catResult.topic !== CanonicalTopic.UNKNOWN) {
+      return catResult;
+    }
+  }
+
+  // 2. Try pmTags
+  if (market.pmTags && market.pmTags.length > 0) {
+    const tagResult = classifyPolymarketByTags(market.pmTags);
+    if (tagResult && tagResult.topic !== CanonicalTopic.UNKNOWN) {
+      return tagResult;
+    }
+  }
+
+  // 3. Try pmEventCategory
+  if (market.pmEventCategory) {
+    const eventResult = classifyPolymarketByCategory(market.pmEventCategory);
+    if (eventResult && eventResult.topic !== CanonicalTopic.UNKNOWN) {
+      return {
+        ...eventResult,
+        source: TopicSource.EVENT_METADATA,
+        reason: `PM event category: ${market.pmEventCategory}`,
+      };
+    }
+  }
+
+  // 4. Try legacy category field
+  if (market.category) {
+    const categoryResult = classifyPolymarketByCategory(market.category);
+    if (categoryResult && categoryResult.confidence >= 0.80 && categoryResult.topic !== CanonicalTopic.UNKNOWN) {
+      return categoryResult;
+    }
+  }
+
+  // 5. Try groupItemTitle
+  if (market.groupItemTitle) {
+    const groupResult = classifyPolymarketByCategory(market.groupItemTitle);
+    if (groupResult && groupResult.topic !== CanonicalTopic.UNKNOWN) {
+      return {
+        ...groupResult,
+        confidence: groupResult.confidence * 0.9,
+        reason: `Group: ${market.groupItemTitle}`,
+      };
+    }
+  }
+
+  // 6. Try title keyword heuristics (fallback)
+  const titleResult = classifyPolymarketByTitle(market.title);
+  if (titleResult) {
+    return titleResult;
+  }
+
+  // 7. Try legacy tags
+  if (market.tags && market.tags.length > 0) {
+    for (const tag of market.tags) {
+      const tagLower = tag.toLowerCase();
+      const topic = POLYMARKET_CATEGORY_MAP[tagLower] || PM_TAG_MAP[tagLower];
+      if (topic && topic !== CanonicalTopic.UNKNOWN) {
+        return {
+          topic,
+          confidence: 0.70,
+          source: TopicSource.METADATA,
+          reason: `Legacy tag: ${tag}`,
+        };
+      }
+    }
+  }
+
+  // 8. Fallback to unknown
+  return {
+    topic: CanonicalTopic.UNKNOWN,
+    confidence: 0.0,
+    source: TopicSource.FALLBACK,
+    reason: 'No matching rule',
+  };
 }

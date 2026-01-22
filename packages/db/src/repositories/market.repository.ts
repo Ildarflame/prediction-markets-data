@@ -73,6 +73,12 @@ export class MarketRepository {
                 closeTime: market.closeTime,
                 sourceUpdatedAt: market.sourceUpdatedAt,
                 metadata: market.metadata as object,
+                // v3.0.2: Polymarket taxonomy fields
+                pmCategories: market.pmCategories as object | undefined,
+                pmTags: market.pmTags as object | undefined,
+                pmEventCategory: market.pmEventCategory,
+                pmEventSubcategory: market.pmEventSubcategory,
+                taxonomySource: market.taxonomySource,
               },
             });
             updated++;
@@ -113,6 +119,12 @@ export class MarketRepository {
                 closeTime: market.closeTime,
                 sourceUpdatedAt: market.sourceUpdatedAt,
                 metadata: market.metadata as object,
+                // v3.0.2: Polymarket taxonomy fields
+                pmCategories: market.pmCategories as object | undefined,
+                pmTags: market.pmTags as object | undefined,
+                pmEventCategory: market.pmEventCategory,
+                pmEventSubcategory: market.pmEventSubcategory,
+                taxonomySource: market.taxonomySource,
                 outcomes: {
                   create: market.outcomes.map((o) => ({
                     externalId: o.externalId,

@@ -26,6 +26,12 @@ export interface MarketDTO {
   sourceUpdatedAt?: Date;
   outcomes: OutcomeDTO[];
   metadata?: Record<string, unknown>;
+  // v3.0.2: Polymarket taxonomy fields (from Gamma API)
+  pmCategories?: Array<{ slug: string; label: string }>;
+  pmTags?: Array<{ slug: string; label: string }>;
+  pmEventCategory?: string;
+  pmEventSubcategory?: string;
+  taxonomySource?: string;
 }
 
 /**

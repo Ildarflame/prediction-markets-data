@@ -1,12 +1,20 @@
 /**
- * Kalshi Taxonomy Rules (v3.0.0)
+ * Kalshi Taxonomy Rules (v3.0.2)
  *
  * Maps Kalshi series tickers and categories to canonical topics.
  * Based on analysis of Kalshi API series data.
+ *
+ * v3.0.2: Added RATES override for Economics category when rate keywords present
  */
 
 import { CanonicalTopic, TopicRule, KalshiSeriesInfo, TopicClassification, TopicSource } from './types.js';
 import { getKalshiEventTicker, getKalshiSeriesTicker } from '../utils.js';
+
+/**
+ * Rate-related keywords for RATES override (v3.0.2)
+ * If a market has category "Economics" but contains these keywords, classify as RATES
+ */
+const RATE_KEYWORDS = /\b(fed(?:eral)?\s+reserve|fomc|rate\s+cut|rate\s+hike|interest\s+rate|basis\s+points?|bps|fed\s+funds?)\b/i;
 
 /**
  * Kalshi ticker prefix rules
@@ -230,33 +238,49 @@ export function classifyKalshiByTags(tags: string[]): TopicClassification | null
 }
 
 /**
- * Classify a Kalshi series using all available info (v3.0.1)
- * Priority: 1) Category 2) Tags 3) Ticker pattern
+ * Classify a Kalshi series using all available info (v3.0.2)
+ * Priority: 1) Tags (for RATES override) 2) Category 3) Ticker pattern
  * Series metadata takes priority over ticker heuristics
+ *
+ * v3.0.2: Check tags first to allow RATES override for Economics category
  */
 export function classifyKalshiSeries(series: KalshiSeriesInfo): TopicClassification {
-  // 1. Try category mapping first (most reliable for series)
-  if (series.category) {
-    const categoryResult = classifyKalshiByCategory(series.category);
-    if (categoryResult && categoryResult.topic !== CanonicalTopic.UNKNOWN) {
-      // Boost confidence if tags also match
-      const tagResult = classifyKalshiByTags(series.tags);
-      if (tagResult && tagResult.topic === categoryResult.topic) {
-        return {
-          ...categoryResult,
-          confidence: Math.min(1.0, categoryResult.confidence + 0.10),
-          reason: `Category: ${series.category}, Tag: ${series.tags.join(',')}`,
-        };
-      }
-      return categoryResult;
+  // 1. Try tag analysis first (v3.0.2: allows RATES override for Economics)
+  if (series.tags.length > 0) {
+    const tagResult = classifyKalshiByTags(series.tags);
+    if (tagResult && tagResult.topic !== CanonicalTopic.UNKNOWN) {
+      return tagResult;
     }
   }
 
-  // 2. Try tag analysis
-  if (series.tags.length > 0) {
-    const tagResult = classifyKalshiByTags(series.tags);
-    if (tagResult) {
-      return tagResult;
+  // 2. Try category mapping
+  if (series.category) {
+    const categoryResult = classifyKalshiByCategory(series.category);
+    if (categoryResult && categoryResult.topic !== CanonicalTopic.UNKNOWN) {
+      // v3.0.2: Check for RATES override when category is Economics/Macro
+      // Fed rate markets often have category "Economics" but should be RATES
+      if (categoryResult.topic === CanonicalTopic.MACRO) {
+        // Check title for rate keywords
+        if (RATE_KEYWORDS.test(series.title)) {
+          return {
+            topic: CanonicalTopic.RATES,
+            confidence: 0.90,
+            source: TopicSource.TITLE_KEYWORDS,
+            reason: `RATES override: title contains rate keywords (category was ${series.category})`,
+          };
+        }
+        // Check tags for rate keywords
+        const tagsLower = series.tags.map(t => t.toLowerCase()).join(' ');
+        if (/\b(fed|fomc|interest|rate|central bank)\b/i.test(tagsLower)) {
+          return {
+            topic: CanonicalTopic.RATES,
+            confidence: 0.90,
+            source: TopicSource.SERIES_METADATA,
+            reason: `RATES override: tags contain rate keywords (category was ${series.category})`,
+          };
+        }
+      }
+      return categoryResult;
     }
   }
 

@@ -64,6 +64,14 @@ model Market {
   sourceUpdatedAt DateTime?    @map("source_updated_at") @db.Timestamptz // Last update from source
   metadata        Json?        @db.JsonB
   derivedTopic    String?      @map("derived_topic") // v3.0.0: Computed canonical topic
+
+  // v3.0.2: Polymarket taxonomy fields (from Gamma API)
+  pmCategories       Json?     @map("pm_categories") @db.JsonB    // Array of {slug, label}
+  pmTags             Json?     @map("pm_tags") @db.JsonB          // Array of {slug, label}
+  pmEventCategory    String?   @map("pm_event_category")          // Event-level category
+  pmEventSubcategory String?   @map("pm_event_subcategory")       // Event-level subcategory
+  taxonomySource     String?   @map("taxonomy_source")            // PM_TAGS, PM_CATEGORIES, PM_EVENT, HEURISTIC
+
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz
 

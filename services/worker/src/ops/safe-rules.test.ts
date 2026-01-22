@@ -215,6 +215,11 @@ describe('evaluateSafeRules', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
       derivedTopic: null,
+      pmCategories: null,
+      pmTags: null,
+      pmEventCategory: null,
+      pmEventSubcategory: null,
+      taxonomySource: null,
       outcomes: [],
     },
     rightMarket: {
@@ -231,6 +236,11 @@ describe('evaluateSafeRules', () => {
       derivedTopic: null,
       createdAt: new Date(),
       updatedAt: new Date(),
+      pmCategories: null,
+      pmTags: null,
+      pmEventCategory: null,
+      pmEventSubcategory: null,
+      taxonomySource: null,
       outcomes: [],
     },
   });

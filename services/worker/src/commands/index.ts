@@ -105,3 +105,6 @@ export { runV3SuggestMatches, type V3SuggestMatchesOptions, type V3SuggestMatche
 // v3.0.1: Taxonomy truth-audit and series sync
 export { runKalshiSeriesSync, type KalshiSeriesSyncOptions } from './kalshi-series-sync.js';
 export { runTaxonomyTruthAudit, type TaxonomyTruthAuditOptions, type TaxonomyTruthAuditResult } from './taxonomy-truth-audit.js';
+
+// v3.0.2: Polymarket taxonomy backfill
+export { runPolymarketTaxonomyBackfill, type PolymarketTaxonomyBackfillOptions, type PolymarketTaxonomyBackfillResult } from './polymarket-taxonomy-backfill.js';
