@@ -1,14 +1,16 @@
 /**
- * Taxonomy Truth Audit Command (v3.0.3)
+ * Taxonomy Truth Audit Command (v3.0.4)
  *
  * Validates taxonomy classification accuracy by checking:
  * 1. Known markets (ground truth examples)
  * 2. Random samples from each topic
  * 3. UNKNOWN classification rates
  * 4. taxonomySource distribution
+ * 5. Top tags causing UNKNOWN
  *
  * v3.0.2: Added CSV output, pmCategories/pmTags display, V2 classifier
  * v3.0.3: V3 classifier with event-level tags, taxonomySource tracking, SPORTS detection
+ * v3.0.4: COMMODITIES detection, enhanced UNKNOWN analysis, top tags causing UNKNOWN
  */
 
 import * as fs from 'node:fs';
@@ -86,10 +88,17 @@ const GROUND_TRUTH_KALSHI: Array<{ pattern: RegExp; expected: CanonicalTopic }> 
   { pattern: /senate.*win/i, expected: CanonicalTopic.ELECTIONS },
   { pattern: /governor.*win/i, expected: CanonicalTopic.ELECTIONS },
   { pattern: /trump.*president/i, expected: CanonicalTopic.ELECTIONS },
+
+  // Commodities (v3.0.4)
+  { pattern: /crude\s*oil.*\$?\d+/i, expected: CanonicalTopic.COMMODITIES },
+  { pattern: /\b(wti|brent)\b.*price/i, expected: CanonicalTopic.COMMODITIES },
+  { pattern: /gold.*\$?\d+/i, expected: CanonicalTopic.COMMODITIES },
+  { pattern: /silver.*price/i, expected: CanonicalTopic.COMMODITIES },
+  { pattern: /natural\s*gas.*\$?\d+/i, expected: CanonicalTopic.COMMODITIES },
 ];
 
 /**
- * Ground truth examples for Polymarket (v3.0.3: added sports)
+ * Ground truth examples for Polymarket (v3.0.4: added sports and commodities)
  */
 const GROUND_TRUTH_POLYMARKET: Array<{ pattern: RegExp; expected: CanonicalTopic }> = [
   // Crypto
@@ -112,6 +121,16 @@ const GROUND_TRUTH_POLYMARKET: Array<{ pattern: RegExp; expected: CanonicalTopic
   { pattern: /\bo\/u\s*\d+\.?\d*/i, expected: CanonicalTopic.SPORTS },
   { pattern: /super bowl/i, expected: CanonicalTopic.SPORTS },
   { pattern: /\bvs\.?\s+\w+.*winner/i, expected: CanonicalTopic.SPORTS },
+
+  // Commodities (v3.0.4)
+  { pattern: /crude\s*oil.*\$?\d+/i, expected: CanonicalTopic.COMMODITIES },
+  { pattern: /oil\s*\(cl\)/i, expected: CanonicalTopic.COMMODITIES },
+  { pattern: /gold\s*\(gc\)/i, expected: CanonicalTopic.COMMODITIES },
+  { pattern: /silver\s*\(si\)/i, expected: CanonicalTopic.COMMODITIES },
+  { pattern: /natural\s*gas.*\$?\d+/i, expected: CanonicalTopic.COMMODITIES },
+  { pattern: /\b(wti|brent)\b.*\$?\d+/i, expected: CanonicalTopic.COMMODITIES },
+  { pattern: /final\s+trading\s+day.*\$?\d+/i, expected: CanonicalTopic.COMMODITIES },
+  { pattern: /\b(nymex|comex)\b/i, expected: CanonicalTopic.COMMODITIES },
 ];
 
 /**
@@ -136,7 +155,7 @@ export async function runTaxonomyTruthAudit(
     csvOutput,
   } = options;
 
-  console.log(`\n=== Taxonomy Truth Audit (v3.0.3) ===\n`);
+  console.log(`\n=== Taxonomy Truth Audit (v3.0.4) ===\n`);
   console.log(`Venue: ${venue}`);
   if (topic) console.log(`Topic filter: ${topic}`);
   console.log(`Sample size: ${sampleSize}`);

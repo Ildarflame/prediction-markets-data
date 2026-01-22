@@ -16,7 +16,7 @@ enum Venue {
   kalshi
 }
 
-// Canonical topics for cross-venue matching (v3.0.0)
+// Canonical topics for cross-venue matching (v3.0.4)
 enum CanonicalTopic {
   CRYPTO_DAILY
   CRYPTO_INTRADAY
@@ -26,6 +26,7 @@ enum CanonicalTopic {
   GEOPOLITICS
   SPORTS
   ENTERTAINMENT
+  COMMODITIES   // v3.0.4: Oil, Gold, Agriculture futures
   UNKNOWN
 }
 
@@ -74,6 +75,11 @@ model Market {
 
   // v3.0.3: Link to Polymarket event for taxonomy
   pmEventId          String?   @map("pm_event_id")                // Gamma event ID (not FK, just reference)
+
+  // v3.0.4: Cached event fields for efficient taxonomy lookup
+  pmEventTitle       String?   @map("pm_event_title")             // Cached from polymarket_events
+  pmEventSlug        String?   @map("pm_event_slug")              // Cached from polymarket_events
+  pmEventTagSlugs    String[]  @default([]) @map("pm_event_tag_slugs")  // Cached tag slugs for fast lookup
 
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz

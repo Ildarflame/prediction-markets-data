@@ -188,6 +188,27 @@ export const POLYMARKET_CATEGORY_MAP: Record<string, CanonicalTopic> = {
   'temperature': CanonicalTopic.CLIMATE,
   'global warming': CanonicalTopic.CLIMATE,
   'global-warming': CanonicalTopic.CLIMATE,
+
+  // === Commodities (v3.0.4) ===
+  'commodities': CanonicalTopic.COMMODITIES,
+  'oil': CanonicalTopic.COMMODITIES,
+  'crude oil': CanonicalTopic.COMMODITIES,
+  'crude-oil': CanonicalTopic.COMMODITIES,
+  'wti': CanonicalTopic.COMMODITIES,
+  'brent': CanonicalTopic.COMMODITIES,
+  'petroleum': CanonicalTopic.COMMODITIES,
+  'gold': CanonicalTopic.COMMODITIES,
+  'silver': CanonicalTopic.COMMODITIES,
+  'copper': CanonicalTopic.COMMODITIES,
+  'natural gas': CanonicalTopic.COMMODITIES,
+  'natural-gas': CanonicalTopic.COMMODITIES,
+  'natgas': CanonicalTopic.COMMODITIES,
+  'corn': CanonicalTopic.COMMODITIES,
+  'wheat': CanonicalTopic.COMMODITIES,
+  'soybeans': CanonicalTopic.COMMODITIES,
+  'soy': CanonicalTopic.COMMODITIES,
+  'agriculture': CanonicalTopic.COMMODITIES,
+  'futures': CanonicalTopic.COMMODITIES,
 };
 
 /**
@@ -320,6 +341,31 @@ export const PM_TAG_MAP: Record<string, CanonicalTopic> = {
   'tech': CanonicalTopic.MACRO,
   'ai': CanonicalTopic.MACRO,
   'deepseek': CanonicalTopic.MACRO,
+
+  // === Commodities (v3.0.4) ===
+  'commodities': CanonicalTopic.COMMODITIES,
+  'oil': CanonicalTopic.COMMODITIES,
+  'crude': CanonicalTopic.COMMODITIES,
+  'crude-oil': CanonicalTopic.COMMODITIES,
+  'wti': CanonicalTopic.COMMODITIES,
+  'brent': CanonicalTopic.COMMODITIES,
+  'energy': CanonicalTopic.COMMODITIES,
+  'nymex-crude-oil-futures': CanonicalTopic.COMMODITIES,
+  'gold': CanonicalTopic.COMMODITIES,
+  'silver': CanonicalTopic.COMMODITIES,
+  'copper': CanonicalTopic.COMMODITIES,
+  'comex-gold-futures': CanonicalTopic.COMMODITIES,
+  'comex-silver-futures': CanonicalTopic.COMMODITIES,
+  'natgas': CanonicalTopic.COMMODITIES,
+  'natural-gas': CanonicalTopic.COMMODITIES,
+  'corn': CanonicalTopic.COMMODITIES,
+  'wheat': CanonicalTopic.COMMODITIES,
+  'soy': CanonicalTopic.COMMODITIES,
+  'soybeans': CanonicalTopic.COMMODITIES,
+  'agriculture': CanonicalTopic.COMMODITIES,
+  'futures': CanonicalTopic.COMMODITIES,
+  'daily': CanonicalTopic.COMMODITIES, // Often used with commodities
+  'up-or-down': CanonicalTopic.COMMODITIES, // Common pattern for commodities
 };
 
 /**
@@ -368,6 +414,20 @@ export const POLYMARKET_TITLE_RULES: TopicRule[] = [
   { pattern: /\bbiden\b/i, topic: CanonicalTopic.ELECTIONS, confidence: 0.75, description: 'Biden' },
   { pattern: /\bharris\b/i, topic: CanonicalTopic.ELECTIONS, confidence: 0.75, description: 'Harris' },
   { pattern: /\bwin\s+(?:the\s+)?(?:\d{4}\s+)?(?:presidential\s+)?election\b/i, topic: CanonicalTopic.ELECTIONS, confidence: 0.90, description: 'Win election' },
+
+  // Commodities (v3.0.4)
+  { pattern: /\bcrude\s*oil\b/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Crude Oil' },
+  { pattern: /\b(?:wti|brent)\b/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'WTI/Brent' },
+  { pattern: /\boil\s*\(cl\)/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Oil (CL)' },
+  { pattern: /\bgold\s*\(gc\)/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Gold (GC)' },
+  { pattern: /\bsilver\s*\(si\)/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Silver (SI)' },
+  { pattern: /\bnatural\s*gas\b/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Natural Gas' },
+  { pattern: /\b(?:nymex|comex)\b/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.90, description: 'NYMEX/COMEX' },
+  { pattern: /\bsettle\s+(?:over|above|below|under)\s+\$\d/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.85, description: 'Settle price threshold' },
+  { pattern: /\bfinal\s+trading\s+day\b/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.80, description: 'Final trading day' },
+  { pattern: /\bcorn\s*\(c\)/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Corn (C)' },
+  { pattern: /\bwheat\s*\(w\)/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Wheat (W)' },
+  { pattern: /\bsoybeans?\s*\(s\)/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Soybeans (S)' },
 ];
 
 /**

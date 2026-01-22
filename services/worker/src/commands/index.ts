@@ -109,5 +109,21 @@ export { runTaxonomyTruthAudit, type TaxonomyTruthAuditOptions, type TaxonomyTru
 // v3.0.2: Polymarket taxonomy backfill
 export { runPolymarketTaxonomyBackfill, type PolymarketTaxonomyBackfillOptions, type PolymarketTaxonomyBackfillResult } from './polymarket-taxonomy-backfill.js';
 
-// v3.0.3: Polymarket events sync
-export { runPolymarketEventsSync, type PolymarketEventsSyncOptions, type PolymarketEventsSyncResult } from './polymarket-events-sync.js';
+// v3.0.4: Polymarket events sync and coverage
+export {
+  runPolymarketEventsSync,
+  runPolymarketEventsCoverage,
+  type PolymarketEventsSyncOptions,
+  type PolymarketEventsSyncResult,
+  type PolymarketEventsCoverageResult,
+} from './polymarket-events-sync.js';
+
+// v3.0.4: Commodities pipeline
+export {
+  runCommoditiesPipeline,
+  runCommoditiesCounts,
+  runCommoditiesOverlap,
+  runCommoditiesBest,
+  type CommoditiesPipelineOptions,
+  type CommoditiesPipelineResult,
+} from '../matching/commoditiesPipeline.js';

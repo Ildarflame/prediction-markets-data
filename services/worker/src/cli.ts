@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit, runCryptoTruthDateAudit, runCryptoTypeAudit, runCryptoEthDebug, runCryptoSeriesAudit, runCryptoEligibleExplain, runKalshiIngestionDiag, runKalshiSanityStatus, runQuotesFreshness, runPolymarketCursorDiag, runLinksStats, runLinksCleanup, runLinksBackfill, runIntradayBest, runVenueSanityEligible, runLinksWatchlistSync, runWatchlistStats, runWatchlistList, runWatchlistCleanup, runLinksQueue, runLinksAutoReject, runAutoConfirm, runOps, runOpsKpi, runKalshiSeriesSync, runTaxonomyTruthAudit, runPolymarketTaxonomyBackfill, runPolymarketEventsSync } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit, runCryptoTruthDateAudit, runCryptoTypeAudit, runCryptoEthDebug, runCryptoSeriesAudit, runCryptoEligibleExplain, runKalshiIngestionDiag, runKalshiSanityStatus, runQuotesFreshness, runPolymarketCursorDiag, runLinksStats, runLinksCleanup, runLinksBackfill, runIntradayBest, runVenueSanityEligible, runLinksWatchlistSync, runWatchlistStats, runWatchlistList, runWatchlistCleanup, runLinksQueue, runLinksAutoReject, runAutoConfirm, runOps, runOpsKpi, runKalshiSeriesSync, runTaxonomyTruthAudit, runPolymarketTaxonomyBackfill, runPolymarketEventsSync, runPolymarketEventsCoverage, runCommoditiesCounts, runCommoditiesOverlap, runCommoditiesBest } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -1940,26 +1940,95 @@ program
     }
   });
 
-// Polymarket events sync (v3.0.3)
+// Polymarket events sync (v3.0.4)
 program
   .command('polymarket:events:sync')
-  .description('Sync Polymarket events and sports config from Gamma API (v3.0.3)')
-  .option('--limit <number>', 'Max events to fetch', '1000')
-  .option('--active-only', 'Only sync active events (default: true)', true)
-  .option('--no-active-only', 'Sync all events including closed')
+  .description('Sync Polymarket events and sports config from Gamma API (v3.0.4)')
+  .option('--max-events <number>', 'Max events to fetch (default: 2000, ignored with --full)')
+  .option('--full', 'Full sync - fetch ALL events with pagination', false)
+  .option('--active-only', 'Only sync active events')
+  .option('--no-active-only', 'Sync all events including closed (default)')
   .option('--link-markets', 'Link markets to their events (default: true)', true)
   .option('--no-link-markets', 'Skip linking markets')
+  .option('--cache-event-data', 'Cache event data in markets table (default: true)', true)
+  .option('--no-cache-event-data', 'Skip caching event data')
   .option('--apply', 'Apply changes (default: dry-run)', false)
   .action(async (opts) => {
     try {
       await runPolymarketEventsSync({
-        limit: parseInt(opts.limit, 10),
-        activeOnly: opts.activeOnly,
+        maxEvents: opts.maxEvents ? parseInt(opts.maxEvents, 10) : undefined,
+        full: opts.full,
+        activeOnly: opts.activeOnly ?? false,
         linkMarkets: opts.linkMarkets,
+        cacheEventData: opts.cacheEventData,
         apply: opts.apply,
       });
     } catch (error) {
       console.error('Polymarket events sync error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Polymarket events coverage report (v3.0.4)
+program
+  .command('polymarket:events:coverage')
+  .description('Show coverage statistics for Polymarket events linkage (v3.0.4)')
+  .action(async () => {
+    try {
+      await runPolymarketEventsCoverage();
+    } catch (error) {
+      console.error('Polymarket events coverage error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// Commodities commands (v3.0.4)
+program
+  .command('commodities:counts')
+  .description('Count commodities markets per venue (v3.0.4)')
+  .action(async () => {
+    try {
+      await runCommoditiesCounts();
+    } catch (error) {
+      console.error('Commodities counts error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+program
+  .command('commodities:overlap')
+  .description('Find commodities market overlap between venues (v3.0.4)')
+  .action(async () => {
+    try {
+      await runCommoditiesOverlap();
+    } catch (error) {
+      console.error('Commodities overlap error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+program
+  .command('commodities:best')
+  .description('Find best commodities market matches (v3.0.4)')
+  .option('--limit <number>', 'Max matches to show', '20')
+  .option('--min-score <number>', 'Minimum score threshold', '0.70')
+  .action(async (opts) => {
+    try {
+      await runCommoditiesBest({
+        limit: parseInt(opts.limit, 10),
+        minScore: parseFloat(opts.minScore),
+        debug: true,
+      });
+    } catch (error) {
+      console.error('Commodities best error:', error);
       process.exit(1);
     } finally {
       await disconnect();
