@@ -1,11 +1,13 @@
 /**
- * links:backfill - Backfill old market_links with legacy metadata (v2.6.4)
+ * links:backfill - Backfill old market_links with legacy metadata (v2.6.4, v2.6.6)
  *
  * Updates old links that have null algoVersion/topic with:
  * - algoVersion: 'legacy'
  * - topic: 'unknown'
  *
  * This allows proper filtering and cleanup of pre-v2.6.2 links.
+ *
+ * v2.6.6: Does NOT touch confirmed links to preserve manual curation.
  */
 
 import { getClient } from '@data-module/db';
@@ -38,13 +40,19 @@ export async function runLinksBackfill(options: LinksBackfillOptions): Promise<L
 
   const prisma = getClient();
 
-  // Count links with null algoVersion or null topic
+  // v2.6.6: Only count non-confirmed links (don't touch confirmed)
   const nullAlgoCount = await prisma.marketLink.count({
-    where: { algoVersion: null },
+    where: {
+      algoVersion: null,
+      status: { not: 'confirmed' },
+    },
   });
 
   const nullTopicCount = await prisma.marketLink.count({
-    where: { topic: null },
+    where: {
+      topic: null,
+      status: { not: 'confirmed' },
+    },
   });
 
   const nullBothCount = await prisma.marketLink.count({
@@ -53,13 +61,28 @@ export async function runLinksBackfill(options: LinksBackfillOptions): Promise<L
         { algoVersion: null },
         { topic: null },
       ],
+      status: { not: 'confirmed' },
+    },
+  });
+
+  // Count confirmed with null (for info only)
+  const confirmedNullCount = await prisma.marketLink.count({
+    where: {
+      status: 'confirmed',
+      OR: [
+        { algoVersion: null },
+        { topic: null },
+      ],
     },
   });
 
   console.log(`[Analysis]`);
-  console.log(`  Links with null algoVersion: ${nullAlgoCount}`);
-  console.log(`  Links with null topic: ${nullTopicCount}`);
-  console.log(`  Links with BOTH null: ${nullBothCount}`);
+  console.log(`  Links with null algoVersion (non-confirmed): ${nullAlgoCount}`);
+  console.log(`  Links with null topic (non-confirmed): ${nullTopicCount}`);
+  console.log(`  Links with BOTH null (non-confirmed): ${nullBothCount}`);
+  if (confirmedNullCount > 0) {
+    console.log(`  Confirmed links with null (SKIPPED): ${confirmedNullCount}`);
+  }
   console.log('');
 
   if (nullAlgoCount === 0 && nullTopicCount === 0) {
@@ -68,12 +91,14 @@ export async function runLinksBackfill(options: LinksBackfillOptions): Promise<L
   }
 
   if (dryRun) {
-    console.log(`[DRY RUN] Would update up to ${Math.min(nullAlgoCount, limit)} links with null algoVersion`);
+    console.log(`[DRY RUN] Would update up to ${Math.min(nullAlgoCount, limit)} non-confirmed links`);
     console.log(`[DRY RUN] Would set: algoVersion='legacy', topic='unknown'`);
+    console.log(`[DRY RUN] Confirmed links will NOT be modified`);
 
-    // Show sample of links that would be updated
+    // Show sample of links that would be updated (v2.6.6: exclude confirmed)
     const sample = await prisma.marketLink.findMany({
       where: {
+        status: { not: 'confirmed' },
         OR: [
           { algoVersion: null },
           { topic: null },
@@ -94,12 +119,15 @@ export async function runLinksBackfill(options: LinksBackfillOptions): Promise<L
   }
 
   // Update links with null algoVersion (sets both algoVersion and topic)
+  // v2.6.6: Exclude confirmed links to preserve manual curation
   console.log(`[Backfilling]`);
-  console.log(`  Updating links with null algoVersion -> 'legacy'`);
-  console.log(`  Updating links with null topic -> 'unknown'`);
+  console.log(`  Updating non-confirmed links with null algoVersion -> 'legacy'`);
+  console.log(`  Updating non-confirmed links with null topic -> 'unknown'`);
+  console.log(`  SKIPPING confirmed links`);
 
   const updateResult = await prisma.marketLink.updateMany({
     where: {
+      status: { not: 'confirmed' },
       OR: [
         { algoVersion: null },
         { topic: null },

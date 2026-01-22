@@ -206,17 +206,20 @@ export class MarketLinkRepository {
 
   /**
    * v2.6.2: Get link statistics grouped by status and algoVersion
+   * v2.6.6: Added avgScore by status
    */
   async getStats(): Promise<{
     byStatus: Record<LinkStatus, number>;
+    avgScoreByStatus: Record<LinkStatus, number | null>;
     byAlgoVersion: Array<{ algoVersion: string | null; count: number }>;
     byTopic: Array<{ topic: string; count: number }>;
     total: number;
   }> {
-    // Count by status
-    const statusCounts = await this.prisma.marketLink.groupBy({
+    // Count by status with avg score (v2.6.6)
+    const statusAgg = await this.prisma.marketLink.groupBy({
       by: ['status'],
       _count: { status: true },
+      _avg: { score: true },
     });
 
     const byStatus: Record<LinkStatus, number> = {
@@ -225,9 +228,16 @@ export class MarketLinkRepository {
       rejected: 0,
     };
 
+    const avgScoreByStatus: Record<LinkStatus, number | null> = {
+      suggested: null,
+      confirmed: null,
+      rejected: null,
+    };
+
     let total = 0;
-    for (const c of statusCounts) {
+    for (const c of statusAgg) {
       byStatus[c.status] = c._count.status;
+      avgScoreByStatus[c.status] = c._avg.score;
       total += c._count.status;
     }
 
@@ -265,7 +275,7 @@ export class MarketLinkRepository {
 
     const byTopic = [...topicMap.entries()].map(([topic, count]) => ({ topic, count })).sort((a, b) => b.count - a.count);
 
-    return { byStatus, byAlgoVersion, byTopic, total };
+    return { byStatus, avgScoreByStatus, byAlgoVersion, byTopic, total };
   }
 
   /**

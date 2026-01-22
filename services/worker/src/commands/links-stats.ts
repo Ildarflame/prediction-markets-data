@@ -1,14 +1,16 @@
 /**
- * links:stats - Show market link statistics (v2.6.3)
+ * links:stats - Show market link statistics (v2.6.3, v2.6.6)
  *
  * Displays counts by status, algoVersion, and topic
  * v2.6.3: Added topic field support
+ * v2.6.6: Added avgScore by status
  */
 
 import { getClient, MarketLinkRepository } from '@data-module/db';
 
 export interface LinksStatsResult {
   byStatus: Record<string, number>;
+  avgScoreByStatus: Record<string, number | null>;
   byAlgoVersion: Array<{ algoVersion: string | null; count: number }>;
   byTopic: Array<{ topic: string; count: number }>;
   total: number;
@@ -19,7 +21,7 @@ export interface LinksStatsResult {
  */
 export async function runLinksStats(): Promise<LinksStatsResult> {
   console.log(`\n${'='.repeat(60)}`);
-  console.log(`[links:stats] Market Link Statistics (v2.6.3)`);
+  console.log(`[links:stats] Market Link Statistics (v2.6.6)`);
   console.log(`${'='.repeat(60)}\n`);
 
   const prisma = getClient();
@@ -27,13 +29,18 @@ export async function runLinksStats(): Promise<LinksStatsResult> {
 
   const stats = await linkRepo.getStats();
 
-  // Print by status
+  // Helper to format score
+  const fmtScore = (score: number | null) => score !== null ? score.toFixed(3) : 'N/A';
+
+  // Print by status with avgScore (v2.6.6)
   console.log('[By Status]');
-  console.log(`  suggested:  ${String(stats.byStatus.suggested).padStart(8)}`);
-  console.log(`  confirmed:  ${String(stats.byStatus.confirmed).padStart(8)}`);
-  console.log(`  rejected:   ${String(stats.byStatus.rejected).padStart(8)}`);
-  console.log(`  ${'─'.repeat(20)}`);
-  console.log(`  TOTAL:      ${String(stats.total).padStart(8)}`);
+  console.log(`  ${'Status'.padEnd(12)} ${'Count'.padStart(8)} ${'Avg Score'.padStart(10)}`);
+  console.log(`  ${'─'.repeat(32)}`);
+  console.log(`  ${'suggested'.padEnd(12)} ${String(stats.byStatus.suggested).padStart(8)} ${fmtScore(stats.avgScoreByStatus.suggested).padStart(10)}`);
+  console.log(`  ${'confirmed'.padEnd(12)} ${String(stats.byStatus.confirmed).padStart(8)} ${fmtScore(stats.avgScoreByStatus.confirmed).padStart(10)}`);
+  console.log(`  ${'rejected'.padEnd(12)} ${String(stats.byStatus.rejected).padStart(8)} ${fmtScore(stats.avgScoreByStatus.rejected).padStart(10)}`);
+  console.log(`  ${'─'.repeat(32)}`);
+  console.log(`  ${'TOTAL'.padEnd(12)} ${String(stats.total).padStart(8)}`);
 
   // Print by topic
   console.log('\n[By Topic]');
