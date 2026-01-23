@@ -32,19 +32,24 @@ export interface MveDetectionResult {
 
 /**
  * MVE title patterns
- * - "yes X, yes Y" pattern (multiple conditions)
+ * - "yes X, yes Y" or "no X, no Y" pattern (multiple conditions)
+ * - "yes X, no Y" mixed conditions
  * - SGP / Same Game Parlay explicit mention
  * - Parlay indicators
+ * - Multiple comma-separated betting conditions
  */
 const MVE_TITLE_PATTERNS = [
-  // "yes X, yes Y, yes Z" pattern
-  /^yes\s+\w+.*,\s*yes\s+/i,
+  // "yes X, yes Y" or "no X, no Y" pattern at start
+  /^(yes|no)\s+\w+.*,\s*(yes|no)\s+/i,
   // Explicit SGP/parlay mentions
   /same\s+game\s+parlay/i,
   /\bsgp\b/i,
   /\bparlay\b/i,
-  // Multiple comma-separated conditions with "yes"
-  /^yes\s+[^,]+,\s*yes\s+[^,]+,\s*yes\s+/i,
+  // Multiple comma-separated conditions with yes/no
+  /^(yes|no)\s+[^,]+,\s*(yes|no)\s+[^,]+,\s*(yes|no)\s+/i,
+  // Over/Under combined with win conditions (parlay indicator)
+  /(over|under)\s+[\d.]+\s+(points?\s+scored|total).*,\s*(yes|no)\s+/i,
+  /wins?\s+by\s+over.*,\s*(over|under)\s+[\d.]+/i,
 ];
 
 /**
