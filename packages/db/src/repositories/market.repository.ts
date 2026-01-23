@@ -673,6 +673,9 @@ export class MarketRepository {
    *
    * More precise than keyword matching for topics like SPORTS.
    * Uses the derivedTopic field set by taxonomy backfill.
+   *
+   * v3.0.15: Added excludeMve option to filter out MVE/parlay markets
+   * for SPORTS matching (only non-MVE markets are matchable)
    */
   async listMarketsByDerivedTopic(
     topic: string,
@@ -680,9 +683,10 @@ export class MarketRepository {
       venue: Venue;
       lookbackHours?: number;
       limit?: number;
+      excludeMve?: boolean; // v3.0.15: Filter out MVE markets
     }
   ): Promise<EligibleMarket[]> {
-    const { venue, lookbackHours = 720, limit = 10000 } = options;
+    const { venue, lookbackHours = 720, limit = 10000, excludeMve = false } = options;
     const lookbackCutoff = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
 
     const markets = await this.prisma.market.findMany({
@@ -693,6 +697,8 @@ export class MarketRepository {
           { status: 'active' },
           { status: 'closed', closeTime: { gte: lookbackCutoff } },
         ],
+        // v3.0.15: Filter out MVE markets at query level for efficiency
+        ...(excludeMve && { isMve: false }),
       },
       include: { outcomes: true },
       orderBy: { id: 'desc' },

@@ -179,14 +179,16 @@ export const sportsPipeline: TopicPipeline<SportsMarket, SportsSignals, SportsSc
     } = options;
 
     // v3.0.13: Use derivedTopic for Kalshi (more precise), keywords for Polymarket
+    // v3.0.15: Exclude MVE markets at query level for efficiency when using V3 eligibility
     let markets;
     if (venue === 'kalshi') {
       markets = await repo.listMarketsByDerivedTopic('SPORTS', {
         venue,
         lookbackHours,
         limit,
+        excludeMve: useV3Eligibility, // v3.0.15: Filter out MVE at query level
       });
-      console.log(`[sportsPipeline] Fetched ${markets.length} ${venue} markets with derivedTopic=SPORTS`);
+      console.log(`[sportsPipeline] Fetched ${markets.length} ${venue} markets with derivedTopic=SPORTS${useV3Eligibility ? ' (non-MVE only)' : ''}`);
     } else {
       // Polymarket: keep keyword matching (no derivedTopic populated yet)
       markets = await repo.listEligibleMarkets(venue, {
