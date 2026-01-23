@@ -1916,14 +1916,18 @@ program
     }
   });
 
-// Polymarket taxonomy backfill (v3.0.2)
+// Polymarket taxonomy backfill (v3.0.7)
 program
   .command('polymarket:taxonomy:backfill')
-  .description('Backfill Polymarket taxonomy from Gamma API (v3.0.2)')
+  .description('Backfill Polymarket taxonomy (v3.0.7). Use --classify for DB-only derivedTopic classification')
   .option('--lookback-hours <hours>', 'Only backfill markets updated in last N hours', '720')
-  .option('--db-limit <number>', 'Max markets to fetch from DB', '10000')
-  .option('--batch-size <number>', 'API batch size', '100')
+  .option('--db-limit <number>', 'Max markets to process', '50000')
+  .option('--batch-size <number>', 'Batch size for updates', '500')
   .option('--apply', 'Apply changes (default: dry-run)', false)
+  .option('--classify', 'DB-only mode: classify existing data without API calls (v3.0.7)', false)
+  .option('--only-null', 'Only process markets with NULL derivedTopic', true)
+  .option('--force', 'Force re-classify even if derivedTopic exists', false)
+  .option('--current-topic <topic>', 'Filter by current derivedTopic (e.g., UNKNOWN)')
   .action(async (opts) => {
     try {
       await runPolymarketTaxonomyBackfill({
@@ -1931,6 +1935,10 @@ program
         dbLimit: parseInt(opts.dbLimit, 10),
         batchSize: parseInt(opts.batchSize, 10),
         apply: opts.apply,
+        classify: opts.classify,
+        onlyNull: opts.onlyNull,
+        force: opts.force,
+        currentTopic: opts.currentTopic,
       });
     } catch (error) {
       console.error('Polymarket taxonomy backfill error:', error);
