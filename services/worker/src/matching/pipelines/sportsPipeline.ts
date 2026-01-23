@@ -232,14 +232,17 @@ export const sportsPipeline: TopicPipeline<SportsMarket, SportsSignals, SportsSc
     let excludedCount = 0;
     let eventEnrichedCount = 0;
 
-    // v3.0.14: Select eligibility function based on options
-    // V3 eligibility requires market.isMve for MVE filtering
+    // v3.0.14: Select eligibility function based on options and venue
+    // V3 eligibility requires market.isMve for MVE filtering - only applies to Kalshi
+    // For Polymarket, use V2 eligibility (relaxed rules without MVE check)
     const getEligibility = (signals: SportsSignals, market: { isMve?: boolean | null }) => {
-      if (useV3Eligibility) {
+      // V3 eligibility only for Kalshi (has isMve data)
+      if (useV3Eligibility && venue === 'kalshi') {
         const result = isEligibleSportsMarketV3(signals, market);
         return result.eligible;
       }
-      if (useV2Eligibility) {
+      // For Polymarket or when V3 not requested, use V2 or V1
+      if (useV2Eligibility || (useV3Eligibility && venue !== 'kalshi')) {
         return isEligibleSportsMarketV2(signals);
       }
       return isEligibleSportsMarket(signals);
@@ -271,7 +274,7 @@ export const sportsPipeline: TopicPipeline<SportsMarket, SportsSignals, SportsSc
       }
     }
 
-    const eligibilityLabel = useV3Eligibility ? 'V3' : (useV2Eligibility ? 'V2' : 'V1');
+    const eligibilityLabel = (useV3Eligibility && venue === 'kalshi') ? 'V3' : (useV2Eligibility || useV3Eligibility ? 'V2' : 'V1');
     console.log(`[sportsPipeline] ${venue}: ${sportsMarkets.length} eligible (${eligibilityLabel}), ${excludedCount} excluded, ${eventEnrichedCount} event-enriched`);
 
     return sportsMarkets;
