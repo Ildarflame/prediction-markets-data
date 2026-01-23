@@ -29,6 +29,14 @@ export enum SportsLeague {
   GOLF = 'GOLF',
   F1 = 'F1',
   ESPORTS = 'ESPORTS',
+  // v3.0.13: New European leagues
+  PRIMEIRA_LIGA = 'PRIMEIRA_LIGA',    // Portuguese
+  SCOTTISH_PREM = 'SCOTTISH_PREM',    // Scottish Premiership
+  SUPER_LIG = 'SUPER_LIG',            // Turkish
+  EREDIVISIE = 'EREDIVISIE',          // Dutch
+  BELGIAN_PRO = 'BELGIAN_PRO',        // Belgian
+  CHAMPIONSHIP = 'CHAMPIONSHIP',       // English Championship (2nd tier)
+  FOOTBALL = 'FOOTBALL',               // Generic football/soccer
   UNKNOWN = 'UNKNOWN',
 }
 
@@ -95,6 +103,14 @@ export const LEAGUE_KEYWORDS: Record<SportsLeague, string[]> = {
   [SportsLeague.GOLF]: ['golf', 'pga', 'lpga', 'masters', 'us open golf', 'british open', 'the open', 'pga championship', 'ryder cup'],
   [SportsLeague.F1]: ['formula 1', 'f1', 'grand prix', 'gp'],
   [SportsLeague.ESPORTS]: ['esports', 'e-sports', 'league of legends', 'lol', 'dota', 'cs:go', 'csgo', 'valorant', 'overwatch', 'call of duty', 'cod'],
+  // v3.0.13: New European leagues
+  [SportsLeague.PRIMEIRA_LIGA]: ['primeira liga', 'liga portugal', 'benfica', 'porto', 'sporting cp', 'braga', 'vitoria'],
+  [SportsLeague.SCOTTISH_PREM]: ['scottish premiership', 'spfl', 'celtic', 'rangers fc', 'hibernian', 'hearts', 'aberdeen', 'kilmarnock', 'motherwell'],
+  [SportsLeague.SUPER_LIG]: ['super lig', 'turkish league', 'galatasaray', 'fenerbahce', 'besiktas', 'trabzonspor', 'basaksehir'],
+  [SportsLeague.EREDIVISIE]: ['eredivisie', 'dutch league', 'ajax', 'psv', 'feyenoord', 'az alkmaar', 'twente'],
+  [SportsLeague.BELGIAN_PRO]: ['belgian pro league', 'jupiler', 'club brugge', 'anderlecht', 'genk', 'standard liege', 'gent'],
+  [SportsLeague.CHAMPIONSHIP]: ['efl championship', 'leeds', 'sheffield wednesday', 'sunderland', 'middlesbrough', 'norwich', 'west brom', 'watford'],
+  [SportsLeague.FOOTBALL]: ['soccer', 'football', 'futbol', 'futebol'],  // Generic football keywords
   [SportsLeague.UNKNOWN]: [],
 };
 
@@ -268,6 +284,191 @@ export const TEAM_ALIASES: Record<string, string[]> = {
 };
 
 // ============================================================================
+// v3.0.13: TEAM NAME CLEANING (for market type suffixes)
+// ============================================================================
+
+/**
+ * Suffixes to remove from team names (market type indicators, etc.)
+ * Applied before normalization to handle titles like:
+ * "Rangers FC vs. Kilmarnock FC: Both Teams to Score"
+ */
+export const TEAM_SUFFIXES_TO_REMOVE = [
+  // Market type indicators
+  'both teams to score',
+  'btts',
+  'to win',
+  'to score first',
+  'to score',
+  'to qualify',
+  'end in a draw',
+  'winner',
+  'moneyline',
+  'ml',
+  'over',
+  'under',
+  'spread',
+  'handicap',
+
+  // Time/period indicators
+  'first half',
+  'second half',
+  '1st half',
+  '2nd half',
+  'full time',
+  'ft',
+  'ht',
+  'regulation',
+
+  // Result indicators
+  'win',
+  'draw',
+  'lose',
+  'loss',
+  'tie',
+
+  // Prop market indicators
+  'total goals',
+  'clean sheet',
+  'correct score',
+];
+
+/**
+ * Football club indicators (v3.0.13)
+ * When detected, the market is likely soccer/football, not US sports
+ */
+export const FOOTBALL_CLUB_INDICATORS = [
+  'fc', 'cf', 'sc', 'ac', 'as', 'ss', 'afc', 'bfc',
+  'united', 'city', 'athletic', 'sporting', 'real',
+  'olympique', 'dynamo', 'lokomotiv', 'zenit',
+  'fk', 'sk', 'fck',  // Eastern European patterns
+];
+
+/**
+ * Country/team keyword → league mappings (v3.0.13)
+ * Used for context-aware league detection when FC indicator is present
+ */
+export const COUNTRY_LEAGUE_HINTS: Record<string, SportsLeague> = {
+  // Portuguese
+  'benfica': SportsLeague.PRIMEIRA_LIGA,
+  'porto': SportsLeague.PRIMEIRA_LIGA,
+  'sporting cp': SportsLeague.PRIMEIRA_LIGA,
+  'braga': SportsLeague.PRIMEIRA_LIGA,
+  'vitoria': SportsLeague.PRIMEIRA_LIGA,
+  'futebol': SportsLeague.PRIMEIRA_LIGA, // "AVS Futebol" pattern
+
+  // Scottish
+  'celtic': SportsLeague.SCOTTISH_PREM,
+  'rangers fc': SportsLeague.SCOTTISH_PREM,  // Specific to avoid NHL Rangers
+  'hibernian': SportsLeague.SCOTTISH_PREM,
+  'hearts': SportsLeague.SCOTTISH_PREM,
+  'aberdeen': SportsLeague.SCOTTISH_PREM,
+  'kilmarnock': SportsLeague.SCOTTISH_PREM,
+  'motherwell': SportsLeague.SCOTTISH_PREM,
+  'dundee': SportsLeague.SCOTTISH_PREM,
+  'st mirren': SportsLeague.SCOTTISH_PREM,
+  'ross county': SportsLeague.SCOTTISH_PREM,
+
+  // Turkish
+  'galatasaray': SportsLeague.SUPER_LIG,
+  'fenerbahce': SportsLeague.SUPER_LIG,
+  'besiktas': SportsLeague.SUPER_LIG,
+  'basaksehir': SportsLeague.SUPER_LIG,
+  'trabzonspor': SportsLeague.SUPER_LIG,
+
+  // Dutch
+  'ajax': SportsLeague.EREDIVISIE,
+  'psv': SportsLeague.EREDIVISIE,
+  'feyenoord': SportsLeague.EREDIVISIE,
+  'az alkmaar': SportsLeague.EREDIVISIE,
+  'twente': SportsLeague.EREDIVISIE,
+
+  // Belgian
+  'club brugge': SportsLeague.BELGIAN_PRO,
+  'anderlecht': SportsLeague.BELGIAN_PRO,
+  'genk': SportsLeague.BELGIAN_PRO,
+  'standard liege': SportsLeague.BELGIAN_PRO,
+  'gent': SportsLeague.BELGIAN_PRO,
+
+  // English Championship
+  'leeds': SportsLeague.CHAMPIONSHIP,
+  'sheffield wednesday': SportsLeague.CHAMPIONSHIP,
+  'sunderland': SportsLeague.CHAMPIONSHIP,
+  'middlesbrough': SportsLeague.CHAMPIONSHIP,
+  'norwich': SportsLeague.CHAMPIONSHIP,
+  'west brom': SportsLeague.CHAMPIONSHIP,
+  'watford': SportsLeague.CHAMPIONSHIP,
+  'stoke': SportsLeague.CHAMPIONSHIP,
+  'coventry': SportsLeague.CHAMPIONSHIP,
+  'bristol city': SportsLeague.CHAMPIONSHIP,
+  'blackburn': SportsLeague.CHAMPIONSHIP,
+  'hull': SportsLeague.CHAMPIONSHIP,
+  'swansea': SportsLeague.CHAMPIONSHIP,
+  'millwall': SportsLeague.CHAMPIONSHIP,
+  'plymouth': SportsLeague.CHAMPIONSHIP,
+  'qpr': SportsLeague.CHAMPIONSHIP,
+  'cardiff': SportsLeague.CHAMPIONSHIP,
+  'preston': SportsLeague.CHAMPIONSHIP,
+};
+
+/**
+ * Clean team name by removing market type suffixes (v3.0.13)
+ * Applied before normalization to handle:
+ * "Kilmarnock FC: Both Teams to Score" → "kilmarnock fc"
+ */
+export function cleanTeamName(rawTeam: string): string {
+  let team = rawTeam.toLowerCase().trim();
+
+  // Remove suffixes (check longest first by sorting)
+  const sortedSuffixes = [...TEAM_SUFFIXES_TO_REMOVE].sort((a, b) => b.length - a.length);
+
+  for (const suffix of sortedSuffixes) {
+    // Check with colon prefix (common pattern)
+    const colonSuffix = `: ${suffix}`;
+    if (team.endsWith(colonSuffix)) {
+      team = team.slice(0, -colonSuffix.length).trim();
+      continue;
+    }
+
+    // Check with dash prefix
+    const dashSuffix = ` - ${suffix}`;
+    if (team.endsWith(dashSuffix)) {
+      team = team.slice(0, -dashSuffix.length).trim();
+      continue;
+    }
+
+    // Check direct suffix
+    if (team.endsWith(` ${suffix}`)) {
+      team = team.slice(0, -(suffix.length + 1)).trim();
+    }
+  }
+
+  // Remove trailing punctuation
+  team = team.replace(/[:\-–—,;.?!]+$/, '').trim();
+
+  // Remove question prefix patterns like "Will X win?"
+  team = team.replace(/^will\s+/i, '').trim();
+
+  return team;
+}
+
+/**
+ * Check if title contains football club indicators (v3.0.13)
+ */
+export function hasFootballClubIndicator(title: string): boolean {
+  const titleLower = title.toLowerCase();
+
+  for (const indicator of FOOTBALL_CLUB_INDICATORS) {
+    // Check as word boundary: " fc ", " fc.", " fc:", "fc " at start, etc.
+    const pattern = new RegExp(`\\b${indicator}\\b`, 'i');
+    if (pattern.test(titleLower)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+// ============================================================================
 // NORMALIZATION FUNCTIONS
 // ============================================================================
 
@@ -353,6 +554,7 @@ export function normalizeTeamName(name: string): string {
 
 /**
  * Detect league from text
+ * v3.0.13: Added football club indicator detection and context-aware league hints
  */
 export function detectLeague(text: string): SportsLeague {
   const textLower = text.toLowerCase();
@@ -371,6 +573,13 @@ export function detectLeague(text: string): SportsLeague {
     [/\bligue\s*1\b/i, SportsLeague.LIGUE_1],
     [/\bchampions\s+league\b|\bucl\b/i, SportsLeague.UCL],
     [/\beuropa\s+league\b|\buel\b/i, SportsLeague.UEL],
+    // v3.0.13: New explicit patterns
+    [/\bprimeira\s+liga\b|\bligua\s+portugal\b/i, SportsLeague.PRIMEIRA_LIGA],
+    [/\bscottish\s+(premiership|prem)\b|\bspfl\b/i, SportsLeague.SCOTTISH_PREM],
+    [/\bsuper\s+lig\b|\bturkish\s+league\b/i, SportsLeague.SUPER_LIG],
+    [/\beredivisie\b|\bdutch\s+league\b/i, SportsLeague.EREDIVISIE],
+    [/\bbelgian\s+(pro|league)\b|\bjupiler\b/i, SportsLeague.BELGIAN_PRO],
+    [/\bchampionship\b|\befl\s+championship\b/i, SportsLeague.CHAMPIONSHIP],
     [/\bufc\b|\bmma\b/i, SportsLeague.UFC],
     [/\batp\b|\bwta\b|\btennis\b/i, SportsLeague.TENNIS],
     [/\bpga\b|\bgolf\b/i, SportsLeague.GOLF],
@@ -386,7 +595,21 @@ export function detectLeague(text: string): SportsLeague {
     }
   }
 
-  // Check team/keyword based detection (less reliable, use scoring)
+  // v3.0.13: Check for football club indicators BEFORE US sports
+  // This prevents "Rangers FC" from matching NHL Rangers
+  if (hasFootballClubIndicator(text)) {
+    // Try to identify specific league from country hints
+    for (const [keyword, league] of Object.entries(COUNTRY_LEAGUE_HINTS)) {
+      if (textLower.includes(keyword)) {
+        return league;
+      }
+    }
+
+    // Has FC indicator but no specific league → generic FOOTBALL
+    return SportsLeague.FOOTBALL;
+  }
+
+  // Check team/keyword based detection (for US sports primarily)
   const leaguePriority: SportsLeague[] = [
     SportsLeague.NBA,
     SportsLeague.NFL,
@@ -414,20 +637,26 @@ export function detectLeague(text: string): SportsLeague {
 
 /**
  * Extract teams from title (X vs Y, X @ Y patterns)
+ * v3.0.13: Uses cleanTeamName to remove market type suffixes
  */
 export function extractTeams(title: string): { teamA: string | null; teamB: string | null } {
   // Common separators for matchups
   const vsPatterns = [
-    /^(.+?)\s+(?:vs\.?|v\.?|versus)\s+(.+?)(?:\s*[-–—]\s*|\s*$)/i,
-    /^(.+?)\s+@\s+(.+?)(?:\s*[-–—]\s*|\s*$)/i,
-    /^(.+?)\s+at\s+(.+?)(?:\s*[-–—]\s*|\s*$)/i,
+    /^(.+?)\s+(?:vs\.?|v\.?|versus)\s+(.+?)(?:\s*[-–—]\s*|\s*[?!]?\s*$)/i,
+    /^(.+?)\s+@\s+(.+?)(?:\s*[-–—]\s*|\s*[?!]?\s*$)/i,
+    /^(.+?)\s+at\s+(.+?)(?:\s*[-–—]\s*|\s*[?!]?\s*$)/i,
   ];
 
   for (const pattern of vsPatterns) {
     const match = title.match(pattern);
     if (match) {
-      const teamA = normalizeTeamName(match[1].trim());
-      const teamB = normalizeTeamName(match[2].trim());
+      // v3.0.13: Clean team names before normalization
+      const rawA = cleanTeamName(match[1].trim());
+      const rawB = cleanTeamName(match[2].trim());
+
+      const teamA = normalizeTeamName(rawA);
+      const teamB = normalizeTeamName(rawB);
+
       if (teamA && teamB && teamA !== teamB) {
         return { teamA, teamB };
       }

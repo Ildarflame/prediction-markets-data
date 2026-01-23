@@ -1,5 +1,5 @@
 /**
- * Sports Signals Extraction (v3.0.12)
+ * Sports Signals Extraction (v3.0.13)
  *
  * Extracts sports-specific features from market titles for matching:
  * - League (NBA, NFL, MLB, NHL, etc.)
@@ -147,6 +147,7 @@ const EXCLUSION_KEYWORDS = [
 
 /**
  * Check if market should be excluded based on title
+ * v3.0.13: Improved parlay detection - less aggressive, more specific patterns
  */
 function shouldExcludeMarket(title: string): { excluded: boolean; reason: string | null } {
   const titleLower = title.toLowerCase();
@@ -163,9 +164,34 @@ function shouldExcludeMarket(title: string): { excluded: boolean; reason: string
     return { excluded: true, reason: 'Player prop pattern detected' };
   }
 
-  // "yes/no" multi-selection patterns (parlays)
-  if (/^yes\s+\w+,\s*yes\s+/i.test(title) || title.split(',').length > 2) {
-    return { excluded: true, reason: 'Multi-selection/parlay pattern detected' };
+  // v3.0.13: More specific parlay detection patterns
+  const parlayPatterns: [RegExp, string][] = [
+    [/^yes\s+.+,\s*yes\s+/i, 'Yes X, Yes Y pattern'],                // "Yes Lakers, Yes Celtics"
+    [/\+\s*\w+.*\+\s*\w+/i, 'Multiple + combinations'],               // "Lakers + Celtics + Warriors"
+    [/\band\b.*\band\b.*\band\b/i, 'Triple AND pattern'],             // "Lakers and Celtics and Warriors"
+    [/\bparlay\b|\baccumulator\b|\bsgp\b/i, 'Explicit parlay keyword'], // Explicit parlay keywords
+    [/\d+\s*-?\s*leg/i, 'Multi-leg pattern'],                          // "3-leg parlay"
+    [/\ball\s+\d+\b/i, 'All N pattern'],                               // "All 4 teams to win"
+  ];
+
+  for (const [pattern, reason] of parlayPatterns) {
+    if (pattern.test(title)) {
+      return { excluded: true, reason: `Parlay: ${reason}` };
+    }
+  }
+
+  // v3.0.13: Only exclude comma patterns if they look like multi-selections
+  // Allow normal commas like "Rangers FC, Glasgow vs Celtic FC, Glasgow"
+  const commaSegments = title.split(',');
+  if (commaSegments.length >= 3) {
+    // Check if this looks like a multi-team parlay (multiple "vs" or team names)
+    const vsCount = (title.match(/\bvs\.?\b/gi) || []).length;
+    const winCount = (title.match(/\bwin\b/gi) || []).length;
+
+    // If we have multiple "vs" or "win" mentions, it's likely a parlay
+    if (vsCount >= 2 || winCount >= 2) {
+      return { excluded: true, reason: 'Multi-match parlay pattern' };
+    }
   }
 
   return { excluded: false, reason: null };

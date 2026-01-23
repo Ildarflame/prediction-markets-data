@@ -83,7 +83,7 @@ export interface SportsScoreResult {
 // CONSTANTS
 // ============================================================================
 
-const ALGO_VERSION = 'sports@3.0.12';
+const ALGO_VERSION = 'sports@3.0.13';
 
 const WEIGHTS = {
   // Event-level (0.75 total)
@@ -162,7 +162,7 @@ export const sportsPipeline: TopicPipeline<SportsMarket, SportsSignals, SportsSc
   supportsAutoReject: true,
 
   /**
-   * Fetch sports-eligible markets from a venue (v3.0.12: event enrichment)
+   * Fetch sports-eligible markets from a venue (v3.0.13: derivedTopic for Kalshi)
    */
   async fetchMarkets(
     repo: MarketRepository,
@@ -176,14 +176,24 @@ export const sportsPipeline: TopicPipeline<SportsMarket, SportsSignals, SportsSc
       eventRepo,
     } = options;
 
-    // Fetch markets with sports keywords
-    const markets = await repo.listEligibleMarkets(venue, {
-      lookbackHours,
-      limit,
-      titleKeywords: SPORTS_KEYWORDS,
-    });
-
-    console.log(`[sportsPipeline] Fetched ${markets.length} ${venue} markets with sports keywords`);
+    // v3.0.13: Use derivedTopic for Kalshi (more precise), keywords for Polymarket
+    let markets;
+    if (venue === 'kalshi') {
+      markets = await repo.listMarketsByDerivedTopic('SPORTS', {
+        venue,
+        lookbackHours,
+        limit,
+      });
+      console.log(`[sportsPipeline] Fetched ${markets.length} ${venue} markets with derivedTopic=SPORTS`);
+    } else {
+      // Polymarket: keep keyword matching (no derivedTopic populated yet)
+      markets = await repo.listEligibleMarkets(venue, {
+        lookbackHours,
+        limit,
+        titleKeywords: SPORTS_KEYWORDS,
+      });
+      console.log(`[sportsPipeline] Fetched ${markets.length} ${venue} markets with sports keywords`);
+    }
 
     // v3.0.12: Build event data map for Kalshi markets
     const eventDataMap = new Map<string, SportsEventData>();

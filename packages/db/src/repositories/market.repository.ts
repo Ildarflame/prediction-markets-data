@@ -583,6 +583,64 @@ export class MarketRepository {
 
     return eligible;
   }
+
+  /**
+   * List eligible markets by derivedTopic (v3.0.13)
+   *
+   * More precise than keyword matching for topics like SPORTS.
+   * Uses the derivedTopic field set by taxonomy backfill.
+   */
+  async listMarketsByDerivedTopic(
+    topic: string,
+    options: {
+      venue: Venue;
+      lookbackHours?: number;
+      limit?: number;
+    }
+  ): Promise<EligibleMarket[]> {
+    const { venue, lookbackHours = 720, limit = 10000 } = options;
+    const lookbackCutoff = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
+
+    const markets = await this.prisma.market.findMany({
+      where: {
+        venue,
+        derivedTopic: topic,
+        OR: [
+          { status: 'active' },
+          { status: 'closed', closeTime: { gte: lookbackCutoff } },
+        ],
+      },
+      include: { outcomes: true },
+      orderBy: { id: 'desc' },
+      take: limit,
+    });
+
+    // Filter to binary markets (2 outcomes, yes/no sides)
+    const eligible: EligibleMarket[] = [];
+
+    for (const market of markets) {
+      if (market.outcomes.length !== 2) continue;
+
+      const sides = market.outcomes.map((o) => o.side);
+      const hasYes = sides.includes('yes');
+      const hasNo = sides.includes('no');
+
+      if (!hasYes || !hasNo) continue;
+
+      eligible.push({
+        id: market.id,
+        title: market.title,
+        category: market.category,
+        status: market.status,
+        closeTime: market.closeTime,
+        venue: market.venue,
+        metadata: market.metadata as Record<string, unknown> | null,
+        kalshiEventTicker: market.kalshiEventTicker,
+      });
+    }
+
+    return eligible;
+  }
 }
 
 /**

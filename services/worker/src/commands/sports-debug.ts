@@ -1,10 +1,11 @@
 /**
- * Sports Debug Commands (v3.0.12)
+ * Sports Debug Commands (v3.0.13)
  *
  * Diagnostics for SPORTS pipeline:
  * - sports:audit - Show SPORTS market breakdown by eligibility
  * - sports:sample - Show sample markets with signals
  * - sports:eligible - Show eligible markets count
+ * - sports:event-coverage - Show event coverage for SPORTS markets
  */
 
 import { getClient, MarketRepository, KalshiEventRepository } from '@data-module/db';
@@ -456,5 +457,108 @@ export async function runSportsEligible(options: SportsEligibleOptions): Promise
     kalshiEventEnriched,
     polymarketTotal: polymarketMarkets.length,
     polymarketEligible,
+  };
+}
+
+// ============================================================================
+// EVENT COVERAGE COMMAND (v3.0.13)
+// ============================================================================
+
+export interface EventCoverageOptions {
+  topic?: string;
+  venue?: 'kalshi';
+}
+
+export interface EventCoverageResult {
+  marketsWithEventTicker: number;
+  uniqueEventTickers: number;
+  eventsInDb: number;
+  marketsLinked: number;
+  coverage: number;
+}
+
+/**
+ * Check event coverage for Kalshi SPORTS markets (v3.0.13)
+ */
+export async function runSportsEventCoverage(options: EventCoverageOptions): Promise<EventCoverageResult> {
+  const prisma = getClient();
+
+  const { topic = 'SPORTS' } = options;
+
+  console.log(`\n=== Sports Event Coverage (v3.0.13) ===\n`);
+  console.log(`Topic: ${topic}`);
+
+  // Count markets with eventTicker in metadata
+  const withEventTickerResult = await prisma.$queryRaw<Array<{ count: bigint }>>`
+    SELECT COUNT(*) as count
+    FROM markets
+    WHERE venue = 'kalshi'
+      AND derived_topic = ${topic}
+      AND metadata->>'eventTicker' IS NOT NULL
+  `;
+  const marketsWithEventTicker = Number(withEventTickerResult[0]?.count ?? 0);
+
+  // Count unique eventTickers in markets
+  const uniqueTickersResult = await prisma.$queryRaw<Array<{ count: bigint }>>`
+    SELECT COUNT(DISTINCT metadata->>'eventTicker') as count
+    FROM markets
+    WHERE venue = 'kalshi'
+      AND derived_topic = ${topic}
+      AND metadata->>'eventTicker' IS NOT NULL
+  `;
+  const uniqueEventTickers = Number(uniqueTickersResult[0]?.count ?? 0);
+
+  // Count events in DB
+  const eventsInDb = await prisma.kalshiEvent.count();
+
+  // Count markets linked to events (have kalshiEventTicker set)
+  const linkedResult = await prisma.$queryRaw<Array<{ count: bigint }>>`
+    SELECT COUNT(*) as count
+    FROM markets
+    WHERE venue = 'kalshi'
+      AND derived_topic = ${topic}
+      AND kalshi_event_ticker IS NOT NULL
+  `;
+  const marketsLinked = Number(linkedResult[0]?.count ?? 0);
+
+  const coverage = marketsWithEventTicker > 0
+    ? (marketsLinked / marketsWithEventTicker) * 100
+    : 0;
+
+  console.log(`
+Event Coverage Report (topic: ${topic})
+================================
+Markets with eventTicker:  ${marketsWithEventTicker.toLocaleString()}
+Unique eventTickers:       ${uniqueEventTickers.toLocaleString()}
+Events in DB:              ${eventsInDb.toLocaleString()}
+Markets linked:            ${marketsLinked.toLocaleString()}
+Coverage:                  ${coverage.toFixed(1)}%
+`);
+
+  // Show sample unlinked markets
+  if (marketsWithEventTicker > marketsLinked) {
+    console.log(`\n--- Sample Unlinked Markets ---`);
+
+    const unlinked = await prisma.$queryRaw<Array<{ id: number; title: string; eventTicker: string }>>`
+      SELECT id, title, metadata->>'eventTicker' as "eventTicker"
+      FROM markets
+      WHERE venue = 'kalshi'
+        AND derived_topic = ${topic}
+        AND metadata->>'eventTicker' IS NOT NULL
+        AND kalshi_event_ticker IS NULL
+      LIMIT 10
+    `;
+
+    for (const row of unlinked) {
+      console.log(`  [${row.id}] ${row.eventTicker}: ${row.title.slice(0, 60)}...`);
+    }
+  }
+
+  return {
+    marketsWithEventTicker,
+    uniqueEventTickers,
+    eventsInDb,
+    marketsLinked,
+    coverage,
   };
 }

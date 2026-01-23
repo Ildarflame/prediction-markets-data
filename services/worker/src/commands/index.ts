@@ -145,15 +145,22 @@ export { runV3Best, runV3Worst, type V3QualityOptions, type V3QualityResult, typ
 // v3.0.12: Kalshi events sync for SPORTS
 export { runKalshiEventsSync, type KalshiEventsSyncOptions, type KalshiEventsSyncResult } from './kalshi-events-sync.js';
 
+// v3.0.13: Smart event sync (by market eventTickers)
+export { runKalshiEventsSmartSync, type SmartSyncOptions, type SmartSyncResult } from './kalshi-events-smart-sync.js';
+
 // v3.0.12: Sports debug commands
+// v3.0.13: Added event coverage command
 export {
   runSportsAudit,
   runSportsSample,
   runSportsEligible,
+  runSportsEventCoverage,
   type SportsAuditOptions,
   type SportsAuditResult,
   type SportsSampleOptions,
   type SportsSampleResult,
   type SportsEligibleOptions,
   type SportsEligibleResult,
+  type EventCoverageOptions,
+  type EventCoverageResult,
 } from './sports-debug.js';
