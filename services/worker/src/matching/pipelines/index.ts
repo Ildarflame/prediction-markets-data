@@ -1,5 +1,5 @@
 /**
- * Pipelines Index (v3.0.0)
+ * Pipelines Index (v3.0.6)
  *
  * Exports all topic-specific pipelines.
  */
@@ -25,3 +25,33 @@ export {
   type ElectionsMarket,
   type ElectionsScoreResult,
 } from './electionsPipeline.js';
+
+// Crypto Daily Pipeline (v3.0.6)
+export {
+  CryptoDailyPipeline,
+  cryptoDailyPipeline,
+  type CryptoDailyMarket,
+} from './cryptoDailyPipeline.js';
+
+// Crypto Intraday Pipeline (v3.0.6)
+export {
+  CryptoIntradayPipeline,
+  cryptoIntradayPipeline,
+  type CryptoIntradayMarket,
+} from './cryptoIntradayPipeline.js';
+
+// Macro Pipeline V3 (v3.0.6)
+export {
+  MacroPipelineV3,
+  macroPipelineV3,
+  type MacroMarketV3,
+  type MacroScoreResult,
+} from './macroPipelineV3.js';
+
+// Commodities Pipeline V3 (v3.0.6)
+export {
+  CommoditiesPipelineV3,
+  commoditiesPipelineV3,
+  type CommoditiesMarketV3,
+  type CommoditiesScoreResult,
+} from './commoditiesPipelineV3.js';

@@ -71,7 +71,7 @@ export function clearPipelines(): void {
 }
 
 /**
- * Topics that are currently implemented
+ * Topics that are currently implemented (v3.0.6)
  * (Used for validation and CLI help text)
  */
 export const IMPLEMENTED_TOPICS: CanonicalTopic[] = [
@@ -80,6 +80,7 @@ export const IMPLEMENTED_TOPICS: CanonicalTopic[] = [
   CanonicalTopic.MACRO,
   CanonicalTopic.RATES,
   CanonicalTopic.ELECTIONS,
+  CanonicalTopic.COMMODITIES,
 ];
 
 /**
