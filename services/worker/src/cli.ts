@@ -2444,6 +2444,50 @@ program
     }
   });
 
+// kalshi:mve:backfill - Backfill isMve field for SPORTS markets (v3.0.14)
+program
+  .command('kalshi:mve:backfill')
+  .description('Backfill isMve field for Kalshi SPORTS markets (v3.0.14)')
+  .option('--batch-size <number>', 'Batch size for processing', '5000')
+  .option('--topic <topic>', 'Topic to backfill', 'SPORTS')
+  .option('--apply', 'Apply changes (default: dry-run)', false)
+  .action(async (opts) => {
+    const { runKalshiMveBackfill } = await import('./commands/index.js');
+
+    try {
+      await runKalshiMveBackfill({
+        batchSize: parseInt(opts.batchSize, 10),
+        topic: opts.topic,
+        dryRun: !opts.apply,
+      });
+    } catch (error) {
+      console.error('MVE backfill error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// kalshi:sports:breakdown - Show MVE vs Non-MVE breakdown (v3.0.14)
+program
+  .command('kalshi:sports:breakdown')
+  .description('Show MVE vs Non-MVE breakdown for Kalshi SPORTS (v3.0.14)')
+  .option('--lookback-h <hours>', 'Lookback window in hours', '720')
+  .action(async (opts) => {
+    const { runKalshiSportsBreakdown } = await import('./commands/index.js');
+
+    try {
+      await runKalshiSportsBreakdown({
+        lookbackHours: parseInt(opts.lookbackH, 10),
+      });
+    } catch (error) {
+      console.error('Sports breakdown error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
 // Handle graceful shutdown
 process.on('SIGINT', async () => {
   console.log('\nShutting down...');

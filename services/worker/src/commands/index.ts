@@ -164,3 +164,7 @@ export {
   type EventCoverageOptions,
   type EventCoverageResult,
 } from './sports-debug.js';
+
+// v3.0.14: MVE detection and backfill
+export { runKalshiMveBackfill, type MveBackfillOptions, type MveBackfillResult } from './kalshi-mve-backfill.js';
+export { runKalshiSportsBreakdown, type SportsBreakdownOptions, type SportsBreakdownResult } from './kalshi-sports-breakdown.js';
