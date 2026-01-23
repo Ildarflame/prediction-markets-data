@@ -1,7 +1,8 @@
 /**
- * ops:run v3 - V3 Operations Runner (v3.0.5)
+ * ops:run v3 - V3 Operations Runner (v3.0.7)
  *
  * Orchestrates the full V3 operational loop for configured topics:
+ * 0. Preflight: Check topic overlap (skip topics with zero overlap)
  * 1. v3:suggest-matches per topic
  * 2. v3:auto-confirm (using pipeline rules)
  * 3. v3:auto-reject (using pipeline rules)
@@ -12,6 +13,8 @@
  * Optionally runs taxonomy maintenance:
  * - polymarket:events:sync incremental
  * - kalshi:series:sync incremental
+ *
+ * v3.0.7: Added preflight overlap check (default: on)
  *
  * Run: ops:run --mode v3 --topics CRYPTO_DAILY,MACRO,RATES --apply
  */
@@ -63,6 +66,8 @@ export interface OpsV3Options {
   confirmLimit?: number;
   /** Reject limit per topic */
   rejectLimit?: number;
+  /** v3.0.7: Run preflight overlap check (default: true) */
+  preflight?: boolean;
 }
 
 interface StepResult {
@@ -135,6 +140,7 @@ export async function runOpsV3(options: OpsV3Options = {}): Promise<OpsV3Result>
     minScore = 0.60,
     confirmLimit = 500,
     rejectLimit = 2000,
+    preflight = true,
   } = options;
 
   const dryRun = !apply;
@@ -160,13 +166,14 @@ export async function runOpsV3(options: OpsV3Options = {}): Promise<OpsV3Result>
   });
 
   console.log(`\n${'='.repeat(60)}`);
-  console.log(`[ops:run v3] V3 Operations Runner (v3.0.5)`);
+  console.log(`[ops:run v3] V3 Operations Runner (v3.0.7)`);
   console.log(`${'='.repeat(60)}`);
   console.log(`Mode: ${dryRun ? 'DRY RUN' : '⚠️  APPLY'}`);
   console.log(`Topics: ${enabledTopics.join(', ')}`);
   console.log(`Direction: ${fromVenue} -> ${toVenue}`);
   console.log(`Lookback: ${lookbackHours}h`);
   console.log(`Operations:`);
+  if (preflight) console.log(`  - preflight overlap check`);
   if (suggestMatches) console.log(`  - suggest-matches (${limitLeft} left, ${limitRight} right)`);
   if (autoConfirm) console.log(`  - auto-confirm (limit ${confirmLimit})`);
   if (autoReject) console.log(`  - auto-reject (limit ${rejectLimit})`);
@@ -191,6 +198,92 @@ export async function runOpsV3(options: OpsV3Options = {}): Promise<OpsV3Result>
   }
 
   const prisma = getClient();
+  const cutoff = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
+
+  // ============================================================
+  // Step 0: Preflight Overlap Check (v3.0.7)
+  // ============================================================
+  const topicsWithOverlap: CanonicalTopic[] = [];
+  const topicsSkipped: CanonicalTopic[] = [];
+
+  if (preflight) {
+    const preflightStart = Date.now();
+    console.log(`\n${'─'.repeat(40)}`);
+    console.log(`[Preflight] Checking topic overlap`);
+    console.log(`${'─'.repeat(40)}`);
+
+    // Get counts per topic for both venues using GROUP BY
+    const leftCounts = await prisma.market.groupBy({
+      by: ['derivedTopic'],
+      where: {
+        venue: fromVenue,
+        status: 'active',
+        closeTime: { gte: cutoff },
+      },
+      _count: { id: true },
+    });
+
+    const rightCounts = await prisma.market.groupBy({
+      by: ['derivedTopic'],
+      where: {
+        venue: toVenue,
+        status: 'active',
+        closeTime: { gte: cutoff },
+      },
+      _count: { id: true },
+    });
+
+    const leftCountMap = new Map<string | null, number>();
+    for (const row of leftCounts) {
+      leftCountMap.set(row.derivedTopic, row._count.id);
+    }
+
+    const rightCountMap = new Map<string | null, number>();
+    for (const row of rightCounts) {
+      rightCountMap.set(row.derivedTopic, row._count.id);
+    }
+
+    // Check each topic for overlap
+    for (const topic of enabledTopics) {
+      const leftCount = leftCountMap.get(topic) || 0;
+      const rightCount = rightCountMap.get(topic) || 0;
+      const hasOverlap = leftCount > 0 && rightCount > 0;
+
+      if (hasOverlap) {
+        console.log(`  ✓ ${topic.padEnd(20)} ${fromVenue}=${leftCount} ${toVenue}=${rightCount}`);
+        topicsWithOverlap.push(topic);
+      } else {
+        console.log(`  ✗ ${topic.padEnd(20)} ${fromVenue}=${leftCount} ${toVenue}=${rightCount} [SKIPPED]`);
+        topicsSkipped.push(topic);
+      }
+    }
+
+    steps.push({
+      name: 'preflight:overlap-check',
+      success: true,
+      durationMs: Date.now() - preflightStart,
+      summary: `${topicsWithOverlap.length} topics with overlap, ${topicsSkipped.length} skipped`,
+    });
+
+    if (topicsSkipped.length > 0) {
+      console.log(`\n  [Warning] ${topicsSkipped.length} topic(s) skipped due to zero overlap`);
+      console.log(`  Run kalshi:taxonomy:backfill --apply to populate derivedTopic`);
+    }
+
+    if (topicsWithOverlap.length === 0) {
+      console.log(`\n[Error] No topics with overlap. Run taxonomy:overlap to diagnose.`);
+      return {
+        success: false,
+        dryRun,
+        totalDurationMs: Date.now() - startTime,
+        steps,
+        summary: {},
+      };
+    }
+  } else {
+    // No preflight - use all enabled topics
+    topicsWithOverlap.push(...enabledTopics);
+  }
 
   // ============================================================
   // Step 0: Taxonomy Maintenance (if enabled)
@@ -267,7 +360,7 @@ export async function runOpsV3(options: OpsV3Options = {}): Promise<OpsV3Result>
   let totalRejected = 0;
 
   if (suggestMatches) {
-    for (const topic of enabledTopics) {
+    for (const topic of topicsWithOverlap) {
       const stepStart = Date.now();
       console.log(`\n${'─'.repeat(40)}`);
       console.log(`[Step] v3:suggest-matches --topic ${topic}`);

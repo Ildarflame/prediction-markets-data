@@ -2110,11 +2110,12 @@ program
     }
   });
 
-// ops:run v3 - V3 Operations Runner
+// ops:run v3 - V3 Operations Runner (v3.0.7)
 program
   .command('ops:run:v3')
-  .description('Run V3 operations loop (v3.0.5: suggest, confirm, reject, watchlist, kpi)')
+  .description('Run V3 operations loop (v3.0.7: preflight, suggest, confirm, reject, watchlist, kpi)')
   .option('--topics <topics>', 'Topics to process (comma-separated)', 'CRYPTO_DAILY,CRYPTO_INTRADAY,MACRO,RATES')
+  .option('--no-preflight', 'Skip preflight overlap check')
   .option('--no-suggest-matches', 'Skip suggest-matches')
   .option('--no-auto-confirm', 'Skip auto-confirm')
   .option('--no-auto-reject', 'Skip auto-reject')
@@ -2136,6 +2137,7 @@ program
     try {
       const result = await runOpsV3({
         topics: opts.topics,
+        preflight: opts.preflight !== false,
         suggestMatches: opts.suggestMatches !== false,
         autoConfirm: opts.autoConfirm !== false,
         autoReject: opts.autoReject !== false,
