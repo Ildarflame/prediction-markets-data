@@ -84,6 +84,9 @@ model Market {
   // v3.0.12: Kalshi event reference for SPORTS matching
   kalshiEventTicker  String?   @map("kalshi_event_ticker")        // Reference to kalshi_events.event_ticker
 
+  // v3.0.14: MVE (Multi-Variate Event) detection for Kalshi SPORTS
+  isMve              Boolean?  @map("is_mve")                     // true = MVE/SGP, false = single-event, null = unknown
+
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -97,6 +100,7 @@ model Market {
   @@index([derivedTopic])
   @@index([pmEventId])
   @@index([kalshiEventTicker])
+  @@index([venue, derivedTopic, isMve, closeTime])  // v3.0.14: MVE filtering
   @@map("markets")
 }
 
