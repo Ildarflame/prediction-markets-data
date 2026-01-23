@@ -131,3 +131,6 @@ export {
 // v3.0.5: Topic overlap dashboard and ops:run v3
 export { runTaxonomyOverlap, type TaxonomyOverlapOptions, type TaxonomyOverlapResult } from './taxonomy-overlap.js';
 export { runOpsV3, type OpsV3Options, type OpsV3Result } from './ops-run-v3.js';
+
+// v3.0.6: Kalshi taxonomy backfill
+export { runKalshiTaxonomyBackfill, type KalshiTaxonomyBackfillOptions, type KalshiTaxonomyBackfillResult } from './kalshi-taxonomy-backfill.js';

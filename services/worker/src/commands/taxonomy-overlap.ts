@@ -1,8 +1,10 @@
 /**
- * taxonomy:overlap - Topic Overlap Dashboard (v3.0.5)
+ * taxonomy:overlap - Topic Overlap Dashboard (v3.0.6)
  *
  * Shows cross-venue market counts per CanonicalTopic within eligibility window.
  * Helps identify matching opportunities and coverage gaps.
+ *
+ * v3.0.6: Default uses DB derivedTopic. Use --live to classify on-the-fly.
  *
  * Output per topic:
  * - leftCount (kalshi)
@@ -30,6 +32,8 @@ export interface TaxonomyOverlapOptions {
   csvOutput?: string;
   /** Sample size for zero-overlap diagnosis */
   sampleSize?: number;
+  /** Live mode: classify on-the-fly instead of using DB derivedTopic */
+  live?: boolean;
 }
 
 export interface TopicOverlapRow {
@@ -66,6 +70,7 @@ export async function runTaxonomyOverlap(
     rightVenue = 'polymarket',
     csvOutput,
     sampleSize = 5,
+    live = false,
   } = options;
 
   // Register pipelines to check availability
@@ -74,10 +79,11 @@ export async function runTaxonomyOverlap(
   const prisma = getClient();
   const cutoff = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
 
-  console.log('\n=== Taxonomy Overlap Dashboard (v3.0.5) ===\n');
+  console.log('\n=== Taxonomy Overlap Dashboard (v3.0.6) ===\n');
   console.log(`Left venue:  ${leftVenue}`);
   console.log(`Right venue: ${rightVenue}`);
   console.log(`Lookback:    ${lookbackHours}h`);
+  console.log(`Mode:        ${live ? 'LIVE (on-the-fly classification)' : 'DB (derivedTopic from database)'}`);
   console.log(`Cutoff:      ${cutoff.toISOString()}`);
   console.log();
 
@@ -126,19 +132,26 @@ export async function runTaxonomyOverlap(
   const rightByTopic = new Map<CanonicalTopic, typeof rightMarkets>();
 
   // Classify left venue markets
+  let leftNullCount = 0;
   for (const market of leftMarkets) {
     let topic: CanonicalTopic;
 
-    if (market.derivedTopic && Object.values(CanonicalTopic).includes(market.derivedTopic as CanonicalTopic)) {
+    // v3.0.6: Use DB derivedTopic unless --live flag is set
+    if (!live && market.derivedTopic && Object.values(CanonicalTopic).includes(market.derivedTopic as CanonicalTopic)) {
       topic = market.derivedTopic as CanonicalTopic;
-    } else if (leftVenue === 'kalshi') {
-      // Classify on the fly using correct signature: (title, category, metadata)
-      const classification = classifyKalshiMarket(
-        market.title,
-        (market.metadata as Record<string, unknown>)?.category as string | undefined,
-        market.metadata as Record<string, unknown>,
-      );
-      topic = classification.topic;
+    } else if (live || !market.derivedTopic) {
+      // Classify on the fly (--live mode or missing derivedTopic)
+      if (leftVenue === 'kalshi') {
+        const classification = classifyKalshiMarket(
+          market.title,
+          (market.metadata as Record<string, unknown>)?.category as string | undefined,
+          market.metadata as Record<string, unknown>,
+        );
+        topic = classification.topic;
+      } else {
+        topic = CanonicalTopic.UNKNOWN;
+      }
+      if (!market.derivedTopic) leftNullCount++;
     } else {
       topic = CanonicalTopic.UNKNOWN;
     }
@@ -150,20 +163,27 @@ export async function runTaxonomyOverlap(
   }
 
   // Classify right venue markets
+  let rightNullCount = 0;
   for (const market of rightMarkets) {
     let topic: CanonicalTopic;
 
-    if (market.derivedTopic && Object.values(CanonicalTopic).includes(market.derivedTopic as CanonicalTopic)) {
+    // v3.0.6: Use DB derivedTopic unless --live flag is set
+    if (!live && market.derivedTopic && Object.values(CanonicalTopic).includes(market.derivedTopic as CanonicalTopic)) {
       topic = market.derivedTopic as CanonicalTopic;
-    } else if (rightVenue === 'polymarket') {
-      // Classify on the fly using correct interface
-      const classification = classifyPolymarketMarketV3({
-        title: market.title,
-        category: undefined,
-        tags: market.pmEventTagSlugs || undefined,
-        pmCategories: (market.pmCategories || undefined) as Array<{ slug: string; label: string }> | undefined,
-      });
-      topic = classification.topic;
+    } else if (live || !market.derivedTopic) {
+      // Classify on the fly (--live mode or missing derivedTopic)
+      if (rightVenue === 'polymarket') {
+        const classification = classifyPolymarketMarketV3({
+          title: market.title,
+          category: undefined,
+          tags: market.pmEventTagSlugs || undefined,
+          pmCategories: (market.pmCategories || undefined) as Array<{ slug: string; label: string }> | undefined,
+        });
+        topic = classification.topic;
+      } else {
+        topic = CanonicalTopic.UNKNOWN;
+      }
+      if (!market.derivedTopic) rightNullCount++;
     } else {
       topic = CanonicalTopic.UNKNOWN;
     }
@@ -172,6 +192,14 @@ export async function runTaxonomyOverlap(
       rightByTopic.set(topic, []);
     }
     rightByTopic.get(topic)!.push(market);
+  }
+
+  // Warn about NULL derivedTopic
+  if (leftNullCount > 0 || rightNullCount > 0) {
+    console.log(`[Warning] Markets with NULL derivedTopic: ${leftVenue}=${leftNullCount}, ${rightVenue}=${rightNullCount}`);
+    if (!live) {
+      console.log(`  Run kalshi:taxonomy:backfill to populate Kalshi derivedTopic`);
+    }
   }
 
   // Build rows for all topics

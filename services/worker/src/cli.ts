@@ -2042,12 +2042,13 @@ program
 // taxonomy:overlap - Topic Overlap Dashboard
 program
   .command('taxonomy:overlap')
-  .description('Show cross-venue market overlap per topic (v3.0.5)')
+  .description('Show cross-venue market overlap per topic (v3.0.6: uses DB derivedTopic by default)')
   .option('--lookback-hours <hours>', 'Lookback window', '720')
   .option('--left <venue>', 'Left venue', 'kalshi')
   .option('--right <venue>', 'Right venue', 'polymarket')
   .option('--out <path>', 'Output CSV file path')
   .option('--sample-size <number>', 'Sample size for zero-overlap diagnosis', '5')
+  .option('--live', 'Classify on-the-fly instead of using DB derivedTopic', false)
   .action(async (opts) => {
     const { runTaxonomyOverlap } = await import('./commands/index.js');
 
@@ -2058,9 +2059,41 @@ program
         rightVenue: opts.right as Venue,
         csvOutput: opts.out,
         sampleSize: parseInt(opts.sampleSize, 10),
+        live: opts.live,
       });
     } catch (error) {
       console.error('Taxonomy overlap error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// kalshi:taxonomy:backfill - Backfill derivedTopic for Kalshi markets
+program
+  .command('kalshi:taxonomy:backfill')
+  .description('Backfill derivedTopic for Kalshi markets using series-based classification (v3.0.6)')
+  .option('--dry-run', 'Preview without writing to DB', false)
+  .option('--limit <number>', 'Max markets to process')
+  .option('--only-null', 'Only process markets with NULL derivedTopic', true)
+  .option('--force', 'Force re-classify even if derivedTopic exists', false)
+  .option('--batch-size <number>', 'Batch size for updates', '500')
+  .option('--current-topic <topic>', 'Filter by current derivedTopic (e.g., UNKNOWN)')
+  .option('--apply', 'Apply changes (same as not using --dry-run)')
+  .action(async (opts) => {
+    const { runKalshiTaxonomyBackfill } = await import('./commands/index.js');
+
+    try {
+      await runKalshiTaxonomyBackfill({
+        dryRun: opts.apply ? false : !opts.apply && !opts.dryRun ? true : opts.dryRun,
+        limit: opts.limit ? parseInt(opts.limit, 10) : undefined,
+        onlyNull: opts.onlyNull,
+        force: opts.force,
+        batchSize: parseInt(opts.batchSize, 10),
+        currentTopic: opts.currentTopic,
+      });
+    } catch (error) {
+      console.error('Kalshi taxonomy backfill error:', error);
       process.exit(1);
     } finally {
       await disconnect();
