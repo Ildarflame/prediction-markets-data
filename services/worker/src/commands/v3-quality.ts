@@ -54,8 +54,8 @@ export async function runV3Best(options: V3QualityOptions): Promise<V3QualityRes
     topic,
     minScore = 0.9,
     limit = 50,
-    leftVenue = 'kalshi',
-    rightVenue = 'polymarket',
+    leftVenue = 'polymarket',
+    rightVenue = 'kalshi',
     status = 'all',
   } = options;
 
@@ -143,8 +143,8 @@ export async function runV3Worst(options: V3QualityOptions): Promise<V3QualityRe
     topic,
     maxScore = 0.6,
     limit = 50,
-    leftVenue = 'kalshi',
-    rightVenue = 'polymarket',
+    leftVenue = 'polymarket',
+    rightVenue = 'kalshi',
     status = 'all',
   } = options;
 

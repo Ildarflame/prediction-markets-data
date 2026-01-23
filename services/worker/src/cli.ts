@@ -2174,8 +2174,8 @@ program
   .option('--min-score <number>', 'Minimum score threshold', '0.9')
   .option('--limit <number>', 'Max results', '50')
   .option('--status <status>', 'Filter by status (suggested, confirmed, rejected, all)', 'all')
-  .option('--left <venue>', 'Left venue', 'kalshi')
-  .option('--right <venue>', 'Right venue', 'polymarket')
+  .option('--left <venue>', 'Left venue', 'polymarket')
+  .option('--right <venue>', 'Right venue', 'kalshi')
   .action(async (opts) => {
     const { runV3Best } = await import('./commands/index.js');
     const { CanonicalTopic } = await import('@data-module/core');
@@ -2205,8 +2205,8 @@ program
   .option('--max-score <number>', 'Maximum score threshold', '0.6')
   .option('--limit <number>', 'Max results', '50')
   .option('--status <status>', 'Filter by status (suggested, confirmed, rejected, all)', 'all')
-  .option('--left <venue>', 'Left venue', 'kalshi')
-  .option('--right <venue>', 'Right venue', 'polymarket')
+  .option('--left <venue>', 'Left venue', 'polymarket')
+  .option('--right <venue>', 'Right venue', 'kalshi')
   .action(async (opts) => {
     const { runV3Worst } = await import('./commands/index.js');
     const { CanonicalTopic } = await import('@data-module/core');
