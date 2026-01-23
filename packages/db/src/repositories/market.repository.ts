@@ -524,8 +524,9 @@ export class MarketRepository {
     // Note: Prisma maps "Market" model to "markets" table (@@map), columns to snake_case
     // Cast venue to "Venue" enum type for PostgreSQL compatibility
     // v3.0.12: Added kalshi_event_ticker for SPORTS enrichment
+    // v3.0.14: Added is_mve for MVE detection
     const query = `
-      SELECT m.id, m.title, m.category, m.status, m.close_time as "closeTime", m.venue, m.metadata, m.kalshi_event_ticker as "kalshiEventTicker"
+      SELECT m.id, m.title, m.category, m.status, m.close_time as "closeTime", m.venue, m.metadata, m.kalshi_event_ticker as "kalshiEventTicker", m.is_mve as "isMve"
       FROM markets m
       WHERE m.venue = $1::"Venue"
         AND (m.status = 'active' OR (m.status = 'closed' AND m.close_time >= $2))
@@ -543,6 +544,7 @@ export class MarketRepository {
       venue: Venue;
       metadata: Record<string, unknown> | null;
       kalshiEventTicker: string | null;
+      isMve: boolean | null;
     }>>(query, ...params);
 
     // Get outcomes for binary market filtering
