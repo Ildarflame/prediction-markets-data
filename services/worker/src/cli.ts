@@ -2492,6 +2492,28 @@ program
     }
   });
 
+// kalshi:mve:audit - Audit MVE truth field coverage (v3.0.15)
+program
+  .command('kalshi:mve:audit')
+  .description('Audit MVE truth field coverage from Kalshi API (v3.0.15)')
+  .option('--lookback-hours <hours>', 'Lookback window in hours', '168')
+  .option('--topic <topic>', 'Topic to audit', 'SPORTS')
+  .action(async (opts) => {
+    const { runKalshiMveAudit } = await import('./commands/index.js');
+
+    try {
+      await runKalshiMveAudit({
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+        topic: opts.topic,
+      });
+    } catch (error) {
+      console.error('MVE audit error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
 // Handle graceful shutdown
 process.on('SIGINT', async () => {
   console.log('\nShutting down...');

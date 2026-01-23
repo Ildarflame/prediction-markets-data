@@ -168,3 +168,6 @@ export {
 // v3.0.14: MVE detection and backfill
 export { runKalshiMveBackfill, type MveBackfillOptions, type MveBackfillResult } from './kalshi-mve-backfill.js';
 export { runKalshiSportsBreakdown, type SportsBreakdownOptions, type SportsBreakdownResult } from './kalshi-sports-breakdown.js';
+
+// v3.0.15: MVE truth field audit
+export { runKalshiMveAudit, type MveAuditOptions, type MveAuditResult } from './kalshi-mve-audit.js';

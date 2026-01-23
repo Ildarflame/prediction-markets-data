@@ -87,6 +87,10 @@ model Market {
   // v3.0.14: MVE (Multi-Variate Event) detection for Kalshi SPORTS
   isMve              Boolean?  @map("is_mve")                     // true = MVE/SGP, false = single-event, null = unknown
 
+  // v3.0.15: Kalshi MVE truth fields from API (instead of heuristics)
+  kalshiMveCollectionTicker  String?   @map("kalshi_mve_collection_ticker")  // API: mve_collection_ticker
+  kalshiMveSelectedLegs      Json?     @map("kalshi_mve_selected_legs") @db.JsonB  // API: mve_selected_legs array
+
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz
 

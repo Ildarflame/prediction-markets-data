@@ -2,6 +2,56 @@ import type { PrismaClient, Market, Outcome, Venue, MarketStatus } from '@prisma
 import type { MarketDTO } from '@data-module/core';
 import { processInChunks } from '../utils/chunked-processor.js';
 
+/**
+ * v3.0.15: Extract MVE truth fields from Kalshi market metadata
+ * Returns the dedicated column values to save
+ */
+function extractKalshiMveFields(venue: Venue, metadata: Record<string, unknown> | null | undefined): {
+  kalshiMveCollectionTicker: string | null;
+  kalshiMveSelectedLegs: unknown | null;
+  isMve: boolean | null;
+} {
+  // Only process Kalshi markets
+  if (venue !== 'kalshi' || !metadata) {
+    return {
+      kalshiMveCollectionTicker: null,
+      kalshiMveSelectedLegs: null,
+      isMve: null,
+    };
+  }
+
+  const mveCollectionTicker = (metadata.mveCollectionTicker as string | null) || null;
+  const mveSelectedLegs = (metadata.mveSelectedLegs as unknown[] | null) || null;
+
+  // Compute isMve based on truth fields (priority over heuristics)
+  let isMve: boolean | null = null;
+
+  // Primary: truth fields from API
+  if (mveCollectionTicker !== null) {
+    isMve = true;
+  } else if (Array.isArray(mveSelectedLegs) && mveSelectedLegs.length > 0) {
+    isMve = true;
+  } else if (mveCollectionTicker === null && mveSelectedLegs === null) {
+    // Both fields present but null = non-MVE market
+    isMve = false;
+  }
+
+  // Fallback: heuristics if truth fields not available (legacy markets)
+  if (isMve === null) {
+    const seriesTicker = metadata.seriesTicker as string | undefined;
+    const eventTicker = metadata.eventTicker as string | undefined;
+    if (seriesTicker?.startsWith('KXMV') || eventTicker?.startsWith('KXMV')) {
+      isMve = true;
+    }
+  }
+
+  return {
+    kalshiMveCollectionTicker: mveCollectionTicker,
+    kalshiMveSelectedLegs: mveSelectedLegs,
+    isMve,
+  };
+}
+
 export interface MarketWithOutcomes extends Market {
   outcomes: Outcome[];
 }
@@ -61,6 +111,9 @@ export class MarketRepository {
             select: { id: true },
           });
 
+          // v3.0.15: Extract MVE truth fields from Kalshi metadata
+          const mveFields = extractKalshiMveFields(venue, market.metadata as Record<string, unknown>);
+
           if (existing) {
             // Update market
             await tx.market.update({
@@ -79,6 +132,12 @@ export class MarketRepository {
                 pmEventCategory: market.pmEventCategory,
                 pmEventSubcategory: market.pmEventSubcategory,
                 taxonomySource: market.taxonomySource,
+                // v3.0.15: MVE truth fields for Kalshi
+                ...(venue === 'kalshi' && {
+                  kalshiMveCollectionTicker: mveFields.kalshiMveCollectionTicker,
+                  kalshiMveSelectedLegs: mveFields.kalshiMveSelectedLegs as object | undefined,
+                  isMve: mveFields.isMve,
+                }),
               },
             });
             updated++;
@@ -125,6 +184,12 @@ export class MarketRepository {
                 pmEventCategory: market.pmEventCategory,
                 pmEventSubcategory: market.pmEventSubcategory,
                 taxonomySource: market.taxonomySource,
+                // v3.0.15: MVE truth fields for Kalshi
+                ...(venue === 'kalshi' && {
+                  kalshiMveCollectionTicker: mveFields.kalshiMveCollectionTicker,
+                  kalshiMveSelectedLegs: mveFields.kalshiMveSelectedLegs as object | undefined,
+                  isMve: mveFields.isMve,
+                }),
                 outcomes: {
                   create: market.outcomes.map((o) => ({
                     externalId: o.externalId,

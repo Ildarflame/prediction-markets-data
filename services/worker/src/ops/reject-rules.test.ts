@@ -56,6 +56,8 @@ describe('evaluateRejectRules', () => {
       pmEventTagSlugs: [],
       kalshiEventTicker: null,
       isMve: null,
+      kalshiMveCollectionTicker: null,
+      kalshiMveSelectedLegs: null,
       outcomes: [],
     },
     rightMarket: {
@@ -83,6 +85,8 @@ describe('evaluateRejectRules', () => {
       pmEventTagSlugs: [],
       kalshiEventTicker: null,
       isMve: null,
+      kalshiMveCollectionTicker: null,
+      kalshiMveSelectedLegs: null,
       outcomes: [],
     },
   });

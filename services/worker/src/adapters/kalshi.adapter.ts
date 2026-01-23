@@ -32,6 +32,13 @@ interface KalshiMarket {
   open_time?: string;
   close_time?: string;
   category?: string;
+  // v3.0.15: MVE truth fields from API
+  mve_collection_ticker?: string | null;
+  mve_selected_legs?: Array<{
+    event_ticker: string;
+    market_ticker: string;
+    side: string;
+  }> | null;
 }
 
 interface KalshiMarketsResponse {
@@ -547,6 +554,9 @@ export class KalshiAdapter implements VenueAdapter {
         volume: m.volume,
         volume24h: m.volume_24h,
         openInterest: m.open_interest,
+        // v3.0.15: MVE truth fields from API
+        mveCollectionTicker: m.mve_collection_ticker || null,
+        mveSelectedLegs: m.mve_selected_legs || null,
       },
     };
   }
