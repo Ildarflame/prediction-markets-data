@@ -98,21 +98,30 @@ export async function runSportsAudit(options: SportsAuditOptions): Promise<Sport
     withEvents = true,
   } = options;
 
-  console.log(`\n=== Sports Audit (v3.0.12) ===\n`);
+  console.log(`\n=== Sports Audit (v3.0.13) ===\n`);
   console.log(`Venue: ${venue}`);
   console.log(`Lookback: ${lookbackHours}h`);
   console.log(`Limit: ${limit}`);
   console.log(`V2 eligibility: ${useV2}`);
   console.log(`With events: ${withEvents}`);
 
-  // Fetch markets with sports keywords
-  const markets = await marketRepo.listEligibleMarkets(venue, {
-    lookbackHours,
-    limit,
-    titleKeywords: SPORTS_KEYWORDS,
-  });
-
-  console.log(`\nFetched ${markets.length} markets with sports keywords`);
+  // v3.0.13: Use derivedTopic for Kalshi, keywords for Polymarket
+  let markets;
+  if (venue === 'kalshi') {
+    markets = await marketRepo.listMarketsByDerivedTopic('SPORTS', {
+      venue: 'kalshi',
+      lookbackHours,
+      limit,
+    });
+    console.log(`\nFetched ${markets.length} Kalshi markets with derivedTopic=SPORTS`);
+  } else {
+    markets = await marketRepo.listEligibleMarkets(venue, {
+      lookbackHours,
+      limit,
+      titleKeywords: SPORTS_KEYWORDS,
+    });
+    console.log(`\nFetched ${markets.length} markets with sports keywords`);
+  }
 
   // Build event map for Kalshi
   const eventDataMap = new Map<string, SportsEventData>();
@@ -248,17 +257,26 @@ export async function runSportsSample(options: SportsSampleOptions): Promise<Spo
     withEvents = true,
   } = options;
 
-  console.log(`\n=== Sports Sample (v3.0.12) ===\n`);
+  console.log(`\n=== Sports Sample (v3.0.13) ===\n`);
   console.log(`Venue: ${venue}`);
   console.log(`Filter: ${filter}`);
   console.log(`Limit: ${limit}`);
 
-  // Fetch markets
-  const markets = await marketRepo.listEligibleMarkets(venue, {
-    lookbackHours,
-    limit: 5000, // Fetch more to filter
-    titleKeywords: SPORTS_KEYWORDS,
-  });
+  // v3.0.13: Use derivedTopic for Kalshi, keywords for Polymarket
+  let markets;
+  if (venue === 'kalshi') {
+    markets = await marketRepo.listMarketsByDerivedTopic('SPORTS', {
+      venue: 'kalshi',
+      lookbackHours,
+      limit: 5000, // Fetch more to filter
+    });
+  } else {
+    markets = await marketRepo.listEligibleMarkets(venue, {
+      lookbackHours,
+      limit: 5000, // Fetch more to filter
+      titleKeywords: SPORTS_KEYWORDS,
+    });
+  }
 
   // Build event map
   const eventDataMap = new Map<string, SportsEventData>();
@@ -357,7 +375,7 @@ export async function runSportsEligible(options: SportsEligibleOptions): Promise
     withEvents = true,
   } = options;
 
-  console.log(`\n=== Sports Eligible (v3.0.12) ===\n`);
+  console.log(`\n=== Sports Eligible (v3.0.13) ===\n`);
   console.log(`Lookback: ${lookbackHours}h`);
   console.log(`Limit: ${limit}`);
   console.log(`V2 eligibility: ${useV2}`);
@@ -365,12 +383,12 @@ export async function runSportsEligible(options: SportsEligibleOptions): Promise
 
   const eligibilityFn = useV2 ? isEligibleSportsMarketV2 : isEligibleSportsMarket;
 
-  // Kalshi
+  // Kalshi - v3.0.13: Use derivedTopic instead of keywords
   console.log(`\n--- Kalshi ---`);
-  const kalshiMarkets = await marketRepo.listEligibleMarkets('kalshi', {
+  const kalshiMarkets = await marketRepo.listMarketsByDerivedTopic('SPORTS', {
+    venue: 'kalshi',
     lookbackHours,
     limit,
-    titleKeywords: SPORTS_KEYWORDS,
   });
 
   // Build event map for Kalshi
