@@ -11,7 +11,7 @@
  *   kalshi:mve:backfill --batch-size 5000 --apply
  */
 
-import { getClient, Prisma } from '@data-module/db';
+import { getClient } from '@data-module/db';
 import { detectMve, type MveDetectionInput } from '@data-module/core';
 
 export interface MveBackfillOptions {
