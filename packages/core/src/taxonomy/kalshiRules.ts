@@ -1,11 +1,12 @@
 /**
- * Kalshi Taxonomy Rules (v3.0.8)
+ * Kalshi Taxonomy Rules (v3.0.9)
  *
  * Maps Kalshi series tickers and categories to canonical topics.
  * Based on analysis of Kalshi API series data.
  *
  * v3.0.2: Added RATES override for Economics category when rate keywords present
  * v3.0.8: Added COMMODITIES detection via tags, improved ELECTIONS coverage
+ * v3.0.9: Added CLIMATE classification (category "Climate and Weather", ticker patterns, tags)
  */
 
 import { CanonicalTopic, TopicRule, KalshiSeriesInfo, TopicClassification, TopicSource } from './types.js';
@@ -94,6 +95,18 @@ export const KALSHI_TICKER_RULES: TopicRule[] = [
   { pattern: /^KXENERGY/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.90, description: 'Energy' },
   { pattern: /^KXCOPPER/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Copper' },
 
+  // Climate/Weather (v3.0.9)
+  { pattern: /^KXHUR/i, topic: CanonicalTopic.CLIMATE, confidence: 0.95, description: 'Hurricane' },
+  { pattern: /^HUR/i, topic: CanonicalTopic.CLIMATE, confidence: 0.95, description: 'Hurricane (legacy)' },
+  { pattern: /^KXHIGH/i, topic: CanonicalTopic.CLIMATE, confidence: 0.90, description: 'High temperature' },
+  { pattern: /^KXLOW/i, topic: CanonicalTopic.CLIMATE, confidence: 0.90, description: 'Low temperature' },
+  { pattern: /^KXSNOW/i, topic: CanonicalTopic.CLIMATE, confidence: 0.95, description: 'Snowfall' },
+  { pattern: /^KXHEAT/i, topic: CanonicalTopic.CLIMATE, confidence: 0.95, description: 'Heat' },
+  { pattern: /^KXRAIN/i, topic: CanonicalTopic.CLIMATE, confidence: 0.95, description: 'Rainfall' },
+  { pattern: /^KXFLOOD/i, topic: CanonicalTopic.CLIMATE, confidence: 0.95, description: 'Flood' },
+  { pattern: /^KXWILDFIRE/i, topic: CanonicalTopic.CLIMATE, confidence: 0.95, description: 'Wildfire' },
+  { pattern: /^KXTORNADO/i, topic: CanonicalTopic.CLIMATE, confidence: 0.95, description: 'Tornado' },
+
   // Sports - Exclude from matching
   { pattern: /^KXMVESPORT/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Esports' },
   { pattern: /^KXMVENBASI/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Basketball' },
@@ -132,9 +145,10 @@ export const KALSHI_CATEGORY_MAP: Record<string, CanonicalTopic> = {
   // Entertainment - primary category
   'entertainment': CanonicalTopic.ENTERTAINMENT,
 
-  // Climate/Weather
+  // Climate/Weather (v3.0.9: added composite category "climate and weather")
   'climate': CanonicalTopic.CLIMATE,
   'weather': CanonicalTopic.CLIMATE,
+  'climate and weather': CanonicalTopic.CLIMATE,
 
   // Tech - map to UNKNOWN for now (could be its own topic)
   'tech': CanonicalTopic.UNKNOWN,
@@ -204,10 +218,23 @@ export const KALSHI_TAG_MAP: Record<string, CanonicalTopic> = {
   'emmys': CanonicalTopic.ENTERTAINMENT,
   'awards': CanonicalTopic.ENTERTAINMENT,
 
-  // Climate tags
+  // Climate tags (v3.0.9: expanded)
   'hurricane': CanonicalTopic.CLIMATE,
+  'hurricanes': CanonicalTopic.CLIMATE,
   'temperature': CanonicalTopic.CLIMATE,
+  'daily temperature': CanonicalTopic.CLIMATE,
   'weather': CanonicalTopic.CLIMATE,
+  'snow': CanonicalTopic.CLIMATE,
+  'snow and rain': CanonicalTopic.CLIMATE,
+  'rainfall': CanonicalTopic.CLIMATE,
+  'natural disasters': CanonicalTopic.CLIMATE,
+  'storm': CanonicalTopic.CLIMATE,
+  'tornado': CanonicalTopic.CLIMATE,
+  'flood': CanonicalTopic.CLIMATE,
+  'drought': CanonicalTopic.CLIMATE,
+  'wildfire': CanonicalTopic.CLIMATE,
+  'heat': CanonicalTopic.CLIMATE,
+  'cold': CanonicalTopic.CLIMATE,
 
   // Commodities tags (v3.0.8)
   'oil': CanonicalTopic.COMMODITIES,
