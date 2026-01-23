@@ -92,12 +92,13 @@ export interface OpsV3Result {
   };
 }
 
-// Default matchable topics for V3
+// Default matchable topics for V3 (v3.0.9: added ELECTIONS)
 const V3_DEFAULT_TOPICS: CanonicalTopic[] = [
   CanonicalTopic.CRYPTO_DAILY,
   CanonicalTopic.CRYPTO_INTRADAY,
   CanonicalTopic.MACRO,
   CanonicalTopic.RATES,
+  CanonicalTopic.ELECTIONS,
   CanonicalTopic.COMMODITIES,
 ];
 

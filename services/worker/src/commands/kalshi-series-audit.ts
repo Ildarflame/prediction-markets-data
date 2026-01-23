@@ -1,30 +1,100 @@
 /**
- * Kalshi Series Topic Audit Command (v3.0.8)
+ * Kalshi Series Topic Audit Command (v3.0.9)
  *
- * Shows top series by category/tags and their topic mappings.
- * Helps identify ELECTIONS/COMMODITIES opportunities.
+ * Shows series by category/tags and their topic mappings.
+ * v3.0.9: Added --topic filter to show series matching/near-matching a specific topic.
+ *
+ * Helps identify ELECTIONS/COMMODITIES/CLIMATE opportunities.
  */
 
 import { getClient } from '@data-module/db';
-import { CanonicalTopic } from '@data-module/core';
+import { CanonicalTopic, classifyKalshiSeries, type KalshiSeriesInfo } from '@data-module/core';
 
 export interface KalshiSeriesAuditOptions {
   /** Limit number of categories to show */
   limit?: number;
-  /** Show markets count per series */
-  showMarkets?: boolean;
+  /** Filter by specific topic (shows series that map to this topic) */
+  topic?: CanonicalTopic;
+  /** Show candidate series (near-matches by title keywords) */
+  showCandidates?: boolean;
 }
 
-export interface SeriesCategoryStats {
-  category: string | null;
-  seriesCount: number;
-  marketCount: number;
-  suggestedTopic: CanonicalTopic;
-  sampleTickers: string[];
+export interface KalshiSeriesAuditResult {
+  ok: boolean;
+  topic?: CanonicalTopic;
+  matchingSeries: Array<{
+    ticker: string;
+    title: string;
+    category: string | null;
+    tags: string[];
+    classifiedTopic: CanonicalTopic;
+  }>;
+  candidateSeries: Array<{
+    ticker: string;
+    title: string;
+    category: string | null;
+    tags: string[];
+    classifiedTopic: CanonicalTopic;
+    matchReason: string;
+  }>;
+  categoryStats: Array<{
+    category: string | null;
+    seriesCount: number;
+    suggestedTopic: CanonicalTopic;
+  }>;
 }
 
 /**
- * Map Kalshi category to CanonicalTopic
+ * Topic-specific keywords for candidate detection
+ */
+const TOPIC_KEYWORDS: Record<CanonicalTopic, string[]> = {
+  [CanonicalTopic.CLIMATE]: [
+    'temperature', 'weather', 'hurricane', 'storm', 'snow', 'rainfall',
+    'drought', 'wildfire', 'heat', 'cold', 'flood', 'tornado', 'climate',
+    'el nino', 'la nina', 'arctic', 'ice', 'warming',
+  ],
+  [CanonicalTopic.COMMODITIES]: [
+    'oil', 'crude', 'wti', 'brent', 'gold', 'silver', 'copper', 'platinum',
+    'natural gas', 'natgas', 'wheat', 'corn', 'soybeans', 'coffee', 'sugar',
+    'commodity', 'nymex', 'comex', 'futures', 'barrel', 'ounce',
+  ],
+  [CanonicalTopic.ELECTIONS]: [
+    'election', 'vote', 'president', 'senate', 'congress', 'governor',
+    'democratic', 'republican', 'ballot', 'primary', 'caucus', 'nominee',
+    'electoral', 'swing state', 'poll', 'approval rating',
+  ],
+  [CanonicalTopic.CRYPTO_DAILY]: [
+    'bitcoin', 'btc', 'ethereum', 'eth', 'solana', 'sol', 'crypto',
+    'dogecoin', 'doge', 'xrp', 'ripple',
+  ],
+  [CanonicalTopic.CRYPTO_INTRADAY]: [
+    'bitcoin', 'btc', 'ethereum', 'eth', 'intraday', 'hourly', '15 min',
+  ],
+  [CanonicalTopic.MACRO]: [
+    'cpi', 'gdp', 'inflation', 'unemployment', 'jobs', 'payroll', 'pce',
+    'pmi', 'economic', 'recession', 'growth',
+  ],
+  [CanonicalTopic.RATES]: [
+    'fed', 'fomc', 'interest rate', 'rate cut', 'rate hike', 'federal reserve',
+    'basis points', 'bps', 'powell', 'central bank',
+  ],
+  [CanonicalTopic.SPORTS]: [
+    'nba', 'nfl', 'mlb', 'nhl', 'soccer', 'football', 'basketball', 'baseball',
+    'hockey', 'tennis', 'golf', 'ufc', 'mma', 'olympics', 'world cup',
+  ],
+  [CanonicalTopic.ENTERTAINMENT]: [
+    'movie', 'film', 'oscar', 'grammy', 'emmy', 'award', 'tv', 'show',
+    'music', 'album', 'celebrity', 'box office',
+  ],
+  [CanonicalTopic.GEOPOLITICS]: [
+    'war', 'conflict', 'treaty', 'sanctions', 'military', 'nato', 'un',
+    'diplomacy', 'foreign', 'international',
+  ],
+  [CanonicalTopic.UNKNOWN]: [],
+};
+
+/**
+ * Map Kalshi category to CanonicalTopic (legacy function for category stats)
  */
 function mapCategoryToTopic(category: string | null, tags: string[]): CanonicalTopic {
   if (!category) return CanonicalTopic.UNKNOWN;
@@ -37,18 +107,16 @@ function mapCategoryToTopic(category: string | null, tags: string[]): CanonicalT
     return CanonicalTopic.ELECTIONS;
   }
 
+  // Climate mapping
+  if (cat === 'climate' || cat === 'weather') {
+    return CanonicalTopic.CLIMATE;
+  }
+
   // Commodities: Check for commodity-related tags in Economics/Financials
   if (cat === 'financials' || cat === 'economics' || cat === 'economy') {
     const commodityTags = ['oil', 'gold', 'silver', 'commodities', 'energy', 'metals', 'agriculture', 'natural gas', 'crude'];
     for (const tag of commodityTags) {
       if (tagSet.has(tag)) {
-        return CanonicalTopic.COMMODITIES;
-      }
-    }
-    // Check if any tag contains commodity-related words
-    for (const t of tags) {
-      const tLower = t.toLowerCase();
-      if (tLower.includes('commodity') || tLower.includes('oil') || tLower.includes('gold') || tLower.includes('metal')) {
         return CanonicalTopic.COMMODITIES;
       }
     }
@@ -75,169 +143,240 @@ function mapCategoryToTopic(category: string | null, tags: string[]): CanonicalT
 }
 
 /**
+ * Check if title contains keywords for a topic
+ */
+function titleMatchesTopic(title: string, topic: CanonicalTopic): string | null {
+  const keywords = TOPIC_KEYWORDS[topic] || [];
+  const titleLower = title.toLowerCase();
+
+  for (const keyword of keywords) {
+    if (titleLower.includes(keyword)) {
+      return keyword;
+    }
+  }
+  return null;
+}
+
+/**
  * Run Kalshi series topic audit
  */
 export async function runKalshiSeriesAudit(
   options: KalshiSeriesAuditOptions = {}
-): Promise<void> {
-  const { limit = 30 } = options;
-  // showMarkets is always true for now - reserved for future use
+): Promise<KalshiSeriesAuditResult> {
+  const { limit = 30, topic, showCandidates = true } = options;
 
-  console.log('\n=== Kalshi Series Topic Audit (v3.0.8) ===\n');
+  console.log(`\n=== Kalshi Series Topic Audit (v3.0.9) ===\n`);
+
+  if (topic) {
+    console.log(`Filter: topic = ${topic}`);
+  }
+  console.log();
 
   const prisma = getClient();
 
-  // Step 1: Get category distribution with market counts
-  console.log('[1/3] Fetching series categories...');
+  // Load all series
+  console.log('[1/4] Loading series cache...');
+  const allSeries = await prisma.kalshiSeries.findMany({
+    select: {
+      ticker: true,
+      title: true,
+      category: true,
+      tags: true,
+    },
+  });
+  console.log(`  Loaded ${allSeries.length} series`);
 
-  const categoryCounts = await prisma.$queryRaw<Array<{
-    category: string | null;
-    series_count: bigint;
-  }>>`
-    SELECT category, COUNT(*)::bigint as series_count
-    FROM kalshi_series
-    GROUP BY category
-    ORDER BY series_count DESC
-  `;
+  // Classify each series
+  console.log('[2/4] Classifying series...');
 
-  console.log(`  Found ${categoryCounts.length} categories\n`);
+  const matchingSeries: KalshiSeriesAuditResult['matchingSeries'] = [];
+  const candidateSeries: KalshiSeriesAuditResult['candidateSeries'] = [];
+  const categoryStats: Map<string | null, { count: number; topic: CanonicalTopic }> = new Map();
 
-  // Step 2: Get market counts per category
-  console.log('[2/3] Counting markets per category...');
+  for (const series of allSeries) {
+    const seriesInfo: KalshiSeriesInfo = {
+      ticker: series.ticker,
+      title: series.title || '',
+      category: series.category || undefined,
+      tags: series.tags,
+    };
 
-  const categoryStats: SeriesCategoryStats[] = [];
+    const classification = classifyKalshiSeries(seriesInfo);
+    const classifiedTopic = classification.topic;
 
-  for (const row of categoryCounts) {
-    const category = row.category;
-
-    // Get series with this category
-    const seriesInCategory = await prisma.kalshiSeries.findMany({
-      where: { category },
-      select: { ticker: true, tags: true },
-      take: 100,
-    });
-
-    // Count markets with these series tickers
-    const tickers = seriesInCategory.map(s => s.ticker);
-
-    // Get all unique tags from series in this category
-    const allTags: string[] = [];
-    for (const s of seriesInCategory) {
-      allTags.push(...s.tags);
+    // Update category stats
+    const catKey = series.category;
+    if (!categoryStats.has(catKey)) {
+      categoryStats.set(catKey, { count: 0, topic: mapCategoryToTopic(catKey, series.tags) });
     }
-    const uniqueTags = [...new Set(allTags)];
+    categoryStats.get(catKey)!.count++;
 
-    // Count markets (using eventTicker pattern matching)
-    let marketCount = 0;
-    if (tickers.length > 0) {
-      // Use a sample of tickers to estimate
-      const sampleTickers = tickers.slice(0, 50);
-      for (const ticker of sampleTickers) {
-        const count = await prisma.market.count({
-          where: {
-            venue: 'kalshi',
-            metadata: {
-              path: ['seriesTicker'],
-              equals: ticker,
-            },
-          },
+    // If filtering by topic
+    if (topic) {
+      // Check if directly classified as target topic
+      if (classifiedTopic === topic) {
+        matchingSeries.push({
+          ticker: series.ticker,
+          title: series.title || '',
+          category: series.category,
+          tags: series.tags,
+          classifiedTopic,
         });
-        marketCount += count;
-      }
-      // Extrapolate if we sampled
-      if (tickers.length > 50) {
-        marketCount = Math.round(marketCount * (tickers.length / 50));
+      } else if (showCandidates) {
+        // Check if title contains topic keywords (candidate)
+        const matchedKeyword = titleMatchesTopic(series.title || '', topic);
+        if (matchedKeyword) {
+          candidateSeries.push({
+            ticker: series.ticker,
+            title: series.title || '',
+            category: series.category,
+            tags: series.tags,
+            classifiedTopic,
+            matchReason: `Title contains "${matchedKeyword}"`,
+          });
+        }
       }
     }
+  }
 
-    const suggestedTopic = mapCategoryToTopic(category, uniqueTags);
-
-    categoryStats.push({
+  // Build category stats array
+  const categoryStatsArray = Array.from(categoryStats.entries())
+    .map(([category, { count, topic: suggestedTopic }]) => ({
       category,
-      seriesCount: Number(row.series_count),
-      marketCount,
+      seriesCount: count,
       suggestedTopic,
-      sampleTickers: tickers.slice(0, 5),
-    });
-  }
+    }))
+    .sort((a, b) => b.seriesCount - a.seriesCount);
 
-  // Step 3: Print results
-  console.log('[3/3] Results:\n');
-  console.log('--- Category → Topic Mapping ---\n');
-  console.log(
-    'Category'.padEnd(20) +
-    'Series'.padStart(8) +
-    'Markets'.padStart(10) +
-    'Suggested Topic'.padStart(18) +
-    '  Sample Tickers'
-  );
-  console.log('-'.repeat(90));
+  // Print results
+  if (topic) {
+    // Topic-filtered view
+    console.log(`[3/4] Series matching ${topic}...\n`);
 
-  for (const stat of categoryStats.slice(0, limit)) {
-    console.log(
-      (stat.category || 'NULL').padEnd(20) +
-      String(stat.seriesCount).padStart(8) +
-      String(stat.marketCount).padStart(10) +
-      stat.suggestedTopic.padStart(18) +
-      '  ' + stat.sampleTickers.slice(0, 3).join(', ')
-    );
-  }
-
-  // Summary
-  console.log('\n--- Topic Summary ---\n');
-
-  const topicCounts: Record<string, { series: number; markets: number }> = {};
-  for (const stat of categoryStats) {
-    const topic = stat.suggestedTopic;
-    if (!topicCounts[topic]) {
-      topicCounts[topic] = { series: 0, markets: 0 };
-    }
-    topicCounts[topic].series += stat.seriesCount;
-    topicCounts[topic].markets += stat.marketCount;
-  }
-
-  console.log('Topic'.padEnd(18) + 'Series'.padStart(10) + 'Markets (est)'.padStart(15));
-  console.log('-'.repeat(43));
-  for (const [topic, counts] of Object.entries(topicCounts).sort((a, b) => b[1].series - a[1].series)) {
-    console.log(
-      topic.padEnd(18) +
-      String(counts.series).padStart(10) +
-      String(counts.markets).padStart(15)
-    );
-  }
-
-  // Show tags for interesting categories
-  console.log('\n--- Tags Analysis (for ELECTIONS/COMMODITIES) ---\n');
-
-  const interestingCategories = ['Elections', 'Politics', 'Financials', 'Economics'];
-  for (const targetCat of interestingCategories) {
-    const series = await prisma.kalshiSeries.findMany({
-      where: { category: { equals: targetCat, mode: 'insensitive' } },
-      select: { ticker: true, tags: true, title: true },
-      take: 20,
-    });
-
-    if (series.length === 0) continue;
-
-    console.log(`\n[${targetCat}] (${series.length} series shown)`);
-
-    // Collect all tags
-    const tagCounts: Record<string, number> = {};
-    for (const s of series) {
-      for (const tag of s.tags) {
-        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+    console.log(`--- Direct Matches (classified as ${topic}) ---\n`);
+    if (matchingSeries.length === 0) {
+      console.log('  (none found)');
+    } else {
+      console.log(`Found ${matchingSeries.length} series:\n`);
+      for (const s of matchingSeries.slice(0, limit)) {
+        console.log(`  ${s.ticker}`);
+        console.log(`    Title: ${s.title.substring(0, 60)}...`);
+        console.log(`    Category: ${s.category || 'NULL'}, Tags: [${s.tags.slice(0, 5).join(', ')}]`);
+      }
+      if (matchingSeries.length > limit) {
+        console.log(`  ... and ${matchingSeries.length - limit} more`);
       }
     }
 
-    const sortedTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
-    console.log('  Top tags: ' + sortedTags.slice(0, 10).map(([t, c]) => `${t}(${c})`).join(', '));
+    if (showCandidates) {
+      console.log(`\n--- Candidates (title keywords, not classified as ${topic}) ---\n`);
+      if (candidateSeries.length === 0) {
+        console.log('  (none found)');
+      } else {
+        console.log(`Found ${candidateSeries.length} candidate series:\n`);
+        for (const s of candidateSeries.slice(0, limit)) {
+          console.log(`  ${s.ticker} → currently: ${s.classifiedTopic}`);
+          console.log(`    Title: ${s.title.substring(0, 60)}...`);
+          console.log(`    Reason: ${s.matchReason}`);
+          console.log(`    Category: ${s.category || 'NULL'}, Tags: [${s.tags.slice(0, 5).join(', ')}]`);
+        }
+        if (candidateSeries.length > limit) {
+          console.log(`  ... and ${candidateSeries.length - limit} more`);
+        }
+      }
+    }
 
-    // Show sample series
-    console.log('  Sample series:');
-    for (const s of series.slice(0, 5)) {
-      console.log(`    ${s.ticker}: ${s.title?.substring(0, 50)}... [${s.tags.join(', ')}]`);
+    // Summary
+    console.log('\n[4/4] Summary\n');
+    console.log(`Direct matches:  ${matchingSeries.length}`);
+    console.log(`Candidates:      ${candidateSeries.length}`);
+
+    if (matchingSeries.length === 0 && candidateSeries.length === 0) {
+      console.log(`\nDiagnosis: No series map to ${topic} and no title keyword matches found.`);
+      console.log('  → Check if Kalshi has markets in this category');
+      console.log('  → May need to add new classification rules');
+    } else if (matchingSeries.length === 0 && candidateSeries.length > 0) {
+      console.log(`\nDiagnosis: ${candidateSeries.length} series have "${topic}" keywords but aren't classified.`);
+      console.log('  → Consider adding category/tag rules for these series');
+      console.log('  → Or add title-based fallback classification');
+    }
+  } else {
+    // Full category view (legacy behavior)
+    console.log('[3/4] Category → Topic Mapping...\n');
+    console.log(
+      'Category'.padEnd(20) +
+      'Series'.padStart(8) +
+      'Suggested Topic'.padStart(18)
+    );
+    console.log('-'.repeat(50));
+
+    for (const stat of categoryStatsArray.slice(0, limit)) {
+      console.log(
+        (stat.category || 'NULL').padEnd(20) +
+        String(stat.seriesCount).padStart(8) +
+        stat.suggestedTopic.padStart(18)
+      );
+    }
+
+    // Topic summary
+    console.log('\n[4/4] Topic Summary\n');
+
+    const topicCounts: Record<string, number> = {};
+    for (const stat of categoryStatsArray) {
+      const t = stat.suggestedTopic;
+      topicCounts[t] = (topicCounts[t] || 0) + stat.seriesCount;
+    }
+
+    console.log('Topic'.padEnd(18) + 'Series'.padStart(10));
+    console.log('-'.repeat(28));
+    for (const [t, count] of Object.entries(topicCounts).sort((a, b) => b[1] - a[1])) {
+      console.log(t.padEnd(18) + String(count).padStart(10));
+    }
+
+    // Show tags for interesting categories
+    console.log('\n--- Tags Analysis ---\n');
+
+    const interestingCategories = ['Climate', 'Weather', 'Financials', 'Economics'];
+    for (const targetCat of interestingCategories) {
+      const series = await prisma.kalshiSeries.findMany({
+        where: { category: { equals: targetCat, mode: 'insensitive' } },
+        select: { ticker: true, tags: true, title: true },
+        take: 10,
+      });
+
+      if (series.length === 0) continue;
+
+      console.log(`[${targetCat}] (${series.length} series shown)`);
+
+      // Collect all tags
+      const tagCounts: Record<string, number> = {};
+      for (const s of series) {
+        for (const tag of s.tags) {
+          tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+        }
+      }
+
+      const sortedTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
+      if (sortedTags.length > 0) {
+        console.log('  Top tags: ' + sortedTags.slice(0, 10).map(([t, c]) => `${t}(${c})`).join(', '));
+      }
+
+      // Show sample series
+      console.log('  Sample series:');
+      for (const s of series.slice(0, 3)) {
+        console.log(`    ${s.ticker}: ${s.title?.substring(0, 50)}... [${s.tags.join(', ')}]`);
+      }
+      console.log();
     }
   }
 
   console.log('\n=== Audit Complete ===\n');
+
+  return {
+    ok: true,
+    topic,
+    matchingSeries,
+    candidateSeries,
+    categoryStats: categoryStatsArray,
+  };
 }

@@ -136,4 +136,8 @@ export { runOpsV3, type OpsV3Options, type OpsV3Result } from './ops-run-v3.js';
 export { runKalshiTaxonomyBackfill, type KalshiTaxonomyBackfillOptions, type KalshiTaxonomyBackfillResult } from './kalshi-taxonomy-backfill.js';
 
 // v3.0.8: Kalshi series audit
-export { runKalshiSeriesAudit, type KalshiSeriesAuditOptions } from './kalshi-series-audit.js';
+export { runKalshiSeriesAudit, type KalshiSeriesAuditOptions, type KalshiSeriesAuditResult } from './kalshi-series-audit.js';
+
+// v3.0.9: Taxonomy gap report and v3 quality commands
+export { runTaxonomyGapReport, type TaxonomyGapReportOptions, type TaxonomyGapReportResult } from './taxonomy-gap-report.js';
+export { runV3Best, runV3Worst, type V3QualityOptions, type V3QualityResult, type V3QualityMatch } from './v3-quality.js';

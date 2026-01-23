@@ -2112,19 +2112,22 @@ program
     }
   });
 
-// kalshi:series:audit - Audit Kalshi series categories/tags and topic mappings (v3.0.8)
+// kalshi:series:audit - Audit Kalshi series categories/tags and topic mappings (v3.0.9)
 program
   .command('kalshi:series:audit')
-  .description('Audit Kalshi series categories/tags and their topic mappings (v3.0.8)')
-  .option('--limit <number>', 'Max categories to show', '30')
-  .option('--show-markets', 'Show market count estimates', true)
+  .description('Audit Kalshi series categories/tags and their topic mappings (v3.0.9: --topic filter)')
+  .option('--limit <number>', 'Max items to show', '30')
+  .option('--topic <topic>', 'Filter by specific topic (e.g., CLIMATE, COMMODITIES)')
+  .option('--no-candidates', 'Hide candidate series (title keyword matches)')
   .action(async (opts) => {
     const { runKalshiSeriesAudit } = await import('./commands/index.js');
+    const { CanonicalTopic } = await import('@data-module/core');
 
     try {
       await runKalshiSeriesAudit({
         limit: parseInt(opts.limit, 10),
-        showMarkets: opts.showMarkets,
+        topic: opts.topic ? opts.topic as typeof CanonicalTopic[keyof typeof CanonicalTopic] : undefined,
+        showCandidates: opts.candidates !== false,
       });
     } catch (error) {
       console.error('Kalshi series audit error:', error);
@@ -2134,11 +2137,102 @@ program
     }
   });
 
-// ops:run v3 - V3 Operations Runner (v3.0.7)
+// taxonomy:gap-report - Topic Gap Analysis (v3.0.9)
+program
+  .command('taxonomy:gap-report')
+  .description('Analyze why a topic has zero/low overlap between venues (v3.0.9)')
+  .requiredOption('--topic <topic>', 'Topic to analyze (e.g., CLIMATE, COMMODITIES)')
+  .option('--left <venue>', 'Left venue', 'kalshi')
+  .option('--right <venue>', 'Right venue', 'polymarket')
+  .option('--lookback-hours <hours>', 'Lookback window', '720')
+  .option('--sample-size <number>', 'Sample size per venue', '10')
+  .action(async (opts) => {
+    const { runTaxonomyGapReport } = await import('./commands/index.js');
+    const { CanonicalTopic } = await import('@data-module/core');
+
+    try {
+      await runTaxonomyGapReport({
+        topic: opts.topic as typeof CanonicalTopic[keyof typeof CanonicalTopic],
+        leftVenue: opts.left as Venue,
+        rightVenue: opts.right as Venue,
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+        sampleSize: parseInt(opts.sampleSize, 10),
+      });
+    } catch (error) {
+      console.error('Taxonomy gap report error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// v3:best - Show top matches by score (v3.0.9)
+program
+  .command('v3:best')
+  .description('Show top matches by score for a topic (v3.0.9)')
+  .requiredOption('--topic <topic>', 'Topic to analyze (e.g., CRYPTO_DAILY, MACRO)')
+  .option('--min-score <number>', 'Minimum score threshold', '0.9')
+  .option('--limit <number>', 'Max results', '50')
+  .option('--status <status>', 'Filter by status (suggested, confirmed, rejected, all)', 'all')
+  .option('--left <venue>', 'Left venue', 'kalshi')
+  .option('--right <venue>', 'Right venue', 'polymarket')
+  .action(async (opts) => {
+    const { runV3Best } = await import('./commands/index.js');
+    const { CanonicalTopic } = await import('@data-module/core');
+
+    try {
+      await runV3Best({
+        topic: opts.topic as typeof CanonicalTopic[keyof typeof CanonicalTopic],
+        minScore: parseFloat(opts.minScore),
+        limit: parseInt(opts.limit, 10),
+        status: opts.status,
+        leftVenue: opts.left as Venue,
+        rightVenue: opts.right as Venue,
+      });
+    } catch (error) {
+      console.error('V3 best error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// v3:worst - Show worst matches by score (v3.0.9)
+program
+  .command('v3:worst')
+  .description('Show worst matches by score for a topic - potential false positives (v3.0.9)')
+  .requiredOption('--topic <topic>', 'Topic to analyze (e.g., CRYPTO_DAILY, MACRO)')
+  .option('--max-score <number>', 'Maximum score threshold', '0.6')
+  .option('--limit <number>', 'Max results', '50')
+  .option('--status <status>', 'Filter by status (suggested, confirmed, rejected, all)', 'all')
+  .option('--left <venue>', 'Left venue', 'kalshi')
+  .option('--right <venue>', 'Right venue', 'polymarket')
+  .action(async (opts) => {
+    const { runV3Worst } = await import('./commands/index.js');
+    const { CanonicalTopic } = await import('@data-module/core');
+
+    try {
+      await runV3Worst({
+        topic: opts.topic as typeof CanonicalTopic[keyof typeof CanonicalTopic],
+        maxScore: parseFloat(opts.maxScore),
+        limit: parseInt(opts.limit, 10),
+        status: opts.status,
+        leftVenue: opts.left as Venue,
+        rightVenue: opts.right as Venue,
+      });
+    } catch (error) {
+      console.error('V3 worst error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// ops:run v3 - V3 Operations Runner (v3.0.9)
 program
   .command('ops:run:v3')
-  .description('Run V3 operations loop (v3.0.7: preflight, suggest, confirm, reject, watchlist, kpi)')
-  .option('--topics <topics>', 'Topics to process (comma-separated)', 'CRYPTO_DAILY,CRYPTO_INTRADAY,MACRO,RATES')
+  .description('Run V3 operations loop (v3.0.9: added ELECTIONS, multi-topic production)')
+  .option('--topics <topics>', 'Topics to process (comma-separated)', 'CRYPTO_DAILY,CRYPTO_INTRADAY,MACRO,RATES,ELECTIONS,COMMODITIES')
   .option('--no-preflight', 'Skip preflight overlap check')
   .option('--no-suggest-matches', 'Skip suggest-matches')
   .option('--no-auto-confirm', 'Skip auto-confirm')
