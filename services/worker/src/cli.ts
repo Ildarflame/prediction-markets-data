@@ -1825,6 +1825,7 @@ program
   .option('--auto-confirm', 'Auto-confirm safe matches', false)
   .option('--auto-reject', 'Auto-reject bad matches', false)
   .option('--debug-one <marketId>', 'Debug single market')
+  .option('--use-v3-eligibility', 'Use V3 eligibility (MVE filtering, default for SPORTS)', false)
   .action(async (opts) => {
     const { runV3SuggestMatches } = await import('./commands/index.js');
     const supportedVenues = getSupportedVenues();
@@ -1853,6 +1854,7 @@ program
         autoConfirm: opts.autoConfirm,
         autoReject: opts.autoReject,
         debugMarketId: opts.debugOne ? parseInt(opts.debugOne, 10) : undefined,
+        useV3Eligibility: opts.useV3Eligibility || undefined,  // Let command default for SPORTS
       });
 
       if (!result.ok) {

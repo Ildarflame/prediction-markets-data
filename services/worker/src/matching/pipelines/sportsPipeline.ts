@@ -33,6 +33,7 @@ import {
   extractSportsSignals,
   isEligibleSportsMarket,
   isEligibleSportsMarketV2,
+  isEligibleSportsMarketV3,
   SPORTS_KEYWORDS,
   toSportsEventData,
   type SportsSignals,
@@ -83,7 +84,7 @@ export interface SportsScoreResult {
 // CONSTANTS
 // ============================================================================
 
-const ALGO_VERSION = 'sports@3.0.13';
+const ALGO_VERSION = 'sports@3.0.14';
 
 const WEIGHTS = {
   // Event-level (0.75 total)
@@ -173,6 +174,7 @@ export const sportsPipeline: TopicPipeline<SportsMarket, SportsSignals, SportsSc
       lookbackHours = 720,
       limit = 10000,
       useV2Eligibility = false,
+      useV3Eligibility = false,
       eventRepo,
     } = options;
 
@@ -230,7 +232,18 @@ export const sportsPipeline: TopicPipeline<SportsMarket, SportsSignals, SportsSc
     let excludedCount = 0;
     let eventEnrichedCount = 0;
 
-    const eligibilityFn = useV2Eligibility ? isEligibleSportsMarketV2 : isEligibleSportsMarket;
+    // v3.0.14: Select eligibility function based on options
+    // V3 eligibility requires market.isMve for MVE filtering
+    const getEligibility = (signals: SportsSignals, market: { isMve?: boolean | null }) => {
+      if (useV3Eligibility) {
+        const result = isEligibleSportsMarketV3(signals, market);
+        return result.eligible;
+      }
+      if (useV2Eligibility) {
+        return isEligibleSportsMarketV2(signals);
+      }
+      return isEligibleSportsMarket(signals);
+    };
 
     for (const market of markets) {
       // Get event data for this market (if available)
@@ -251,14 +264,15 @@ export const sportsPipeline: TopicPipeline<SportsMarket, SportsSignals, SportsSc
         eventEnrichedCount++;
       }
 
-      if (eligibilityFn(signals)) {
+      if (getEligibility(signals, { isMve: market.isMve })) {
         sportsMarkets.push({ market, signals });
       } else {
         excludedCount++;
       }
     }
 
-    console.log(`[sportsPipeline] ${venue}: ${sportsMarkets.length} eligible, ${excludedCount} excluded, ${eventEnrichedCount} event-enriched`);
+    const eligibilityLabel = useV3Eligibility ? 'V3' : (useV2Eligibility ? 'V2' : 'V1');
+    console.log(`[sportsPipeline] ${venue}: ${sportsMarkets.length} eligible (${eligibilityLabel}), ${excludedCount} excluded, ${eventEnrichedCount} event-enriched`);
 
     return sportsMarkets;
   },

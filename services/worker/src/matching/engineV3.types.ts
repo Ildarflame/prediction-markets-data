@@ -65,6 +65,8 @@ export interface FetchOptions {
   excludeSports?: boolean;
   /** v3.0.12: Use relaxed v2 eligibility rules */
   useV2Eligibility?: boolean;
+  /** v3.0.14: Use V3 eligibility rules (MVE filtering) */
+  useV3Eligibility?: boolean;
   /** v3.0.12: Event repository for Kalshi event enrichment */
   eventRepo?: unknown;  // KalshiEventRepository
 }
@@ -107,6 +109,8 @@ export interface EngineV3Options {
   autoReject?: boolean;
   /** Debug: focus on single market ID */
   debugMarketId?: number;
+  /** v3.0.14: Use V3 eligibility rules (MVE filtering for SPORTS) */
+  useV3Eligibility?: boolean;
 }
 
 /**

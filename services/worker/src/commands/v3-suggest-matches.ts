@@ -27,6 +27,7 @@ export interface V3SuggestMatchesOptions {
   autoConfirm?: boolean;
   autoReject?: boolean;
   debugMarketId?: number;
+  useV3Eligibility?: boolean;  // v3.0.14: MVE filtering for SPORTS
 }
 
 export interface V3SuggestMatchesResult {
@@ -53,6 +54,7 @@ export async function runV3SuggestMatches(options: V3SuggestMatchesOptions): Pro
     autoConfirm = false,
     autoReject = false,
     debugMarketId,
+    useV3Eligibility,
   } = options;
 
   // Register pipelines
@@ -88,6 +90,9 @@ export async function runV3SuggestMatches(options: V3SuggestMatchesOptions): Pro
     };
   }
 
+  // v3.0.14: Default to V3 eligibility for SPORTS topic (MVE filtering)
+  const effectiveUseV3Eligibility = useV3Eligibility ?? (canonicalTopic === 'SPORTS');
+
   console.log('\n=== V3 Suggest Matches ===\n');
   console.log(`Topic: ${canonicalTopic}`);
   console.log(`From: ${fromVenue} -> To: ${toVenue}`);
@@ -96,6 +101,7 @@ export async function runV3SuggestMatches(options: V3SuggestMatchesOptions): Pro
   console.log(`Min score: ${minScore}`);
   console.log(`Mode: ${dryRun ? 'dry-run' : 'suggest'}`);
   console.log(`Auto-confirm: ${autoConfirm}, Auto-reject: ${autoReject}`);
+  console.log(`V3 Eligibility: ${effectiveUseV3Eligibility}`);
   if (debugMarketId) {
     console.log(`Debug market ID: ${debugMarketId}`);
   }
@@ -117,6 +123,7 @@ export async function runV3SuggestMatches(options: V3SuggestMatchesOptions): Pro
     autoConfirm,
     autoReject,
     debugMarketId,
+    useV3Eligibility: effectiveUseV3Eligibility,
   };
 
   const result = await runMatchingV3(engineOptions);

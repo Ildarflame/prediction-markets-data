@@ -84,6 +84,7 @@ export async function runMatchingV3(options: EngineV3Options): Promise<EngineV3R
     autoConfirm = false,
     autoReject = false,
     debugMarketId,
+    useV3Eligibility = false,
   } = options;
 
   // Get pipeline for topic
@@ -120,18 +121,23 @@ export async function runMatchingV3(options: EngineV3Options): Promise<EngineV3R
     // ================================================================
     console.log('[engineV3] Step 1: Fetching markets...');
 
+    // v3.0.14: excludeSports should be false for SPORTS topic
+    const excludeSports = canonicalTopic !== CanonicalTopic.SPORTS;
+
     const [leftMarkets, rightMarkets] = await Promise.all([
       pipeline.fetchMarkets(marketRepo, {
         venue: fromVenue,
         lookbackHours,
         limit: limits.maxLeft || 2000,
-        excludeSports: true,
+        excludeSports,
+        useV3Eligibility,
       }),
       pipeline.fetchMarkets(marketRepo, {
         venue: toVenue,
         lookbackHours,
         limit: limits.maxRight || 20000,
-        excludeSports: true,
+        excludeSports,
+        useV3Eligibility,
       }),
     ]);
 
