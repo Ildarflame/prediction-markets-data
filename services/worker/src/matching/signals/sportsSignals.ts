@@ -1,5 +1,5 @@
 /**
- * Sports Signals Extraction (v3.0.13)
+ * Sports Signals Extraction (v3.0.14)
  *
  * Extracts sports-specific features from market titles for matching:
  * - League (NBA, NFL, MLB, NHL, etc.)
@@ -537,6 +537,69 @@ export function isEligibleSportsMarketV2(signals: SportsSignals): boolean {
   if (signals.quality.unknownLeague) return false;
 
   return true;
+}
+
+/**
+ * v3.0.14: Check if a market is eligible using v3 rules that consider MVE status
+ *
+ * Key changes:
+ * - Requires isMve = false (explicit non-MVE)
+ * - Relaxes league requirement (UNKNOWN OK if teams found)
+ * - Relaxes market type requirement (UNKNOWN OK for simple winner markets)
+ * - Keeps exclusion for props/futures/parlays
+ */
+export function isEligibleSportsMarketV3(
+  signals: SportsSignals,
+  market: { isMve?: boolean | null }
+): { eligible: boolean; reason: string | null } {
+  // v3.0.14: Must be explicitly non-MVE
+  if (market.isMve === true) {
+    return { eligible: false, reason: 'mve_excluded' };
+  }
+
+  // If isMve is null (unknown), also exclude for now
+  if (market.isMve === null || market.isMve === undefined) {
+    return { eligible: false, reason: 'mve_unknown' };
+  }
+
+  // Must not be excluded (props, futures, parlays)
+  if (signals.quality.isExcluded) {
+    return { eligible: false, reason: signals.quality.excludeReason || 'excluded' };
+  }
+
+  // Must have teams (from any source - event or market)
+  if (signals.quality.missingTeams) {
+    return { eligible: false, reason: 'missing_teams' };
+  }
+
+  // Must have start time from ANY source (event, market, or closeTime)
+  if (signals.eventKey.startBucket === null) {
+    return { eligible: false, reason: 'missing_start_time' };
+  }
+
+  // v3.0.14: Relaxed - don't require known league if we have good teams
+  // v3.0.14: Relaxed - don't require specific market type if teams present
+  // This allows "Will X win the Y vs Z match?" pattern
+
+  // v3.0.14: For MONEYLINE only matching, still require supportable type
+  // MONEYLINE, SPREAD, TOTAL, and UNKNOWN (for simple winner markets)
+  const supportedTypes = [
+    SportsMarketType.MONEYLINE,
+    SportsMarketType.SPREAD,
+    SportsMarketType.TOTAL,
+    SportsMarketType.UNKNOWN,  // Allow unknown for "Will X win?" markets
+  ];
+  if (!supportedTypes.includes(signals.line.marketType)) {
+    return { eligible: false, reason: `unsupported_market_type:${signals.line.marketType}` };
+  }
+
+  // Keep notFullGame check for now (but relaxed if event-sourced)
+  const isEventSourced = signals.eventKey.teamsSource === 'event';
+  if (!isEventSourced && signals.quality.notFullGame) {
+    return { eligible: false, reason: 'not_full_game' };
+  }
+
+  return { eligible: true, reason: null };
 }
 
 /**

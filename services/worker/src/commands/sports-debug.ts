@@ -1,11 +1,13 @@
 /**
- * Sports Debug Commands (v3.0.13)
+ * Sports Debug Commands (v3.0.14)
  *
  * Diagnostics for SPORTS pipeline:
  * - sports:audit - Show SPORTS market breakdown by eligibility
  * - sports:sample - Show sample markets with signals
  * - sports:eligible - Show eligible markets count
  * - sports:event-coverage - Show event coverage for SPORTS markets
+ *
+ * v3.0.14: Added v3 eligibility with MVE detection
  */
 
 import { getClient, MarketRepository, KalshiEventRepository } from '@data-module/db';
@@ -14,6 +16,7 @@ import {
   extractSportsSignals,
   isEligibleSportsMarket,
   isEligibleSportsMarketV2,
+  isEligibleSportsMarketV3,
   getExclusionReason,
   SPORTS_KEYWORDS,
   toSportsEventData,
@@ -38,12 +41,16 @@ export interface SportsAuditResult {
   totalMarkets: number;
   eligibleV1: number;
   eligibleV2: number;
+  eligibleV3: number;  // v3.0.14: With MVE detection
   eventEnriched: number;
   byLeague: Record<string, number>;
   byMarketType: Record<string, number>;
   byExcludeReason: Record<string, number>;
+  byV3Reason: Record<string, number>;  // v3.0.14: V3 exclusion breakdown
   teamsFromEvent: number;
   timeFromEvent: number;
+  mveCount: number;     // v3.0.14: MVE markets
+  nonMveCount: number;  // v3.0.14: Non-MVE markets
 }
 
 export interface SportsSampleOptions {
@@ -76,6 +83,8 @@ export interface SportsEligibleOptions {
 export interface SportsEligibleResult {
   kalshiTotal: number;
   kalshiEligible: number;
+  kalshiEligibleV3: number;  // v3.0.14: With MVE detection
+  kalshiNonMve: number;      // v3.0.14: Non-MVE count
   kalshiEventEnriched: number;
   polymarketTotal: number;
   polymarketEligible: number;
@@ -98,7 +107,7 @@ export async function runSportsAudit(options: SportsAuditOptions): Promise<Sport
     withEvents = true,
   } = options;
 
-  console.log(`\n=== Sports Audit (v3.0.13) ===\n`);
+  console.log(`\n=== Sports Audit (v3.0.14) ===\n`);
   console.log(`Venue: ${venue}`);
   console.log(`Lookback: ${lookbackHours}h`);
   console.log(`Limit: ${limit}`);
@@ -154,12 +163,16 @@ export async function runSportsAudit(options: SportsAuditOptions): Promise<Sport
     totalMarkets: markets.length,
     eligibleV1: 0,
     eligibleV2: 0,
+    eligibleV3: 0,
     eventEnriched: 0,
     byLeague: {},
     byMarketType: {},
     byExcludeReason: {},
+    byV3Reason: {},
     teamsFromEvent: 0,
     timeFromEvent: 0,
+    mveCount: 0,
+    nonMveCount: 0,
   };
 
   for (const market of markets) {
@@ -201,6 +214,21 @@ export async function runSportsAudit(options: SportsAuditOptions): Promise<Sport
       result.eligibleV2++;
     }
 
+    // v3.0.14: Check v3 eligibility with MVE
+    const v3Result = isEligibleSportsMarketV3(signals, market);
+    if (v3Result.eligible) {
+      result.eligibleV3++;
+    } else if (v3Result.reason) {
+      result.byV3Reason[v3Result.reason] = (result.byV3Reason[v3Result.reason] || 0) + 1;
+    }
+
+    // v3.0.14: Track MVE status
+    if (market.isMve === true) {
+      result.mveCount++;
+    } else if (market.isMve === false) {
+      result.nonMveCount++;
+    }
+
     // Track exclusion reason
     const exclusionReason = getExclusionReason(signals);
     if (exclusionReason) {
@@ -209,11 +237,23 @@ export async function runSportsAudit(options: SportsAuditOptions): Promise<Sport
   }
 
   // Print results
+  console.log(`\n--- MVE Breakdown (v3.0.14) ---`);
+  console.log(`MVE markets: ${result.mveCount}`);
+  console.log(`Non-MVE markets: ${result.nonMveCount}`);
+  console.log(`Unknown: ${result.totalMarkets - result.mveCount - result.nonMveCount}`);
+
   console.log(`\n--- Eligibility ---`);
   console.log(`Total markets: ${result.totalMarkets}`);
   console.log(`Eligible (V1): ${result.eligibleV1} (${((result.eligibleV1 / result.totalMarkets) * 100).toFixed(1)}%)`);
   console.log(`Eligible (V2): ${result.eligibleV2} (${((result.eligibleV2 / result.totalMarkets) * 100).toFixed(1)}%)`);
+  console.log(`Eligible (V3): ${result.eligibleV3} (${((result.eligibleV3 / result.totalMarkets) * 100).toFixed(1)}%)`);
   console.log(`Event-enriched: ${result.eventEnriched}`);
+
+  console.log(`\n--- V3 Exclusion Reasons ---`);
+  const sortedV3Reasons = Object.entries(result.byV3Reason).sort((a, b) => b[1] - a[1]);
+  for (const [reason, count] of sortedV3Reasons.slice(0, 10)) {
+    console.log(`  ${reason}: ${count}`);
+  }
 
   console.log(`\n--- Data Sources ---`);
   console.log(`Teams from event: ${result.teamsFromEvent}`);
@@ -375,13 +415,14 @@ export async function runSportsEligible(options: SportsEligibleOptions): Promise
     withEvents = true,
   } = options;
 
-  console.log(`\n=== Sports Eligible (v3.0.13) ===\n`);
+  console.log(`\n=== Sports Eligible (v3.0.14) ===\n`);
   console.log(`Lookback: ${lookbackHours}h`);
   console.log(`Limit: ${limit}`);
   console.log(`V2 eligibility: ${useV2}`);
   console.log(`With events: ${withEvents}`);
 
   const eligibilityFn = useV2 ? isEligibleSportsMarketV2 : isEligibleSportsMarket;
+  // v3.0.14: Also track V3 eligibility
 
   // Kalshi - v3.0.13: Use derivedTopic instead of keywords
   console.log(`\n--- Kalshi ---`);
@@ -417,7 +458,11 @@ export async function runSportsEligible(options: SportsEligibleOptions): Promise
   }
 
   let kalshiEligible = 0;
+  let kalshiEligibleV3 = 0;
   let kalshiEventEnriched = 0;
+  let kalshiNonMve = 0;
+  const v3ReasonCounts: Record<string, number> = {};
+
   for (const market of kalshiMarkets) {
     let eventData: SportsEventData | undefined;
     if (market.kalshiEventTicker) {
@@ -436,11 +481,33 @@ export async function runSportsEligible(options: SportsEligibleOptions): Promise
     if (eligibilityFn(signals)) {
       kalshiEligible++;
     }
+
+    // v3.0.14: Track V3 eligibility with MVE
+    if (market.isMve === false) {
+      kalshiNonMve++;
+    }
+    const v3Result = isEligibleSportsMarketV3(signals, market);
+    if (v3Result.eligible) {
+      kalshiEligibleV3++;
+    } else if (v3Result.reason) {
+      v3ReasonCounts[v3Result.reason] = (v3ReasonCounts[v3Result.reason] || 0) + 1;
+    }
   }
 
   console.log(`Total: ${kalshiMarkets.length}`);
-  console.log(`Eligible: ${kalshiEligible}`);
+  console.log(`Non-MVE: ${kalshiNonMve}`);
+  console.log(`Eligible (V2): ${kalshiEligible}`);
+  console.log(`Eligible (V3): ${kalshiEligibleV3}`);
   console.log(`Event-enriched: ${kalshiEventEnriched}`);
+
+  // v3.0.14: Show V3 exclusion reasons
+  if (Object.keys(v3ReasonCounts).length > 0) {
+    console.log(`\nV3 Exclusion Breakdown (non-MVE only):`);
+    const sortedReasons = Object.entries(v3ReasonCounts).sort((a, b) => b[1] - a[1]);
+    for (const [reason, count] of sortedReasons.slice(0, 10)) {
+      console.log(`  ${reason}: ${count}`);
+    }
+  }
 
   // Polymarket
   console.log(`\n--- Polymarket ---`);
@@ -463,15 +530,19 @@ export async function runSportsEligible(options: SportsEligibleOptions): Promise
 
   // Summary
   console.log(`\n--- Summary ---`);
-  console.log(`Kalshi eligible: ${kalshiEligible} / ${kalshiMarkets.length}`);
+  console.log(`Kalshi non-MVE: ${kalshiNonMve} / ${kalshiMarkets.length}`);
+  console.log(`Kalshi eligible (V2): ${kalshiEligible}`);
+  console.log(`Kalshi eligible (V3): ${kalshiEligibleV3}`);
   console.log(`Polymarket eligible: ${polymarketEligible} / ${polymarketMarkets.length}`);
 
-  const canMatch = Math.min(kalshiEligible, polymarketEligible);
-  console.log(`\nPotential matching pairs: up to ${canMatch}`);
+  const canMatch = Math.min(kalshiEligibleV3, polymarketEligible);
+  console.log(`\nPotential matching pairs (V3): up to ${canMatch}`);
 
   return {
     kalshiTotal: kalshiMarkets.length,
     kalshiEligible,
+    kalshiEligibleV3,
+    kalshiNonMve,
     kalshiEventEnriched,
     polymarketTotal: polymarketMarkets.length,
     polymarketEligible,
