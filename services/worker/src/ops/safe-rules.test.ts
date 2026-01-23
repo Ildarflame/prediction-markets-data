@@ -224,6 +224,7 @@ describe('evaluateSafeRules', () => {
       pmEventTitle: null,
       pmEventSlug: null,
       pmEventTagSlugs: [],
+      kalshiEventTicker: null,
       outcomes: [],
     },
     rightMarket: {
@@ -249,6 +250,7 @@ describe('evaluateSafeRules', () => {
       pmEventTitle: null,
       pmEventSlug: null,
       pmEventTagSlugs: [],
+      kalshiEventTicker: null,
       outcomes: [],
     },
   });

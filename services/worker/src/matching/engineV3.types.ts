@@ -63,6 +63,10 @@ export interface FetchOptions {
   limit: number;
   /** Exclude sports/esports markets */
   excludeSports?: boolean;
+  /** v3.0.12: Use relaxed v2 eligibility rules */
+  useV2Eligibility?: boolean;
+  /** v3.0.12: Event repository for Kalshi event enrichment */
+  eventRepo?: unknown;  // KalshiEventRepository
 }
 
 /**

@@ -12,6 +12,7 @@ export type {
   IngestionRun,
   MarketLink,
   QuoteWatchlist,
+  KalshiEvent,
   Venue,
   MarketStatus,
   OutcomeSide,

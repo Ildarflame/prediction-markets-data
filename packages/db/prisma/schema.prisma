@@ -81,6 +81,9 @@ model Market {
   pmEventSlug        String?   @map("pm_event_slug")              // Cached from polymarket_events
   pmEventTagSlugs    String[]  @default([]) @map("pm_event_tag_slugs")  // Cached tag slugs for fast lookup
 
+  // v3.0.12: Kalshi event reference for SPORTS matching
+  kalshiEventTicker  String?   @map("kalshi_event_ticker")        // Reference to kalshi_events.event_ticker
+
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -93,6 +96,7 @@ model Market {
   @@index([status, closeTime])
   @@index([derivedTopic])
   @@index([pmEventId])
+  @@index([kalshiEventTicker])
   @@map("markets")
 }
 
@@ -335,4 +339,32 @@ model PolymarketSport {
   updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   @@map("polymarket_sports")
+}
+
+// ============================================================
+// Kalshi Events (v3.0.12)
+// ============================================================
+
+// KalshiEvent - Cached event metadata from Kalshi API
+// Events are the grouping level between series and markets
+// Critical for SPORTS matching: contains team names and strike dates
+model KalshiEvent {
+  id           Int       @id @default(autoincrement())
+  eventTicker  String    @unique @map("event_ticker")   // e.g., "KXNBA-25JAN23-LAL-BOS"
+  seriesTicker String    @map("series_ticker")          // e.g., "KXNBA"
+  title        String                                    // e.g., "Lakers vs Celtics"
+  subTitle     String?   @map("sub_title")              // e.g., "January 23, 2025"
+  category     String?
+  status       String?                                   // "open", "closed", "settled"
+  strikeDate   DateTime? @map("strike_date") @db.Timestamptz  // Event date/time
+  mutuallyExclusive Boolean @default(false) @map("mutually_exclusive")  // MVE flag
+  marketCount  Int       @default(0) @map("market_count")
+  lastSyncAt   DateTime  @map("last_sync_at") @db.Timestamptz
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([seriesTicker])
+  @@index([strikeDate])
+  @@index([status])
+  @@map("kalshi_events")
 }

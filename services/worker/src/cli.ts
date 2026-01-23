@@ -2284,6 +2284,120 @@ program
     }
   });
 
+// kalshi:events:sync - Sync Kalshi events for SPORTS matching (v3.0.12)
+program
+  .command('kalshi:events:sync')
+  .description('Sync Kalshi events to database for SPORTS matching (v3.0.12)')
+  .option('--lookback-days <days>', 'Lookback window for events', '14')
+  .option('--series <tickers>', 'Specific series to sync (comma-separated)')
+  .option('--all-series', 'Sync all series (not just sports)')
+  .option('--status <status>', 'Filter by status (open, closed, settled)')
+  .option('--limit <number>', 'Max events per series', '1000')
+  .option('--apply', 'Apply changes (default: dry-run)', false)
+  .option('--link-markets', 'Link markets to their events', false)
+  .action(async (opts) => {
+    const { runKalshiEventsSync } = await import('./commands/index.js');
+
+    try {
+      await runKalshiEventsSync({
+        lookbackDays: parseInt(opts.lookbackDays, 10),
+        series: opts.series,
+        allSeries: opts.allSeries,
+        status: opts.status,
+        limit: opts.limit ? parseInt(opts.limit, 10) : undefined,
+        apply: opts.apply,
+        linkMarkets: opts.linkMarkets,
+      });
+    } catch (error) {
+      console.error('Kalshi events sync error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// sports:audit - SPORTS market eligibility breakdown (v3.0.12)
+program
+  .command('sports:audit')
+  .description('Show SPORTS market breakdown by eligibility (v3.0.12)')
+  .requiredOption('--venue <venue>', 'Venue to audit (kalshi, polymarket)')
+  .option('--limit <number>', 'Max markets to process', '10000')
+  .option('--lookback-hours <hours>', 'Lookback window', '720')
+  .option('--v2', 'Use v2 eligibility rules', false)
+  .option('--no-events', 'Skip event enrichment')
+  .action(async (opts) => {
+    const { runSportsAudit } = await import('./commands/index.js');
+
+    try {
+      await runSportsAudit({
+        venue: opts.venue as Venue,
+        limit: parseInt(opts.limit, 10),
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+        useV2: opts.v2,
+        withEvents: opts.events !== false,
+      });
+    } catch (error) {
+      console.error('Sports audit error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// sports:sample - Show sample markets with signals (v3.0.12)
+program
+  .command('sports:sample')
+  .description('Show sample sports markets with signals (v3.0.12)')
+  .requiredOption('--venue <venue>', 'Venue to sample (kalshi, polymarket)')
+  .option('--limit <number>', 'Number of samples', '20')
+  .option('--lookback-hours <hours>', 'Lookback window', '720')
+  .option('--filter <filter>', 'Filter: eligible, excluded, all', 'all')
+  .option('--no-events', 'Skip event enrichment')
+  .action(async (opts) => {
+    const { runSportsSample } = await import('./commands/index.js');
+
+    try {
+      await runSportsSample({
+        venue: opts.venue as Venue,
+        limit: parseInt(opts.limit, 10),
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+        filter: opts.filter as 'eligible' | 'excluded' | 'all',
+        withEvents: opts.events !== false,
+      });
+    } catch (error) {
+      console.error('Sports sample error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// sports:eligible - Show eligible markets count (v3.0.12)
+program
+  .command('sports:eligible')
+  .description('Show SPORTS eligible markets count both venues (v3.0.12)')
+  .option('--lookback-hours <hours>', 'Lookback window', '720')
+  .option('--limit <number>', 'Max markets per venue', '20000')
+  .option('--v1', 'Use v1 eligibility rules (strict)', false)
+  .option('--no-events', 'Skip event enrichment')
+  .action(async (opts) => {
+    const { runSportsEligible } = await import('./commands/index.js');
+
+    try {
+      await runSportsEligible({
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+        limit: parseInt(opts.limit, 10),
+        useV2: !opts.v1,
+        withEvents: opts.events !== false,
+      });
+    } catch (error) {
+      console.error('Sports eligible error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
 // Handle graceful shutdown
 process.on('SIGINT', async () => {
   console.log('\nShutting down...');

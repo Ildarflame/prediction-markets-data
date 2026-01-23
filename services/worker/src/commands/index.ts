@@ -141,3 +141,19 @@ export { runKalshiSeriesAudit, type KalshiSeriesAuditOptions, type KalshiSeriesA
 // v3.0.9: Taxonomy gap report and v3 quality commands
 export { runTaxonomyGapReport, type TaxonomyGapReportOptions, type TaxonomyGapReportResult } from './taxonomy-gap-report.js';
 export { runV3Best, runV3Worst, type V3QualityOptions, type V3QualityResult, type V3QualityMatch } from './v3-quality.js';
+
+// v3.0.12: Kalshi events sync for SPORTS
+export { runKalshiEventsSync, type KalshiEventsSyncOptions, type KalshiEventsSyncResult } from './kalshi-events-sync.js';
+
+// v3.0.12: Sports debug commands
+export {
+  runSportsAudit,
+  runSportsSample,
+  runSportsEligible,
+  type SportsAuditOptions,
+  type SportsAuditResult,
+  type SportsSampleOptions,
+  type SportsSampleResult,
+  type SportsEligibleOptions,
+  type SportsEligibleResult,
+} from './sports-debug.js';

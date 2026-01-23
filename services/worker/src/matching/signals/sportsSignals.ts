@@ -1,5 +1,5 @@
 /**
- * Sports Signals Extraction (v3.0.11)
+ * Sports Signals Extraction (v3.0.12)
  *
  * Extracts sports-specific features from market titles for matching:
  * - League (NBA, NFL, MLB, NHL, etc.)
@@ -9,14 +9,44 @@
  * - Line value (for spread/total)
  * - Period (FULL_GAME only for v1)
  *
+ * V2 CHANGES (v3.0.12):
+ * - Event-first extraction: for Kalshi markets with kalshiEventTicker,
+ *   extract teams/startTime from kalshi_events table
+ * - Relaxed eligibility: require (teams OR event teams) AND (startTime OR strikeDate)
+ *
  * V1 SAFE SCOPE:
  * - Only MONEYLINE, SPREAD, TOTAL
  * - Only FULL_GAME period
  * - Excludes: player props, futures, parlays, live/in-play
  */
 
-import type { EligibleMarket } from '@data-module/db';
+import type { EligibleMarket, KalshiEvent } from '@data-module/db';
 import type { BaseSignals } from '../engineV3.types.js';
+
+// ============================================================================
+// EVENT DATA TYPE (for event-first extraction)
+// ============================================================================
+
+export interface SportsEventData {
+  eventTicker: string;
+  seriesTicker: string;
+  title: string;           // e.g., "Lakers vs Celtics"
+  subTitle: string | null; // e.g., "January 23, 2025 7:30 PM ET"
+  strikeDate: Date | null; // Event date/time
+}
+
+/**
+ * Convert KalshiEvent to SportsEventData
+ */
+export function toSportsEventData(event: KalshiEvent): SportsEventData {
+  return {
+    eventTicker: event.eventTicker,
+    seriesTicker: event.seriesTicker,
+    title: event.title,
+    subTitle: event.subTitle,
+    strikeDate: event.strikeDate,
+  };
+}
 import {
   SportsLeague,
   SportsMarketType,
@@ -44,6 +74,9 @@ export interface SportsEventKey {
   startTime: string | null;          // ISO string
   startBucket: string | null;        // e.g., "2025-01-23T19:30"
   venueEventId: string | null;       // Polymarket game_id or Kalshi series ticker
+  // v3.0.12: Track source of team/time data
+  teamsSource: 'market' | 'event' | 'none';
+  startTimeSource: 'market' | 'event' | 'closeTime' | 'none';
 }
 
 export interface SportsLine {
@@ -142,13 +175,29 @@ function shouldExcludeMarket(title: string): { excluded: boolean; reason: string
 // EXTRACTION FUNCTIONS
 // ============================================================================
 
+interface StartTimeResult {
+  startTime: string | null;
+  startBucket: string | null;
+  source: 'market' | 'event' | 'closeTime' | 'none';
+}
+
 /**
- * Extract start time from market metadata or closeTime
+ * Extract start time from event, market metadata, or closeTime
+ * Priority: event.strikeDate > metadata.eventStartTime > metadata.openTime > closeTime
  */
-function extractStartTime(market: EligibleMarket): { startTime: string | null; startBucket: string | null } {
+function extractStartTime(market: EligibleMarket, eventData?: SportsEventData): StartTimeResult {
+  // v3.0.12: Try event strikeDate first (most reliable for Kalshi)
+  if (eventData?.strikeDate) {
+    return {
+      startTime: eventData.strikeDate.toISOString(),
+      startBucket: generateTimeBucket(eventData.strikeDate),
+      source: 'event',
+    };
+  }
+
   const metadata = market.metadata as Record<string, unknown> | null;
 
-  // Try Polymarket eventStartTime first
+  // Try Polymarket eventStartTime
   if (metadata?.eventStartTime) {
     const startTime = String(metadata.eventStartTime);
     try {
@@ -157,6 +206,7 @@ function extractStartTime(market: EligibleMarket): { startTime: string | null; s
         return {
           startTime: date.toISOString(),
           startBucket: generateTimeBucket(date),
+          source: 'market',
         };
       }
     } catch {
@@ -172,6 +222,7 @@ function extractStartTime(market: EligibleMarket): { startTime: string | null; s
         return {
           startTime: date.toISOString(),
           startBucket: generateTimeBucket(date),
+          source: 'market',
         };
       }
     } catch {
@@ -184,10 +235,11 @@ function extractStartTime(market: EligibleMarket): { startTime: string | null; s
     return {
       startTime: market.closeTime.toISOString(),
       startBucket: generateTimeBucket(market.closeTime),
+      source: 'closeTime',
     };
   }
 
-  return { startTime: null, startBucket: null };
+  return { startTime: null, startBucket: null, source: 'none' };
 }
 
 /**
@@ -201,7 +253,11 @@ function extractVenueEventId(market: EligibleMarket): string | null {
     return String(metadata.game_id);
   }
 
-  // Kalshi eventTicker
+  // Kalshi eventTicker - also check the market field
+  if (market.kalshiEventTicker) {
+    return market.kalshiEventTicker;
+  }
+
   if (metadata?.eventTicker) {
     return String(metadata.eventTicker);
   }
@@ -212,6 +268,70 @@ function extractVenueEventId(market: EligibleMarket): string | null {
   }
 
   return null;
+}
+
+interface TeamExtractionResult {
+  teamA: string;
+  teamB: string;
+  teamA_norm: string;
+  teamB_norm: string;
+  source: 'market' | 'event' | 'none';
+}
+
+/**
+ * Extract teams from event data or market title
+ * Priority: event.title > market.title
+ *
+ * Event titles typically contain clean team names like "Lakers vs Celtics"
+ * Market titles may be parlays/props like "Lakers + Celtics OVER 220.5"
+ */
+function extractTeamsWithSource(market: EligibleMarket, eventData?: SportsEventData): TeamExtractionResult {
+  // v3.0.12: Try event title first (cleaner for Kalshi)
+  if (eventData?.title) {
+    const { teamA, teamB } = extractTeams(eventData.title);
+    if (teamA && teamB) {
+      return {
+        teamA,
+        teamB,
+        teamA_norm: normalizeTeamName(teamA),
+        teamB_norm: normalizeTeamName(teamB),
+        source: 'event',
+      };
+    }
+    // Also try subtitle (might have team names)
+    if (eventData.subTitle) {
+      const subResult = extractTeams(eventData.subTitle);
+      if (subResult.teamA && subResult.teamB) {
+        return {
+          teamA: subResult.teamA,
+          teamB: subResult.teamB,
+          teamA_norm: normalizeTeamName(subResult.teamA),
+          teamB_norm: normalizeTeamName(subResult.teamB),
+          source: 'event',
+        };
+      }
+    }
+  }
+
+  // Fall back to market title
+  const { teamA, teamB } = extractTeams(market.title);
+  if (teamA && teamB) {
+    return {
+      teamA,
+      teamB,
+      teamA_norm: normalizeTeamName(teamA),
+      teamB_norm: normalizeTeamName(teamB),
+      source: 'market',
+    };
+  }
+
+  return {
+    teamA: '',
+    teamB: '',
+    teamA_norm: '',
+    teamB_norm: '',
+    source: 'none',
+  };
 }
 
 /**
@@ -227,31 +347,37 @@ function extractTitleTokens(title: string): string[] {
 }
 
 /**
- * Main extraction function
+ * Main extraction function (v3.0.12: event-first extraction)
+ *
+ * @param market The market to extract signals from
+ * @param eventData Optional Kalshi event data for enrichment
  */
-export function extractSportsSignals(market: EligibleMarket): SportsSignals {
+export function extractSportsSignals(market: EligibleMarket, eventData?: SportsEventData): SportsSignals {
   const title = market.title;
   const rawTitle = title;
 
   // Check for exclusions first
   const exclusion = shouldExcludeMarket(title);
 
-  // Extract basic signals
-  const league = detectLeague(title);
-  const { teamA, teamB } = extractTeams(title);
+  // v3.0.12: Extract teams from event data or market title
+  const teamsResult = extractTeamsWithSource(market, eventData);
+  const { teamA_norm, teamB_norm, source: teamsSource } = teamsResult;
+
+  // v3.0.12: Extract start time from event or market
+  const { startTime, startBucket, source: startTimeSource } = extractStartTime(market, eventData);
+
+  // Extract basic signals from market title
+  // Use event title for league detection if available
+  const textForLeague = eventData?.title || title;
+  const league = detectLeague(textForLeague);
   const marketType = detectMarketType(title);
   const period = detectPeriod(title);
   const lineValue = extractLineValue(title, marketType);
   const side = extractSide(title);
-  const { startTime, startBucket } = extractStartTime(market);
   const venueEventId = extractVenueEventId(market);
   const titleTokens = extractTitleTokens(title);
 
-  // Normalize team names
-  const teamA_norm = teamA ? normalizeTeamName(teamA) : '';
-  const teamB_norm = teamB ? normalizeTeamName(teamB) : '';
-
-  // Build event key
+  // Build event key with source tracking
   const eventKey: SportsEventKey = {
     league,
     teamA_norm,
@@ -259,6 +385,8 @@ export function extractSportsSignals(market: EligibleMarket): SportsSignals {
     startTime,
     startBucket,
     venueEventId,
+    teamsSource,
+    startTimeSource,
   };
 
   // Build line info
@@ -269,10 +397,13 @@ export function extractSportsSignals(market: EligibleMarket): SportsSignals {
     period,
   };
 
-  // Build quality flags
+  // Build quality flags (v3.0.12: relaxed - missing teams/time OK if from event)
+  const hasTeams = teamA_norm !== '' && teamB_norm !== '';
+  const hasStartTime = startBucket !== null;
+
   const quality: SportsSignalQuality = {
-    missingTeams: !teamA_norm || !teamB_norm,
-    missingStartTime: !startBucket,
+    missingTeams: !hasTeams,
+    missingStartTime: !hasStartTime,
     unknownLeague: league === SportsLeague.UNKNOWN,
     unknownMarketType: marketType === SportsMarketType.UNKNOWN,
     notFullGame: period !== SportsPeriod.FULL_GAME,
@@ -286,11 +417,11 @@ export function extractSportsSignals(market: EligibleMarket): SportsSignals {
 
   // Generate composite event key string (for indexing)
   let eventKeyString: string | null = null;
-  if (teamA_norm && teamB_norm && startBucket && league !== SportsLeague.UNKNOWN) {
+  if (hasTeams && hasStartTime && league !== SportsLeague.UNKNOWN) {
     eventKeyString = generateEventKey(league, teamA_norm, teamB_norm, startBucket);
   }
 
-  // Calculate confidence
+  // Calculate confidence (v3.0.12: boost for event-sourced data)
   let confidence = 1.0;
   if (quality.missingTeams) confidence -= 0.4;
   if (quality.missingStartTime) confidence -= 0.2;
@@ -298,7 +429,12 @@ export function extractSportsSignals(market: EligibleMarket): SportsSignals {
   if (quality.unknownMarketType) confidence -= 0.1;
   if (quality.notFullGame) confidence -= 0.1;
   if (quality.isExcluded) confidence = 0;
-  confidence = Math.max(0, confidence);
+
+  // Slight boost for event-sourced data (more reliable)
+  if (teamsSource === 'event') confidence += 0.05;
+  if (startTimeSource === 'event') confidence += 0.05;
+
+  confidence = Math.min(1.0, Math.max(0, confidence));
 
   return {
     eventKey,
@@ -315,22 +451,28 @@ export function extractSportsSignals(market: EligibleMarket): SportsSignals {
 }
 
 /**
- * Check if a market is eligible for SPORTS matching (v1 safe scope)
+ * Check if a market is eligible for SPORTS matching (v2 relaxed scope)
+ *
+ * v3.0.12 CHANGES:
+ * - Now accepts teams from either market title OR event data
+ * - Now accepts startTime from event strikeDate OR closeTime
+ * - Keeps exclusion for props/futures/parlays
+ * - Keeps FULL_GAME period requirement
  */
 export function isEligibleSportsMarket(signals: SportsSignals): boolean {
-  // Must have both teams
+  // Must have both teams (from any source)
   if (signals.quality.missingTeams) return false;
 
-  // Must have start time
+  // Must have start time (from any source, including closeTime fallback)
   if (signals.quality.missingStartTime) return false;
 
   // Must not be excluded (props, futures, parlays)
   if (signals.quality.isExcluded) return false;
 
-  // Must be FULL_GAME period
+  // Must be FULL_GAME period (keeps v1 restriction)
   if (signals.quality.notFullGame) return false;
 
-  // Must be a supported market type
+  // Must be a supported market type (keeps v1 restriction)
   const supportedTypes = [SportsMarketType.MONEYLINE, SportsMarketType.SPREAD, SportsMarketType.TOTAL];
   if (!supportedTypes.includes(signals.line.marketType)) return false;
 
@@ -341,18 +483,53 @@ export function isEligibleSportsMarket(signals: SportsSignals): boolean {
 }
 
 /**
+ * Check if a market is eligible using v2 relaxed rules
+ * This version accepts closeTime as a valid time source
+ */
+export function isEligibleSportsMarketV2(signals: SportsSignals): boolean {
+  // Must have both teams (from any source - event or market)
+  const hasTeams = !signals.quality.missingTeams;
+  if (!hasTeams) return false;
+
+  // Must have start time from ANY source (event, market, or closeTime)
+  const hasTime = signals.eventKey.startBucket !== null;
+  if (!hasTime) return false;
+
+  // Must not be excluded (props, futures, parlays)
+  if (signals.quality.isExcluded) return false;
+
+  // For v2, we relax the FULL_GAME requirement if teams come from event
+  // (event-level matches are inherently game-level)
+  const isEventSourced = signals.eventKey.teamsSource === 'event';
+  if (!isEventSourced && signals.quality.notFullGame) return false;
+
+  // Must be a supported market type
+  const supportedTypes = [SportsMarketType.MONEYLINE, SportsMarketType.SPREAD, SportsMarketType.TOTAL, SportsMarketType.UNKNOWN];
+  if (!supportedTypes.includes(signals.line.marketType)) return false;
+
+  // Must have known league
+  if (signals.quality.unknownLeague) return false;
+
+  return true;
+}
+
+/**
  * Get exclusion reason for debugging
  */
 export function getExclusionReason(signals: SportsSignals): string | null {
   if (signals.quality.isExcluded) return signals.quality.excludeReason;
-  if (signals.quality.missingTeams) return 'Missing teams';
-  if (signals.quality.missingStartTime) return 'Missing start time';
+  if (signals.quality.missingTeams) {
+    return `Missing teams (source: ${signals.eventKey.teamsSource})`;
+  }
+  if (signals.quality.missingStartTime) {
+    return `Missing start time (source: ${signals.eventKey.startTimeSource})`;
+  }
   if (signals.quality.notFullGame) return `Period is ${signals.line.period}, not FULL_GAME`;
   if (signals.quality.unknownLeague) return 'Unknown league';
 
   const supportedTypes = [SportsMarketType.MONEYLINE, SportsMarketType.SPREAD, SportsMarketType.TOTAL];
   if (!supportedTypes.includes(signals.line.marketType)) {
-    return `Market type ${signals.line.marketType} not supported in v1`;
+    return `Market type ${signals.line.marketType} not supported`;
   }
 
   return null;

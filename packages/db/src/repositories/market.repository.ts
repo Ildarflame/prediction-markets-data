@@ -445,6 +445,8 @@ export class MarketRepository {
         closeTime: market.closeTime,
         venue: market.venue,
         metadata: market.metadata as Record<string, unknown> | null,
+        // v3.0.12: Include kalshiEventTicker for SPORTS enrichment
+        kalshiEventTicker: market.kalshiEventTicker,
       });
     }
 
@@ -519,8 +521,9 @@ export class MarketRepository {
     // Raw query for regex support
     // Note: Prisma maps "Market" model to "markets" table (@@map), columns to snake_case
     // Cast venue to "Venue" enum type for PostgreSQL compatibility
+    // v3.0.12: Added kalshi_event_ticker for SPORTS enrichment
     const query = `
-      SELECT m.id, m.title, m.category, m.status, m.close_time as "closeTime", m.venue, m.metadata
+      SELECT m.id, m.title, m.category, m.status, m.close_time as "closeTime", m.venue, m.metadata, m.kalshi_event_ticker as "kalshiEventTicker"
       FROM markets m
       WHERE m.venue = $1::"Venue"
         AND (m.status = 'active' OR (m.status = 'closed' AND m.close_time >= $2))
@@ -537,6 +540,7 @@ export class MarketRepository {
       closeTime: Date | null;
       venue: Venue;
       metadata: Record<string, unknown> | null;
+      kalshiEventTicker: string | null;
     }>>(query, ...params);
 
     // Get outcomes for binary market filtering
@@ -572,6 +576,8 @@ export class MarketRepository {
         closeTime: market.closeTime,
         venue: market.venue,
         metadata: market.metadata,
+        // v3.0.12: Include kalshiEventTicker for SPORTS enrichment
+        kalshiEventTicker: market.kalshiEventTicker,
       });
     }
 
@@ -590,4 +596,6 @@ export interface EligibleMarket {
   closeTime: Date | null;
   venue: Venue;
   metadata?: Record<string, unknown> | null;
+  // v3.0.12: Link to Kalshi event for SPORTS enrichment
+  kalshiEventTicker?: string | null;
 }

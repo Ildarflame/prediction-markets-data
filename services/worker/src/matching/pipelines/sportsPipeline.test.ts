@@ -41,6 +41,9 @@ function makeSportsMarket(
     startTime: eventKey.startTime ?? '2025-01-23T20:00:00.000Z',
     startBucket: eventKey.startBucket ?? '2025-01-23T20:00',
     venueEventId: eventKey.venueEventId ?? null,
+    // v3.0.12: Add source tracking
+    teamsSource: 'market',
+    startTimeSource: 'market',
   };
 
   const fullLine: SportsLine = {

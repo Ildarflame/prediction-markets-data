@@ -1,11 +1,16 @@
 /**
- * Sports Pipeline (v3.0.11)
+ * Sports Pipeline (v3.0.12)
  *
  * V3 matching pipeline for SPORTS topic:
  * - Event-first matching: Teams + League + StartTime
  * - Market-level matching: MarketType + LineValue
  *
- * V1 SAFE SCOPE:
+ * V2 CHANGES (v3.0.12):
+ * - Event-first extraction: fetch kalshi_events for team/time enrichment
+ * - Relaxed eligibility: accept teams from event OR market
+ * - Support for closeTime as fallback startTime
+ *
+ * V1 SAFE SCOPE (still applies):
  * - Only MONEYLINE, SPREAD, TOTAL (no props, futures, parlays)
  * - Only FULL_GAME period (no halves, quarters)
  * - Auto-confirm: MONEYLINE only with strict rules
@@ -23,12 +28,15 @@
  */
 
 import { CanonicalTopic, SportsLeague, SportsMarketType, areTimeBucketsAdjacent, teamsMatch } from '@data-module/core';
-import type { MarketRepository } from '@data-module/db';
+import type { MarketRepository, KalshiEventRepository } from '@data-module/db';
 import {
   extractSportsSignals,
   isEligibleSportsMarket,
+  isEligibleSportsMarketV2,
   SPORTS_KEYWORDS,
+  toSportsEventData,
   type SportsSignals,
+  type SportsEventData,
 } from '../signals/sportsSignals.js';
 import type { TopicPipeline } from './basePipeline.js';
 import type {
@@ -75,7 +83,7 @@ export interface SportsScoreResult {
 // CONSTANTS
 // ============================================================================
 
-const ALGO_VERSION = 'sports@3.0.11';
+const ALGO_VERSION = 'sports@3.0.12';
 
 const WEIGHTS = {
   // Event-level (0.75 total)
@@ -154,13 +162,19 @@ export const sportsPipeline: TopicPipeline<SportsMarket, SportsSignals, SportsSc
   supportsAutoReject: true,
 
   /**
-   * Fetch sports-eligible markets from a venue
+   * Fetch sports-eligible markets from a venue (v3.0.12: event enrichment)
    */
   async fetchMarkets(
     repo: MarketRepository,
     options: FetchOptions
   ): Promise<SportsMarket[]> {
-    const { venue, lookbackHours = 720, limit = 10000 } = options;
+    const {
+      venue,
+      lookbackHours = 720,
+      limit = 10000,
+      useV2Eligibility = false,
+      eventRepo,
+    } = options;
 
     // Fetch markets with sports keywords
     const markets = await repo.listEligibleMarkets(venue, {
@@ -169,21 +183,72 @@ export const sportsPipeline: TopicPipeline<SportsMarket, SportsSignals, SportsSc
       titleKeywords: SPORTS_KEYWORDS,
     });
 
+    console.log(`[sportsPipeline] Fetched ${markets.length} ${venue} markets with sports keywords`);
+
+    // v3.0.12: Build event data map for Kalshi markets
+    const eventDataMap = new Map<string, SportsEventData>();
+
+    if (venue === 'kalshi' && eventRepo) {
+      const kalshiEventRepo = eventRepo as KalshiEventRepository;
+
+      // Collect event tickers from markets
+      const eventTickers = new Set<string>();
+      for (const market of markets) {
+        if (market.kalshiEventTicker) {
+          eventTickers.add(market.kalshiEventTicker);
+        } else {
+          // Check metadata
+          const metadata = market.metadata as Record<string, unknown> | null;
+          if (metadata?.eventTicker) {
+            eventTickers.add(String(metadata.eventTicker));
+          }
+        }
+      }
+
+      if (eventTickers.size > 0) {
+        console.log(`[sportsPipeline] Fetching ${eventTickers.size} events for enrichment...`);
+        const eventsMap = await kalshiEventRepo.getEventsMap([...eventTickers]);
+        for (const [ticker, event] of eventsMap) {
+          eventDataMap.set(ticker, toSportsEventData(event));
+        }
+        console.log(`[sportsPipeline] Found ${eventDataMap.size} events in DB`);
+      }
+    }
+
     // Extract signals and filter eligible
     const sportsMarkets: SportsMarket[] = [];
     let excludedCount = 0;
+    let eventEnrichedCount = 0;
+
+    const eligibilityFn = useV2Eligibility ? isEligibleSportsMarketV2 : isEligibleSportsMarket;
 
     for (const market of markets) {
-      const signals = extractSportsSignals(market);
+      // Get event data for this market (if available)
+      let eventData: SportsEventData | undefined;
+      if (market.kalshiEventTicker) {
+        eventData = eventDataMap.get(market.kalshiEventTicker);
+      } else {
+        const metadata = market.metadata as Record<string, unknown> | null;
+        if (metadata?.eventTicker) {
+          eventData = eventDataMap.get(String(metadata.eventTicker));
+        }
+      }
 
-      if (isEligibleSportsMarket(signals)) {
+      // Extract signals with event enrichment
+      const signals = extractSportsSignals(market, eventData);
+
+      if (eventData && signals.eventKey.teamsSource === 'event') {
+        eventEnrichedCount++;
+      }
+
+      if (eligibilityFn(signals)) {
         sportsMarkets.push({ market, signals });
       } else {
         excludedCount++;
       }
     }
 
-    console.log(`[sportsPipeline] Fetched ${markets.length} markets, ${sportsMarkets.length} eligible, ${excludedCount} excluded`);
+    console.log(`[sportsPipeline] ${venue}: ${sportsMarkets.length} eligible, ${excludedCount} excluded, ${eventEnrichedCount} event-enriched`);
 
     return sportsMarkets;
   },
