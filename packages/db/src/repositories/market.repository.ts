@@ -447,6 +447,8 @@ export class MarketRepository {
         metadata: market.metadata as Record<string, unknown> | null,
         // v3.0.12: Include kalshiEventTicker for SPORTS enrichment
         kalshiEventTicker: market.kalshiEventTicker,
+        // v3.0.14: Include isMve for MVE detection
+        isMve: market.isMve,
       });
     }
 
@@ -578,6 +580,8 @@ export class MarketRepository {
         metadata: market.metadata,
         // v3.0.12: Include kalshiEventTicker for SPORTS enrichment
         kalshiEventTicker: market.kalshiEventTicker,
+        // v3.0.14: Include isMve for MVE detection
+        isMve: market.isMve,
       });
     }
 
@@ -636,6 +640,8 @@ export class MarketRepository {
         venue: market.venue,
         metadata: market.metadata as Record<string, unknown> | null,
         kalshiEventTicker: market.kalshiEventTicker,
+        // v3.0.14: Include isMve for MVE detection
+        isMve: market.isMve,
       });
     }
 
@@ -656,4 +662,6 @@ export interface EligibleMarket {
   metadata?: Record<string, unknown> | null;
   // v3.0.12: Link to Kalshi event for SPORTS enrichment
   kalshiEventTicker?: string | null;
+  // v3.0.14: MVE detection for Kalshi SPORTS
+  isMve?: boolean | null;
 }
