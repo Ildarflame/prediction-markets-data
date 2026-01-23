@@ -134,3 +134,6 @@ export { runOpsV3, type OpsV3Options, type OpsV3Result } from './ops-run-v3.js';
 
 // v3.0.6: Kalshi taxonomy backfill
 export { runKalshiTaxonomyBackfill, type KalshiTaxonomyBackfillOptions, type KalshiTaxonomyBackfillResult } from './kalshi-taxonomy-backfill.js';
+
+// v3.0.8: Kalshi series audit
+export { runKalshiSeriesAudit, type KalshiSeriesAuditOptions } from './kalshi-series-audit.js';

@@ -1,10 +1,11 @@
 /**
- * Kalshi Taxonomy Rules (v3.0.2)
+ * Kalshi Taxonomy Rules (v3.0.8)
  *
  * Maps Kalshi series tickers and categories to canonical topics.
  * Based on analysis of Kalshi API series data.
  *
  * v3.0.2: Added RATES override for Economics category when rate keywords present
+ * v3.0.8: Added COMMODITIES detection via tags, improved ELECTIONS coverage
  */
 
 import { CanonicalTopic, TopicRule, KalshiSeriesInfo, TopicClassification, TopicSource } from './types.js';
@@ -15,6 +16,20 @@ import { getKalshiEventTicker, getKalshiSeriesTicker } from '../utils.js';
  * If a market has category "Economics" but contains these keywords, classify as RATES
  */
 const RATE_KEYWORDS = /\b(fed(?:eral)?\s+reserve|fomc|rate\s+cut|rate\s+hike|interest\s+rate|basis\s+points?|bps|fed\s+funds?)\b/i;
+
+/**
+ * Commodity-related tags for COMMODITIES classification (v3.0.8)
+ * If a market has these tags (regardless of category), classify as COMMODITIES
+ */
+const COMMODITY_TAGS = new Set([
+  'oil', 'crude', 'crude oil', 'wti', 'brent',
+  'gold', 'silver', 'platinum', 'palladium',
+  'metals', 'precious metals',
+  'natural gas', 'gas', 'energy',
+  'commodities', 'commodity',
+  'agriculture', 'wheat', 'corn', 'soybeans', 'coffee', 'sugar',
+  'copper', 'aluminum', 'iron',
+]);
 
 /**
  * Kalshi ticker prefix rules
@@ -52,7 +67,7 @@ export const KALSHI_TICKER_RULES: TopicRule[] = [
   { pattern: /RATE.*CUT/i, topic: CanonicalTopic.RATES, confidence: 0.85, description: 'Rate cut' },
   { pattern: /RATE.*HIKE/i, topic: CanonicalTopic.RATES, confidence: 0.85, description: 'Rate hike' },
 
-  // Elections - Political outcomes
+  // Elections - Political outcomes (v3.0.8: expanded patterns)
   { pattern: /^PRES/i, topic: CanonicalTopic.ELECTIONS, confidence: 0.95, description: 'Presidential' },
   { pattern: /^KXPRES/i, topic: CanonicalTopic.ELECTIONS, confidence: 0.95, description: 'Presidential (KX)' },
   { pattern: /^SENATE/i, topic: CanonicalTopic.ELECTIONS, confidence: 0.95, description: 'Senate' },
@@ -61,6 +76,20 @@ export const KALSHI_TICKER_RULES: TopicRule[] = [
   { pattern: /ELECTION/i, topic: CanonicalTopic.ELECTIONS, confidence: 0.85, description: 'Election' },
   { pattern: /^KXTRUMP/i, topic: CanonicalTopic.ELECTIONS, confidence: 0.90, description: 'Trump related' },
   { pattern: /^KXBIDEN/i, topic: CanonicalTopic.ELECTIONS, confidence: 0.90, description: 'Biden related' },
+  { pattern: /^KXPOLITICS/i, topic: CanonicalTopic.ELECTIONS, confidence: 0.90, description: 'Politics' },
+  { pattern: /^KXCONGRESS/i, topic: CanonicalTopic.ELECTIONS, confidence: 0.90, description: 'Congress' },
+  { pattern: /^KXPOLICY/i, topic: CanonicalTopic.ELECTIONS, confidence: 0.85, description: 'Policy' },
+
+  // Commodities - Prices and futures (v3.0.8)
+  { pattern: /^KXOIL/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Oil price' },
+  { pattern: /^KXCRUDE/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Crude oil' },
+  { pattern: /^KXWTI/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'WTI oil' },
+  { pattern: /^KXBRENT/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Brent oil' },
+  { pattern: /^KXGOLD/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Gold price' },
+  { pattern: /^KXSILVER/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Silver price' },
+  { pattern: /^KXGAS/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Natural gas' },
+  { pattern: /^KXENERGY/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.90, description: 'Energy' },
+  { pattern: /^KXCOPPER/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Copper' },
 
   // Sports - Exclude from matching
   { pattern: /^KXMVESPORT/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Esports' },
@@ -176,6 +205,30 @@ export const KALSHI_TAG_MAP: Record<string, CanonicalTopic> = {
   'hurricane': CanonicalTopic.CLIMATE,
   'temperature': CanonicalTopic.CLIMATE,
   'weather': CanonicalTopic.CLIMATE,
+
+  // Commodities tags (v3.0.8)
+  'oil': CanonicalTopic.COMMODITIES,
+  'crude': CanonicalTopic.COMMODITIES,
+  'crude oil': CanonicalTopic.COMMODITIES,
+  'wti': CanonicalTopic.COMMODITIES,
+  'brent': CanonicalTopic.COMMODITIES,
+  'gold': CanonicalTopic.COMMODITIES,
+  'silver': CanonicalTopic.COMMODITIES,
+  'platinum': CanonicalTopic.COMMODITIES,
+  'palladium': CanonicalTopic.COMMODITIES,
+  'metals': CanonicalTopic.COMMODITIES,
+  'precious metals': CanonicalTopic.COMMODITIES,
+  'natural gas': CanonicalTopic.COMMODITIES,
+  'energy': CanonicalTopic.COMMODITIES,
+  'commodities': CanonicalTopic.COMMODITIES,
+  'commodity': CanonicalTopic.COMMODITIES,
+  'agriculture': CanonicalTopic.COMMODITIES,
+  'wheat': CanonicalTopic.COMMODITIES,
+  'corn': CanonicalTopic.COMMODITIES,
+  'soybeans': CanonicalTopic.COMMODITIES,
+  'coffee': CanonicalTopic.COMMODITIES,
+  'sugar': CanonicalTopic.COMMODITIES,
+  'copper': CanonicalTopic.COMMODITIES,
 };
 
 /**
@@ -238,15 +291,45 @@ export function classifyKalshiByTags(tags: string[]): TopicClassification | null
 }
 
 /**
- * Classify a Kalshi series using all available info (v3.0.2)
- * Priority: 1) Tags (for RATES override) 2) Category 3) Ticker pattern
+ * Check if tags contain commodity-related keywords (v3.0.8)
+ */
+function hasCommodityTags(tags: string[]): boolean {
+  for (const tag of tags) {
+    const tagLower = tag.toLowerCase().trim();
+    if (COMMODITY_TAGS.has(tagLower)) {
+      return true;
+    }
+    // Also check for partial matches
+    for (const commodity of COMMODITY_TAGS) {
+      if (tagLower.includes(commodity) || commodity.includes(tagLower)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Classify a Kalshi series using all available info (v3.0.8)
+ * Priority: 1) Tags (for RATES/COMMODITIES override) 2) Category 3) Ticker pattern
  * Series metadata takes priority over ticker heuristics
  *
  * v3.0.2: Check tags first to allow RATES override for Economics category
+ * v3.0.8: Added COMMODITIES detection via tags
  */
 export function classifyKalshiSeries(series: KalshiSeriesInfo): TopicClassification {
-  // 1. Try tag analysis first (v3.0.2: allows RATES override for Economics)
+  // 1. Try tag analysis first (v3.0.2/v3.0.8: allows RATES/COMMODITIES override)
   if (series.tags.length > 0) {
+    // v3.0.8: Check for commodity tags first (highest priority for commodity detection)
+    if (hasCommodityTags(series.tags)) {
+      return {
+        topic: CanonicalTopic.COMMODITIES,
+        confidence: 0.90,
+        source: TopicSource.SERIES_METADATA,
+        reason: `COMMODITIES: tags contain commodity keywords`,
+      };
+    }
+
     const tagResult = classifyKalshiByTags(series.tags);
     if (tagResult && tagResult.topic !== CanonicalTopic.UNKNOWN) {
       return tagResult;
