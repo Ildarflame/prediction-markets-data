@@ -348,7 +348,8 @@ export function classifyKalshiByTags(tags: string[]): TopicClassification | null
 }
 
 /**
- * Check if tags contain commodity-related keywords (v3.0.8)
+ * Check if tags contain commodity-related keywords (v3.0.10)
+ * Note: Removed partial matching to avoid false positives (e.g., "Energy" → 'oil and energy')
  */
 function hasCommodityTags(tags: string[]): boolean {
   for (const tag of tags) {
@@ -356,26 +357,27 @@ function hasCommodityTags(tags: string[]): boolean {
     if (COMMODITY_TAGS.has(tagLower)) {
       return true;
     }
-    // Also check for partial matches
-    for (const commodity of COMMODITY_TAGS) {
-      if (tagLower.includes(commodity) || commodity.includes(tagLower)) {
-        return true;
-      }
-    }
   }
   return false;
 }
 
 /**
- * Classify a Kalshi series using all available info (v3.0.8)
- * Priority: 1) Tags (for RATES/COMMODITIES override) 2) Category 3) Ticker pattern
- * Series metadata takes priority over ticker heuristics
+ * Classify a Kalshi series using all available info (v3.0.10)
+ * Priority: 1) High-confidence ticker patterns 2) Tags 3) Category 4) Fallback ticker
  *
  * v3.0.2: Check tags first to allow RATES override for Economics category
  * v3.0.8: Added COMMODITIES detection via tags
+ * v3.0.10: Check ticker patterns FIRST for specific overrides (EV→CLIMATE, etc.)
  */
 export function classifyKalshiSeries(series: KalshiSeriesInfo): TopicClassification {
-  // 1. Try tag analysis first (v3.0.2/v3.0.8: allows RATES/COMMODITIES override)
+  // 0. Check high-confidence ticker patterns FIRST (v3.0.10: prevents false positives)
+  // This catches EV series that have "Energy" tag but should be CLIMATE
+  const tickerFirst = classifyKalshiByTicker(series.ticker);
+  if (tickerFirst && tickerFirst.confidence >= 0.90) {
+    return tickerFirst;
+  }
+
+  // 1. Try tag analysis (v3.0.2/v3.0.8: allows RATES/COMMODITIES override)
   if (series.tags.length > 0) {
     // v3.0.8: Check for commodity tags first (highest priority for commodity detection)
     if (hasCommodityTags(series.tags)) {
