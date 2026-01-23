@@ -2228,11 +2228,11 @@ program
     }
   });
 
-// ops:run v3 - V3 Operations Runner (v3.0.9)
+// ops:run v3 - V3 Operations Runner (v3.0.10)
 program
   .command('ops:run:v3')
-  .description('Run V3 operations loop (v3.0.9: added ELECTIONS, multi-topic production)')
-  .option('--topics <topics>', 'Topics to process (comma-separated)', 'CRYPTO_DAILY,CRYPTO_INTRADAY,MACRO,RATES,ELECTIONS,COMMODITIES')
+  .description('Run V3 operations loop (v3.0.10: added CLIMATE pipeline)')
+  .option('--topics <topics>', 'Topics to process (comma-separated)', 'CRYPTO_DAILY,CRYPTO_INTRADAY,MACRO,RATES,ELECTIONS,COMMODITIES,CLIMATE')
   .option('--no-preflight', 'Skip preflight overlap check')
   .option('--no-suggest-matches', 'Skip suggest-matches')
   .option('--no-auto-confirm', 'Skip auto-confirm')
