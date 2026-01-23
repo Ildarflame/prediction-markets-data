@@ -55,6 +55,7 @@ describe('evaluateRejectRules', () => {
       pmEventSlug: null,
       pmEventTagSlugs: [],
       kalshiEventTicker: null,
+      isMve: null,
       outcomes: [],
     },
     rightMarket: {
@@ -81,6 +82,7 @@ describe('evaluateRejectRules', () => {
       pmEventSlug: null,
       pmEventTagSlugs: [],
       kalshiEventTicker: null,
+      isMve: null,
       outcomes: [],
     },
   });
