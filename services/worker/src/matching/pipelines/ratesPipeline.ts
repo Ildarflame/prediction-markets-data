@@ -118,7 +118,7 @@ function monthDiff(monthA: string | null, monthB: string | null): number | null 
  */
 export class RatesPipeline extends BasePipeline<RatesMarket, RatesSignals, RatesScoreResult> {
   readonly topic = CanonicalTopic.RATES;
-  readonly algoVersion = 'rates@3.0.0';
+  readonly algoVersion = 'v3@3.0.5:RATES';
   readonly description = 'Interest rate and central bank decision matching';
   readonly supportsAutoConfirm = true;
   readonly supportsAutoReject = true;
@@ -451,12 +451,17 @@ export class RatesPipeline extends BasePipeline<RatesMarket, RatesSignals, Rates
     const lSig = left.signals;
     const rSig = right.signals;
 
-    if (scoreResult.score < 0.85) {
+    // v3.0.5: Score >= 0.88
+    if (scoreResult.score < 0.88) {
       return { shouldConfirm: false, rule: null, confidence: 0 };
     }
 
-    // Date must be exact
-    if (scoreResult.dayDiff !== 0) {
+    // v3.0.5: Date exact OR within 1 day
+    if (scoreResult.dayDiff !== null && scoreResult.dayDiff > 1) {
+      return { shouldConfirm: false, rule: null, confidence: 0 };
+    }
+    // Also require same month if no specific date
+    if (scoreResult.dayDiff === null && scoreResult.monthDiff !== 0) {
       return { shouldConfirm: false, rule: null, confidence: 0 };
     }
 
@@ -474,8 +479,8 @@ export class RatesPipeline extends BasePipeline<RatesMarket, RatesSignals, Rates
       }
     }
 
-    // Text sanity check
-    if (scoreResult.textScore < 0.15) {
+    // v3.0.5: Text sanity >= 0.12
+    if (scoreResult.textScore < 0.12) {
       return { shouldConfirm: false, rule: null, confidence: 0 };
     }
 

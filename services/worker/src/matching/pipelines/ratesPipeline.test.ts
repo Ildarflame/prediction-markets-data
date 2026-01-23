@@ -194,8 +194,9 @@ describe('RatesPipeline', () => {
 
       const result = ratesPipeline.score(left, right);
       assert.ok(result !== null);
-      // BPS score should be 0.4 for 25bps difference
-      assert.equal(result.bpsScore, 0.4);
+      // BPS score: 0.7 for ≤25bps diff, 0.4 for ≤50bps diff
+      // Diff is 25, so score = 0.7
+      assert.equal(result.bpsScore, 0.7);
     });
   });
 

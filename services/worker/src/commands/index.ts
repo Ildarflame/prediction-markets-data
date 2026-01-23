@@ -127,3 +127,7 @@ export {
   type CommoditiesPipelineOptions,
   type CommoditiesPipelineResult,
 } from '../matching/commoditiesPipeline.js';
+
+// v3.0.5: Topic overlap dashboard and ops:run v3
+export { runTaxonomyOverlap, type TaxonomyOverlapOptions, type TaxonomyOverlapResult } from './taxonomy-overlap.js';
+export { runOpsV3, type OpsV3Options, type OpsV3Result } from './ops-run-v3.js';

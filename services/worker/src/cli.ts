@@ -2035,6 +2035,92 @@ program
     }
   });
 
+// ============================================================
+// v3.0.5: Topic Overlap Dashboard and V3 Ops Runner
+// ============================================================
+
+// taxonomy:overlap - Topic Overlap Dashboard
+program
+  .command('taxonomy:overlap')
+  .description('Show cross-venue market overlap per topic (v3.0.5)')
+  .option('--lookback-hours <hours>', 'Lookback window', '720')
+  .option('--left <venue>', 'Left venue', 'kalshi')
+  .option('--right <venue>', 'Right venue', 'polymarket')
+  .option('--out <path>', 'Output CSV file path')
+  .option('--sample-size <number>', 'Sample size for zero-overlap diagnosis', '5')
+  .action(async (opts) => {
+    const { runTaxonomyOverlap } = await import('./commands/index.js');
+
+    try {
+      await runTaxonomyOverlap({
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+        leftVenue: opts.left as Venue,
+        rightVenue: opts.right as Venue,
+        csvOutput: opts.out,
+        sampleSize: parseInt(opts.sampleSize, 10),
+      });
+    } catch (error) {
+      console.error('Taxonomy overlap error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// ops:run v3 - V3 Operations Runner
+program
+  .command('ops:run:v3')
+  .description('Run V3 operations loop (v3.0.5: suggest, confirm, reject, watchlist, kpi)')
+  .option('--topics <topics>', 'Topics to process (comma-separated)', 'CRYPTO_DAILY,CRYPTO_INTRADAY,MACRO,RATES')
+  .option('--no-suggest-matches', 'Skip suggest-matches')
+  .option('--no-auto-confirm', 'Skip auto-confirm')
+  .option('--no-auto-reject', 'Skip auto-reject')
+  .option('--no-watchlist-sync', 'Skip watchlist sync')
+  .option('--no-quotes-freshness-check', 'Skip quotes freshness check')
+  .option('--with-taxonomy-maintenance', 'Run taxonomy sync (events/series)', false)
+  .option('--apply', 'Apply changes (default: dry-run)', false)
+  .option('--from <venue>', 'Source venue', 'kalshi')
+  .option('--to <venue>', 'Target venue', 'polymarket')
+  .option('--lookback-hours <hours>', 'Lookback window', '720')
+  .option('--limit-left <number>', 'Max source markets', '2000')
+  .option('--limit-right <number>', 'Max target markets', '20000')
+  .option('--max-per-left <number>', 'Max suggestions per source', '3')
+  .option('--max-per-right <number>', 'Max suggestions per target', '8')
+  .option('--min-score <number>', 'Min score threshold', '0.60')
+  .action(async (opts) => {
+    const { runOpsV3 } = await import('./commands/index.js');
+
+    try {
+      const result = await runOpsV3({
+        topics: opts.topics,
+        suggestMatches: opts.suggestMatches !== false,
+        autoConfirm: opts.autoConfirm !== false,
+        autoReject: opts.autoReject !== false,
+        watchlistSync: opts.watchlistSync !== false,
+        quotesFreshnessCheck: opts.quotesFreshnessCheck !== false,
+        withTaxonomyMaintenance: opts.withTaxonomyMaintenance,
+        apply: opts.apply,
+        fromVenue: opts.from as Venue,
+        toVenue: opts.to as Venue,
+        lookbackHours: parseInt(opts.lookbackHours, 10),
+        limitLeft: parseInt(opts.limitLeft, 10),
+        limitRight: parseInt(opts.limitRight, 10),
+        maxPerLeft: parseInt(opts.maxPerLeft, 10),
+        maxPerRight: parseInt(opts.maxPerRight, 10),
+        minScore: parseFloat(opts.minScore),
+      });
+
+      if (!result.success) {
+        process.exit(1);
+      }
+    } catch (error) {
+      console.error('Ops run v3 error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
 // Handle graceful shutdown
 process.on('SIGINT', async () => {
   console.log('\nShutting down...');
