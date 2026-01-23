@@ -449,14 +449,10 @@ export class ElectionsPipeline extends BasePipeline<ElectionsMarket, ElectionsSi
     right: ElectionsMarket,
     scoreResult: ElectionsScoreResult
   ): AutoConfirmResult {
-    const MIN_SCORE = 0.98;
+    // v3.0.15: Score >= 0.95 with all components at 1.0 is safe
+    const MIN_SCORE = 0.95;
 
-    // Debug: log candidates with high scores
-    if (scoreResult.score >= 0.95) {
-      console.log(`[ELECTIONS auto-confirm] Checking: score=${scoreResult.score.toFixed(3)}, country=${scoreResult.countryScore}, office=${scoreResult.officeScore}, year=${scoreResult.yearScore}, overlap=${scoreResult.candidateOverlap}`);
-    }
-
-    // Must have very high score
+    // Must have high score
     if (scoreResult.score < MIN_SCORE) {
       return { shouldConfirm: false, rule: null, confidence: 0 };
     }
@@ -466,31 +462,26 @@ export class ElectionsPipeline extends BasePipeline<ElectionsMarket, ElectionsSi
 
     // Must have country match (countryScore 1.0 = exact match)
     if (scoreResult.countryScore < 1.0) {
-      console.log(`[ELECTIONS auto-confirm] REJECTED: countryScore ${scoreResult.countryScore} < 1.0`);
       return { shouldConfirm: false, rule: null, confidence: 0 };
     }
 
     // Must have office match (score 1.0 means exact match)
     if (scoreResult.officeScore < 1.0) {
-      console.log(`[ELECTIONS auto-confirm] REJECTED: officeScore ${scoreResult.officeScore} < 1.0`);
       return { shouldConfirm: false, rule: null, confidence: 0 };
     }
 
     // Must have year match
     if (scoreResult.yearScore < 1.0) {
-      console.log(`[ELECTIONS auto-confirm] REJECTED: yearScore ${scoreResult.yearScore} < 1.0`);
       return { shouldConfirm: false, rule: null, confidence: 0 };
     }
 
     // Must have at least 1 candidate overlap when both have candidates
     if (lSig.candidates.length > 0 && rSig.candidates.length > 0) {
       if (scoreResult.candidateOverlap < 1) {
-        console.log(`[ELECTIONS auto-confirm] REJECTED: candidateOverlap ${scoreResult.candidateOverlap} < 1`);
         return { shouldConfirm: false, rule: null, confidence: 0 };
       }
     }
 
-    console.log(`[ELECTIONS auto-confirm] CONFIRMED: ${left.market.title.slice(0, 40)} <-> ${right.market.title.slice(0, 40)}`);
     return {
       shouldConfirm: true,
       rule: 'ELECTIONS_STRICT',
