@@ -74,8 +74,8 @@ export async function runV3Best(options: V3QualityOptions): Promise<V3QualityRes
   const whereClause: any = {
     topic: { in: topicVariants },
     score: { gte: minScore },
-    leftMarket: { venue: leftVenue },
-    rightMarket: { venue: rightVenue },
+    leftVenue: leftVenue,
+    rightVenue: rightVenue,
   };
 
   if (status !== 'all') {
@@ -163,8 +163,8 @@ export async function runV3Worst(options: V3QualityOptions): Promise<V3QualityRe
   const whereClause: any = {
     topic: { in: topicVariants },
     score: { lte: maxScore, gt: 0 },
-    leftMarket: { venue: leftVenue },
-    rightMarket: { venue: rightVenue },
+    leftVenue: leftVenue,
+    rightVenue: rightVenue,
   };
 
   if (status !== 'all') {
