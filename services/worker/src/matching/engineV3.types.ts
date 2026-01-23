@@ -256,6 +256,12 @@ export const DEFAULT_LIMITS: Record<string, PipelineLimits> = {
     maxPerLeft: 3,
     maxPerRight: 3,
   },
+  CLIMATE: {
+    maxLeft: 500,
+    maxRight: 2000,
+    maxPerLeft: 3,
+    maxPerRight: 3,
+  },
 };
 
 /**
@@ -267,6 +273,7 @@ export const DEFAULT_MIN_SCORES: Record<string, number> = {
   MACRO: 0.55,
   RATES: 0.60,
   ELECTIONS: 0.55,
+  CLIMATE: 0.60,
 };
 
 /**
@@ -278,4 +285,5 @@ export const DEFAULT_LOOKBACK_HOURS: Record<string, number> = {
   MACRO: 720,           // 30 days
   RATES: 720,           // 30 days
   ELECTIONS: 720,       // 30 days
+  CLIMATE: 720,         // 30 days
 };

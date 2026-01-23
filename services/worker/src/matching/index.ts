@@ -68,7 +68,14 @@ export {
   type ElectionsScoreResult,
 } from './pipelines/index.js';
 
-// Signal extraction (v3.0.0)
+// Climate Pipeline (v3.0.10)
+export {
+  climatePipeline,
+  type ClimateMarket,
+  type ClimateScoreResult,
+} from './pipelines/index.js';
+
+// Signal extraction (v3.0.10)
 export {
   // Rates signals
   CentralBank,
@@ -83,6 +90,17 @@ export {
   type ElectionsSignals,
   extractElectionsSignals,
   isElectionsMarket,
+  // Climate signals (v3.0.10)
+  ClimateKind,
+  ClimateDateType,
+  ClimateComparator,
+  CLIMATE_KEYWORDS,
+  type ClimateSignals,
+  extractClimateSignals,
+  isClimateMarket,
+  areDateTypesCompatible as climateAreDateTypesCompatible,
+  calculateDateScore,
+  calculateThresholdScore,
 } from './signals/index.js';
 
 // Pipeline registration (v3.0.0)

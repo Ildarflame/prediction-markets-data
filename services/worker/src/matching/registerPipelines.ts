@@ -1,5 +1,5 @@
 /**
- * Pipeline Registration (v3.0.6)
+ * Pipeline Registration (v3.0.10)
  *
  * Registers all available pipelines with the dispatcher.
  * Call this at application startup.
@@ -12,6 +12,7 @@ import { cryptoDailyPipeline } from './pipelines/cryptoDailyPipeline.js';
 import { cryptoIntradayPipeline } from './pipelines/cryptoIntradayPipeline.js';
 import { macroPipelineV3 } from './pipelines/macroPipelineV3.js';
 import { commoditiesPipelineV3 } from './pipelines/commoditiesPipelineV3.js';
+import { climatePipeline } from './pipelines/climatePipeline.js';
 
 /**
  * Flag to track if pipelines have been registered
@@ -37,8 +38,11 @@ export function registerAllPipelines(): void {
   registerPipeline(macroPipelineV3);
   registerPipeline(commoditiesPipelineV3);
 
+  // Register CLIMATE pipeline (v3.0.10)
+  registerPipeline(climatePipeline);
+
   isRegistered = true;
-  console.log('[registerPipelines] Registered: CRYPTO_DAILY, CRYPTO_INTRADAY, MACRO, RATES, ELECTIONS, COMMODITIES');
+  console.log('[registerPipelines] Registered: CRYPTO_DAILY, CRYPTO_INTRADAY, MACRO, RATES, ELECTIONS, COMMODITIES, CLIMATE');
 }
 
 /**

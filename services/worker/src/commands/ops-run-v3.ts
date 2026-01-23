@@ -1,5 +1,5 @@
 /**
- * ops:run v3 - V3 Operations Runner (v3.0.7)
+ * ops:run v3 - V3 Operations Runner (v3.0.10)
  *
  * Orchestrates the full V3 operational loop for configured topics:
  * 0. Preflight: Check topic overlap (skip topics with zero overlap)
@@ -15,6 +15,7 @@
  * - kalshi:series:sync incremental
  *
  * v3.0.7: Added preflight overlap check (default: on)
+ * v3.0.10: Added CLIMATE pipeline
  *
  * Run: ops:run --mode v3 --topics CRYPTO_DAILY,MACRO,RATES --apply
  */
@@ -92,7 +93,7 @@ export interface OpsV3Result {
   };
 }
 
-// Default matchable topics for V3 (v3.0.9: added ELECTIONS)
+// Default matchable topics for V3 (v3.0.10: added CLIMATE)
 const V3_DEFAULT_TOPICS: CanonicalTopic[] = [
   CanonicalTopic.CRYPTO_DAILY,
   CanonicalTopic.CRYPTO_INTRADAY,
@@ -100,6 +101,7 @@ const V3_DEFAULT_TOPICS: CanonicalTopic[] = [
   CanonicalTopic.RATES,
   CanonicalTopic.ELECTIONS,
   CanonicalTopic.COMMODITIES,
+  CanonicalTopic.CLIMATE,
 ];
 
 /**
@@ -167,7 +169,7 @@ export async function runOpsV3(options: OpsV3Options = {}): Promise<OpsV3Result>
   });
 
   console.log(`\n${'='.repeat(60)}`);
-  console.log(`[ops:run v3] V3 Operations Runner (v3.0.7)`);
+  console.log(`[ops:run v3] V3 Operations Runner (v3.0.10)`);
   console.log(`${'='.repeat(60)}`);
   console.log(`Mode: ${dryRun ? 'DRY RUN' : '⚠️  APPLY'}`);
   console.log(`Topics: ${enabledTopics.join(', ')}`);

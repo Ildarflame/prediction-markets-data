@@ -1,11 +1,12 @@
 /**
- * Taxonomy Types (v3.0.4)
+ * Taxonomy Types (v3.0.10)
  *
  * Unified topic classification system for cross-venue market matching.
  * Maps venue-specific categories/tags to canonical topics.
  *
  * v3.0.1: Added series-based classification support
  * v3.0.4: Added COMMODITIES topic for oil, gold, agriculture futures
+ * v3.0.10: Added CLIMATE to matchable topics
  */
 
 /**
@@ -157,6 +158,7 @@ export const MATCHABLE_TOPICS = [
   CanonicalTopic.RATES,
   CanonicalTopic.ELECTIONS,
   CanonicalTopic.COMMODITIES,  // v3.0.4
+  CanonicalTopic.CLIMATE,      // v3.0.10
 ] as const;
 
 /**

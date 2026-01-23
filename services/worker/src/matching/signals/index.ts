@@ -1,5 +1,5 @@
 /**
- * Signals Index (v3.0.0)
+ * Signals Index (v3.0.10)
  *
  * Exports all signal extraction modules.
  */
@@ -45,3 +45,22 @@ export {
   extractElectionsSignals,
   isElectionsMarket,
 } from './electionsSignals.js';
+
+// Climate signals (v3.0.10)
+export {
+  ClimateKind,
+  ClimateDateType,
+  ClimateComparator,
+  CLIMATE_KEYWORDS,
+  type ClimateSignals,
+  extractClimateKind,
+  extractRegion,
+  extractDateInfo,
+  extractThresholds,
+  extractComparator,
+  extractClimateSignals,
+  isClimateMarket,
+  areDateTypesCompatible,
+  calculateDateScore,
+  calculateThresholdScore,
+} from './climateSignals.js';
