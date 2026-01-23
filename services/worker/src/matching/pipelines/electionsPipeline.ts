@@ -121,7 +121,7 @@ export class ElectionsPipeline extends BasePipeline<ElectionsMarket, ElectionsSi
   readonly topic = CanonicalTopic.ELECTIONS;
   readonly algoVersion = 'elections@3.0.10';
   readonly description = 'Political and election market matching';
-  readonly supportsAutoConfirm = false; // Elections require manual review
+  readonly supportsAutoConfirm = true; // v3.0.15: Enabled with strict rules
   readonly supportsAutoReject = true;
 
   /**
@@ -435,18 +435,56 @@ export class ElectionsPipeline extends BasePipeline<ElectionsMarket, ElectionsSi
   }
 
   /**
-   * Auto-confirm is DISABLED for elections
-   * Elections markets require manual review due to complexity
+   * v3.0.15: Enable auto-confirm for ELECTIONS with strict rules
+   *
+   * Rules:
+   * - score >= 0.98
+   * - country match (same country)
+   * - office match (same office type)
+   * - year match (same year)
+   * - candidate overlap >= 1 (at least one candidate in common)
    */
   shouldAutoConfirm(
-    _left: ElectionsMarket,
-    _right: ElectionsMarket,
-    _scoreResult: ElectionsScoreResult
+    left: ElectionsMarket,
+    right: ElectionsMarket,
+    scoreResult: ElectionsScoreResult
   ): AutoConfirmResult {
+    const MIN_SCORE = 0.98;
+
+    // Must have very high score
+    if (scoreResult.score < MIN_SCORE) {
+      return { shouldConfirm: false, rule: null, confidence: 0 };
+    }
+
+    const lSig = left.signals;
+    const rSig = right.signals;
+
+    // Must have country match (countryScore 1.0 = exact match)
+    if (scoreResult.countryScore < 1.0) {
+      return { shouldConfirm: false, rule: null, confidence: 0 };
+    }
+
+    // Must have office match (score 1.0 means exact match)
+    if (scoreResult.officeScore < 1.0) {
+      return { shouldConfirm: false, rule: null, confidence: 0 };
+    }
+
+    // Must have year match
+    if (scoreResult.yearScore < 1.0) {
+      return { shouldConfirm: false, rule: null, confidence: 0 };
+    }
+
+    // Must have at least 1 candidate overlap when both have candidates
+    if (lSig.candidates.length > 0 && rSig.candidates.length > 0) {
+      if (scoreResult.candidateOverlap < 1) {
+        return { shouldConfirm: false, rule: null, confidence: 0 };
+      }
+    }
+
     return {
-      shouldConfirm: false,
-      rule: null,
-      confidence: 0,
+      shouldConfirm: true,
+      rule: 'ELECTIONS_STRICT',
+      confidence: scoreResult.score,
     };
   }
 
