@@ -105,9 +105,9 @@ export const KALSHI_TICKER_RULES: TopicRule[] = [
   // SPR - Strategic Petroleum Reserve
   { pattern: /^KXSPR/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'SPR petroleum' },
   { pattern: /^SPR/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'SPR petroleum (legacy)' },
-  // Precious metals - exclude false positives like GOLDCARDS, GOLDENMENTION
-  { pattern: /^KXGOLD(?!CARDS|EN)/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Gold price' },
-  { pattern: /^KXSILVER/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Silver price' },
+  // Precious metals - exclude false positives (GOLDCARD, GOLDEN*, SILVERSTATES, SILVERAPPROVE)
+  { pattern: /^KXGOLD(?!CARD|EN)/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Gold price' },
+  { pattern: /^KXSILVER(?!STATE|APPROVE)/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Silver price' },
   // Base metals
   { pattern: /^KXCOPPER/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Copper' },
   // Energy (generic - lower priority)
