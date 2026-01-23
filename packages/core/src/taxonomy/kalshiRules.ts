@@ -1,5 +1,5 @@
 /**
- * Kalshi Taxonomy Rules (v3.0.9)
+ * Kalshi Taxonomy Rules (v3.0.10)
  *
  * Maps Kalshi series tickers and categories to canonical topics.
  * Based on analysis of Kalshi API series data.
@@ -7,6 +7,7 @@
  * v3.0.2: Added RATES override for Economics category when rate keywords present
  * v3.0.8: Added COMMODITIES detection via tags, improved ELECTIONS coverage
  * v3.0.9: Added CLIMATE classification (category "Climate and Weather", ticker patterns, tags)
+ * v3.0.10: Fixed COMMODITIES false positives (KXGOLDCARDS, KXGASOSR), added WTI/SPR/AAA patterns
  */
 
 import { CanonicalTopic, TopicRule, KalshiSeriesInfo, TopicClassification, TopicSource } from './types.js';
@@ -19,14 +20,16 @@ import { getKalshiEventTicker, getKalshiSeriesTicker } from '../utils.js';
 const RATE_KEYWORDS = /\b(fed(?:eral)?\s+reserve|fomc|rate\s+cut|rate\s+hike|interest\s+rate|basis\s+points?|bps|fed\s+funds?)\b/i;
 
 /**
- * Commodity-related tags for COMMODITIES classification (v3.0.8)
+ * Commodity-related tags for COMMODITIES classification (v3.0.10)
  * If a market has these tags (regardless of category), classify as COMMODITIES
+ * Note: 'energy' and 'gas' removed - too broad (would catch EV markets, generic)
  */
 const COMMODITY_TAGS = new Set([
   'oil', 'crude', 'crude oil', 'wti', 'brent',
+  'oil and energy',  // Actual Kalshi tag for commodities
   'gold', 'silver', 'platinum', 'palladium',
   'metals', 'precious metals',
-  'natural gas', 'gas', 'energy',
+  'natural gas',  // Specific, not just 'gas'
   'commodities', 'commodity',
   'agriculture', 'wheat', 'corn', 'soybeans', 'coffee', 'sugar',
   'copper', 'aluminum', 'iron',
@@ -84,18 +87,33 @@ export const KALSHI_TICKER_RULES: TopicRule[] = [
   { pattern: /^KXCONGRESS/i, topic: CanonicalTopic.ELECTIONS, confidence: 0.90, description: 'Congress' },
   { pattern: /^KXPOLICY/i, topic: CanonicalTopic.ELECTIONS, confidence: 0.85, description: 'Policy' },
 
-  // Commodities - Prices and futures (v3.0.8)
+  // Commodities - Prices and futures (v3.0.10: fixed false positives)
+  // Oil
   { pattern: /^KXOIL/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Oil price' },
+  { pattern: /^OIL/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Oil price (legacy)' },
   { pattern: /^KXCRUDE/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Crude oil' },
+  // WTI - both KX and legacy prefixes
   { pattern: /^KXWTI/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'WTI oil' },
+  { pattern: /^WTI/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'WTI oil (legacy)' },
   { pattern: /^KXBRENT/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Brent oil' },
-  { pattern: /^KXGOLD/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Gold price' },
+  // Natural gas - KXNGAS only, NOT KXGAS (would catch KXGASOSR = Georgia elections!)
+  { pattern: /^KXNGAS/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Natural gas' },
+  { pattern: /^KXNGASMAX/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Natural gas max' },
+  // AAA gas prices (retail gasoline, not natural gas)
+  { pattern: /^KXAAAGASM?/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'AAA gas price' },
+  { pattern: /^AAAGASM?/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'AAA gas price (legacy)' },
+  // SPR - Strategic Petroleum Reserve
+  { pattern: /^KXSPR/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'SPR petroleum' },
+  { pattern: /^SPR/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'SPR petroleum (legacy)' },
+  // Precious metals - exclude false positives like GOLDCARDS, GOLDENMENTION
+  { pattern: /^KXGOLD(?!CARDS|EN)/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Gold price' },
   { pattern: /^KXSILVER/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Silver price' },
-  { pattern: /^KXGAS/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Natural gas' },
-  { pattern: /^KXENERGY/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.90, description: 'Energy' },
+  // Base metals
   { pattern: /^KXCOPPER/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Copper' },
+  // Energy (generic - lower priority)
+  { pattern: /^KXENERGY/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.90, description: 'Energy' },
 
-  // Climate/Weather (v3.0.9)
+  // Climate/Weather (v3.0.9, v3.0.10: added EV market share)
   { pattern: /^KXHUR/i, topic: CanonicalTopic.CLIMATE, confidence: 0.95, description: 'Hurricane' },
   { pattern: /^HUR/i, topic: CanonicalTopic.CLIMATE, confidence: 0.95, description: 'Hurricane (legacy)' },
   { pattern: /^KXHIGH/i, topic: CanonicalTopic.CLIMATE, confidence: 0.90, description: 'High temperature' },
@@ -106,6 +124,10 @@ export const KALSHI_TICKER_RULES: TopicRule[] = [
   { pattern: /^KXFLOOD/i, topic: CanonicalTopic.CLIMATE, confidence: 0.95, description: 'Flood' },
   { pattern: /^KXWILDFIRE/i, topic: CanonicalTopic.CLIMATE, confidence: 0.95, description: 'Wildfire' },
   { pattern: /^KXTORNADO/i, topic: CanonicalTopic.CLIMATE, confidence: 0.95, description: 'Tornado' },
+  // EV market share - climate-related (v3.0.10)
+  { pattern: /^KXEVSHARE/i, topic: CanonicalTopic.CLIMATE, confidence: 0.90, description: 'EV market share' },
+  { pattern: /^EVSHARE/i, topic: CanonicalTopic.CLIMATE, confidence: 0.90, description: 'EV market share (legacy)' },
+  { pattern: /^EVMKT/i, topic: CanonicalTopic.CLIMATE, confidence: 0.90, description: 'EV market' },
 
   // Sports - Exclude from matching
   { pattern: /^KXMVESPORT/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Esports' },
@@ -218,7 +240,7 @@ export const KALSHI_TAG_MAP: Record<string, CanonicalTopic> = {
   'emmys': CanonicalTopic.ENTERTAINMENT,
   'awards': CanonicalTopic.ENTERTAINMENT,
 
-  // Climate tags (v3.0.9: expanded)
+  // Climate tags (v3.0.10: added EV, electric vehicles)
   'hurricane': CanonicalTopic.CLIMATE,
   'hurricanes': CanonicalTopic.CLIMATE,
   'temperature': CanonicalTopic.CLIMATE,
@@ -235,13 +257,18 @@ export const KALSHI_TAG_MAP: Record<string, CanonicalTopic> = {
   'wildfire': CanonicalTopic.CLIMATE,
   'heat': CanonicalTopic.CLIMATE,
   'cold': CanonicalTopic.CLIMATE,
+  // EV/Electric vehicles (v3.0.10)
+  'ev': CanonicalTopic.CLIMATE,
+  'electric vehicles': CanonicalTopic.CLIMATE,
+  'electric vehicle': CanonicalTopic.CLIMATE,
 
-  // Commodities tags (v3.0.8)
+  // Commodities tags (v3.0.10: removed 'energy' - too broad, catches EV markets)
   'oil': CanonicalTopic.COMMODITIES,
   'crude': CanonicalTopic.COMMODITIES,
   'crude oil': CanonicalTopic.COMMODITIES,
   'wti': CanonicalTopic.COMMODITIES,
   'brent': CanonicalTopic.COMMODITIES,
+  'oil and energy': CanonicalTopic.COMMODITIES,  // Specific Kalshi tag
   'gold': CanonicalTopic.COMMODITIES,
   'silver': CanonicalTopic.COMMODITIES,
   'platinum': CanonicalTopic.COMMODITIES,
@@ -249,7 +276,7 @@ export const KALSHI_TAG_MAP: Record<string, CanonicalTopic> = {
   'metals': CanonicalTopic.COMMODITIES,
   'precious metals': CanonicalTopic.COMMODITIES,
   'natural gas': CanonicalTopic.COMMODITIES,
-  'energy': CanonicalTopic.COMMODITIES,
+  // 'energy' removed - too broad (v3.0.10)
   'commodities': CanonicalTopic.COMMODITIES,
   'commodity': CanonicalTopic.COMMODITIES,
   'agriculture': CanonicalTopic.COMMODITIES,
