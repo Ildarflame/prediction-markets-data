@@ -373,7 +373,49 @@ function extractTitleTokens(title: string): string[] {
 }
 
 /**
+ * v3.0.15: Extract league from Kalshi series ticker
+ * Series ticker patterns: KXNBAGAME*, KXNFLGAME*, KXNHLGAME*, KXMLBGAME*, etc.
+ */
+function detectLeagueFromSeriesTicker(seriesTicker: string | null | undefined): SportsLeague | null {
+  if (!seriesTicker) return null;
+
+  const tickerUpper = seriesTicker.toUpperCase();
+
+  // Map Kalshi series prefixes to leagues
+  const seriesLeagueMap: [string, SportsLeague][] = [
+    ['KXNBA', SportsLeague.NBA],
+    ['KXNFL', SportsLeague.NFL],
+    ['KXNHL', SportsLeague.NHL],
+    ['KXMLB', SportsLeague.MLB],
+    ['KXMLS', SportsLeague.MLS],
+    ['KXUFC', SportsLeague.UFC],
+    ['KXPGA', SportsLeague.GOLF],
+    ['KXTENNIS', SportsLeague.TENNIS],
+    ['KXF1', SportsLeague.F1],
+    ['KXEPL', SportsLeague.EPL],
+    ['KXLALIGA', SportsLeague.LA_LIGA],
+    ['KXBUNDES', SportsLeague.BUNDESLIGA],
+    ['KXSERIEA', SportsLeague.SERIE_A],
+    ['KXLIGUE1', SportsLeague.LIGUE_1],
+    ['KXUCL', SportsLeague.UCL],
+    ['KXUEL', SportsLeague.UEL],
+    ['KXNCAAFB', SportsLeague.NCAA_FB],
+    ['KXNCAABB', SportsLeague.NCAA_BB],
+    ['KXESPORT', SportsLeague.ESPORTS],
+  ];
+
+  for (const [prefix, league] of seriesLeagueMap) {
+    if (tickerUpper.startsWith(prefix)) {
+      return league;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Main extraction function (v3.0.12: event-first extraction)
+ * v3.0.15: Added series ticker fallback for league detection
  *
  * @param market The market to extract signals from
  * @param eventData Optional Kalshi event data for enrichment
@@ -393,9 +435,19 @@ export function extractSportsSignals(market: EligibleMarket, eventData?: SportsE
   const { startTime, startBucket, source: startTimeSource } = extractStartTime(market, eventData);
 
   // Extract basic signals from market title
-  // Use event title for league detection if available
+  // v3.0.15: Use event title for league detection, then market title, then series ticker fallback
   const textForLeague = eventData?.title || title;
-  const league = detectLeague(textForLeague);
+  let league = detectLeague(textForLeague);
+
+  // v3.0.15: Fallback to series ticker for Kalshi markets
+  if (league === SportsLeague.UNKNOWN) {
+    const metadata = market.metadata as Record<string, unknown> | null;
+    const seriesTicker = eventData?.seriesTicker || (metadata?.seriesTicker as string | undefined);
+    const seriesLeague = detectLeagueFromSeriesTicker(seriesTicker);
+    if (seriesLeague) {
+      league = seriesLeague;
+    }
+  }
   const marketType = detectMarketType(title);
   const period = detectPeriod(title);
   const lineValue = extractLineValue(title, marketType);
