@@ -1,10 +1,11 @@
 /**
- * taxonomy:overlap - Topic Overlap Dashboard (v3.0.6)
+ * taxonomy:overlap - Topic Overlap Dashboard (v3.0.7)
  *
  * Shows cross-venue market counts per CanonicalTopic within eligibility window.
  * Helps identify matching opportunities and coverage gaps.
  *
- * v3.0.6: Default uses DB derivedTopic. Use --live to classify on-the-fly.
+ * v3.0.7: Uses GROUP BY for accurate counts (fixes 50K limit issue).
+ *         Warning for NULL derivedTopic markets.
  *
  * Output per topic:
  * - leftCount (kalshi)
@@ -18,7 +19,7 @@
 
 import * as fs from 'node:fs';
 import { getClient, type Venue } from '@data-module/db';
-import { CanonicalTopic, MATCHABLE_TOPICS, classifyKalshiMarket, classifyPolymarketMarketV3 } from '@data-module/core';
+import { CanonicalTopic, MATCHABLE_TOPICS } from '@data-module/core';
 import { getRegisteredPipelineInfos, registerAllPipelines } from '../matching/index.js';
 
 export interface TaxonomyOverlapOptions {
@@ -79,126 +80,107 @@ export async function runTaxonomyOverlap(
   const prisma = getClient();
   const cutoff = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
 
-  console.log('\n=== Taxonomy Overlap Dashboard (v3.0.6) ===\n');
+  console.log('\n=== Taxonomy Overlap Dashboard (v3.0.7) ===\n');
   console.log(`Left venue:  ${leftVenue}`);
   console.log(`Right venue: ${rightVenue}`);
   console.log(`Lookback:    ${lookbackHours}h`);
-  console.log(`Mode:        ${live ? 'LIVE (on-the-fly classification)' : 'DB (derivedTopic from database)'}`);
+  console.log(`Mode:        ${live ? 'LIVE (sampled)' : 'DB (GROUP BY aggregation)'}`);
   console.log(`Cutoff:      ${cutoff.toISOString()}`);
   console.log();
 
-  // Fetch markets for both venues
-  console.log('[1/4] Fetching left venue markets...');
-  const leftMarkets = await prisma.market.findMany({
+  // v3.0.7: Use GROUP BY for accurate counts instead of fetching all records
+  console.log('[1/4] Aggregating left venue topic counts...');
+  const leftCounts = await prisma.market.groupBy({
+    by: ['derivedTopic'],
     where: {
       venue: leftVenue,
       status: 'active',
       closeTime: { gte: cutoff },
     },
-    select: {
-      id: true,
-      title: true,
-      derivedTopic: true,
-      closeTime: true,
-      metadata: true,
-    },
-    take: 50000,
+    _count: { id: true },
   });
-  console.log(`  Found: ${leftMarkets.length}`);
 
-  console.log('[2/4] Fetching right venue markets...');
-  const rightMarkets = await prisma.market.findMany({
+  const leftCountMap = new Map<string | null, number>();
+  let totalLeftMarkets = 0;
+  for (const row of leftCounts) {
+    leftCountMap.set(row.derivedTopic, row._count.id);
+    totalLeftMarkets += row._count.id;
+  }
+  console.log(`  Total: ${totalLeftMarkets} markets across ${leftCounts.length} topics`);
+
+  // Warn about NULL derivedTopic on left
+  const leftNullCount = leftCountMap.get(null) || 0;
+  if (leftNullCount > 0) {
+    const pct = ((leftNullCount / totalLeftMarkets) * 100).toFixed(1);
+    console.log(`  [Warning] ${leftNullCount} (${pct}%) markets with NULL derivedTopic`);
+    console.log(`    Run: kalshi:taxonomy:backfill --apply`);
+  }
+
+  console.log('[2/4] Aggregating right venue topic counts...');
+  const rightCounts = await prisma.market.groupBy({
+    by: ['derivedTopic'],
     where: {
       venue: rightVenue,
       status: 'active',
       closeTime: { gte: cutoff },
     },
-    select: {
-      id: true,
-      title: true,
-      derivedTopic: true,
-      closeTime: true,
-      pmEventTagSlugs: true,
-      pmCategories: true,
-    },
-    take: 50000,
+    _count: { id: true },
   });
-  console.log(`  Found: ${rightMarkets.length}`);
 
-  // Count by topic for each venue
-  console.log('[3/4] Computing topic distribution...');
+  const rightCountMap = new Map<string | null, number>();
+  let totalRightMarkets = 0;
+  for (const row of rightCounts) {
+    rightCountMap.set(row.derivedTopic, row._count.id);
+    totalRightMarkets += row._count.id;
+  }
+  console.log(`  Total: ${totalRightMarkets} markets across ${rightCounts.length} topics`);
 
-  const leftByTopic = new Map<CanonicalTopic, typeof leftMarkets>();
-  const rightByTopic = new Map<CanonicalTopic, typeof rightMarkets>();
-
-  // Classify left venue markets
-  let leftNullCount = 0;
-  for (const market of leftMarkets) {
-    let topic: CanonicalTopic;
-
-    // v3.0.6: Use DB derivedTopic unless --live flag is set
-    if (!live && market.derivedTopic && Object.values(CanonicalTopic).includes(market.derivedTopic as CanonicalTopic)) {
-      topic = market.derivedTopic as CanonicalTopic;
-    } else if (live || !market.derivedTopic) {
-      // Classify on the fly (--live mode or missing derivedTopic)
-      if (leftVenue === 'kalshi') {
-        const classification = classifyKalshiMarket(
-          market.title,
-          (market.metadata as Record<string, unknown>)?.category as string | undefined,
-          market.metadata as Record<string, unknown>,
-        );
-        topic = classification.topic;
-      } else {
-        topic = CanonicalTopic.UNKNOWN;
-      }
-      if (!market.derivedTopic) leftNullCount++;
-    } else {
-      topic = CanonicalTopic.UNKNOWN;
-    }
-
-    if (!leftByTopic.has(topic)) {
-      leftByTopic.set(topic, []);
-    }
-    leftByTopic.get(topic)!.push(market);
+  // Warn about NULL derivedTopic on right
+  const rightNullCount = rightCountMap.get(null) || 0;
+  if (rightNullCount > 0) {
+    const pct = ((rightNullCount / totalRightMarkets) * 100).toFixed(1);
+    console.log(`  [Warning] ${rightNullCount} (${pct}%) markets with NULL derivedTopic`);
+    console.log(`    Run: polymarket:taxonomy:backfill --classify --apply`);
   }
 
-  // Classify right venue markets
-  let rightNullCount = 0;
-  for (const market of rightMarkets) {
-    let topic: CanonicalTopic;
+  // Build topic maps for samples (fetch limited samples per topic)
+  console.log('[3/4] Fetching samples for diagnosis...');
 
-    // v3.0.6: Use DB derivedTopic unless --live flag is set
-    if (!live && market.derivedTopic && Object.values(CanonicalTopic).includes(market.derivedTopic as CanonicalTopic)) {
-      topic = market.derivedTopic as CanonicalTopic;
-    } else if (live || !market.derivedTopic) {
-      // Classify on the fly (--live mode or missing derivedTopic)
-      if (rightVenue === 'polymarket') {
-        const classification = classifyPolymarketMarketV3({
-          title: market.title,
-          category: undefined,
-          tags: market.pmEventTagSlugs || undefined,
-          pmCategories: (market.pmCategories || undefined) as Array<{ slug: string; label: string }> | undefined,
-        });
-        topic = classification.topic;
-      } else {
-        topic = CanonicalTopic.UNKNOWN;
-      }
-      if (!market.derivedTopic) rightNullCount++;
-    } else {
-      topic = CanonicalTopic.UNKNOWN;
+  const leftByTopic = new Map<CanonicalTopic, Array<{ id: number; title: string }>>();
+  const rightByTopic = new Map<CanonicalTopic, Array<{ id: number; title: string }>>();
+
+  // Get samples for topics that need diagnosis
+  for (const topic of Object.values(CanonicalTopic)) {
+    const leftCount = leftCountMap.get(topic) || 0;
+    const rightCount = rightCountMap.get(topic) || 0;
+
+    // Fetch samples only for topics where one side is zero (for diagnosis)
+    if (leftCount === 0 && rightCount > 0) {
+      const samples = await prisma.market.findMany({
+        where: {
+          venue: rightVenue,
+          status: 'active',
+          closeTime: { gte: cutoff },
+          derivedTopic: topic,
+        },
+        select: { id: true, title: true },
+        take: sampleSize,
+      });
+      rightByTopic.set(topic, samples);
     }
 
-    if (!rightByTopic.has(topic)) {
-      rightByTopic.set(topic, []);
-    }
-    rightByTopic.get(topic)!.push(market);
-  }
-
-  // Warn about NULL derivedTopic
-  if (leftNullCount > 0 || rightNullCount > 0) {
-    console.log(`[Warning] Markets with NULL derivedTopic: ${leftVenue}=${leftNullCount}, ${rightVenue}=${rightNullCount}`);
-    if (!live) {
-      console.log(`  Run kalshi:taxonomy:backfill to populate Kalshi derivedTopic`);
+    if (rightCount === 0 && leftCount > 0) {
+      const samples = await prisma.market.findMany({
+        where: {
+          venue: leftVenue,
+          status: 'active',
+          closeTime: { gte: cutoff },
+          derivedTopic: topic,
+        },
+        select: { id: true, title: true },
+        take: sampleSize,
+      });
+      leftByTopic.set(topic, samples);
     }
   }
 
@@ -209,10 +191,9 @@ export async function runTaxonomyOverlap(
   const rows: TopicOverlapRow[] = [];
 
   for (const topic of allTopics) {
-    const leftList = leftByTopic.get(topic) || [];
-    const rightList = rightByTopic.get(topic) || [];
-    const leftCount = leftList.length;
-    const rightCount = rightList.length;
+    // v3.0.7: Use counts from GROUP BY
+    const leftCount = leftCountMap.get(topic) || 0;
+    const rightCount = rightCountMap.get(topic) || 0;
 
     const overlapPresence = leftCount > 0 && rightCount > 0;
     const matchable = MATCHABLE_TOPICS.includes(topic as any);
@@ -227,17 +208,16 @@ export async function runTaxonomyOverlap(
       pipelineName: pipelineInfo?.algoVersion || null,
     };
 
-    // Add samples if zero overlap but both sides have markets
-    if (!overlapPresence && (leftCount > 0 || rightCount > 0)) {
-      if (leftCount > 0) {
-        row.leftSamples = leftList
-          .slice(0, sampleSize)
-          .map(m => m.title.substring(0, 80));
+    // Add samples from pre-fetched data
+    if (!overlapPresence) {
+      const leftSamples = leftByTopic.get(topic);
+      const rightSamples = rightByTopic.get(topic);
+
+      if (leftSamples && leftSamples.length > 0) {
+        row.leftSamples = leftSamples.map(m => m.title.substring(0, 80));
       }
-      if (rightCount > 0) {
-        row.rightSamples = rightList
-          .slice(0, sampleSize)
-          .map(m => m.title.substring(0, 80));
+      if (rightSamples && rightSamples.length > 0) {
+        row.rightSamples = rightSamples.map(m => m.title.substring(0, 80));
       }
     }
 
@@ -299,10 +279,22 @@ export async function runTaxonomyOverlap(
   const matchableWithOverlap = matchableRows.filter(r => r.overlapPresence);
 
   console.log('\n--- Summary ---\n');
-  console.log(`Total ${leftVenue} markets:     ${leftMarkets.length}`);
-  console.log(`Total ${rightVenue} markets:  ${rightMarkets.length}`);
+  console.log(`Total ${leftVenue} markets:     ${totalLeftMarkets}`);
+  console.log(`Total ${rightVenue} markets:  ${totalRightMarkets}`);
   console.log(`Topics with overlap:       ${rows.filter(r => r.overlapPresence).length} / ${rows.length}`);
   console.log(`Matchable with overlap:    ${matchableWithOverlap.length} / ${matchableRows.length}`);
+
+  // v3.0.7: Show NULL warning in summary if significant
+  if (leftNullCount > 0 || rightNullCount > 0) {
+    console.log();
+    console.log('[!] NULL derivedTopic counts:');
+    if (leftNullCount > 0) {
+      console.log(`    ${leftVenue}: ${leftNullCount} (${((leftNullCount / totalLeftMarkets) * 100).toFixed(1)}%)`);
+    }
+    if (rightNullCount > 0) {
+      console.log(`    ${rightVenue}: ${rightNullCount} (${((rightNullCount / totalRightMarkets) * 100).toFixed(1)}%)`);
+    }
+  }
 
   // CSV output
   let csvPath: string | undefined;
@@ -332,8 +324,8 @@ export async function runTaxonomyOverlap(
     leftVenue,
     rightVenue,
     lookbackHours,
-    totalLeftMarkets: leftMarkets.length,
-    totalRightMarkets: rightMarkets.length,
+    totalLeftMarkets,
+    totalRightMarkets,
     rows,
     csvPath,
   };
