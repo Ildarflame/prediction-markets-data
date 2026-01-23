@@ -1,8 +1,15 @@
 /**
- * Elections Signals Extraction (v3.0.0)
+ * Elections Signals Extraction (v3.0.10)
  *
  * Extracts structured signals from political/election markets.
  * Used for cross-venue matching of presidential, senate, governor races.
+ *
+ * v3.0.10: Added more countries (Malaysia, Latvia, Lebanon, Mexico, Brazil, India, Japan, South Korea, Philippines)
+ *          Fixed governorship detection
+ *          Added PM abbreviation detection
+ *          Fixed state extraction to use word boundaries (no more "presidential" → Alabama)
+ *          Fixed intent priority (MARGIN/NOMINEE checked before WINNER)
+ *          Added raceKey for diagnostics
  */
 
 import { tokenizeForEntities } from '@data-module/core';
@@ -18,6 +25,16 @@ export enum ElectionCountry {
   GERMANY = 'GERMANY',
   CANADA = 'CANADA',
   AUSTRALIA = 'AUSTRALIA',
+  // v3.0.10: Added more countries
+  MALAYSIA = 'MALAYSIA',
+  LATVIA = 'LATVIA',
+  LEBANON = 'LEBANON',
+  MEXICO = 'MEXICO',
+  BRAZIL = 'BRAZIL',
+  INDIA = 'INDIA',
+  JAPAN = 'JAPAN',
+  SOUTH_KOREA = 'SOUTH_KOREA',
+  PHILIPPINES = 'PHILIPPINES',
   UNKNOWN = 'UNKNOWN',
 }
 
@@ -72,6 +89,34 @@ export const COUNTRY_KEYWORDS: Record<ElectionCountry, string[]> = {
   [ElectionCountry.AUSTRALIA]: [
     'australia', 'australian', 'canberra',
   ],
+  // v3.0.10: Added more countries
+  [ElectionCountry.MALAYSIA]: [
+    'malaysia', 'malaysian', 'kuala lumpur',
+  ],
+  [ElectionCountry.LATVIA]: [
+    'latvia', 'latvian', 'riga',
+  ],
+  [ElectionCountry.LEBANON]: [
+    'lebanon', 'lebanese', 'beirut', 'hezbollah',
+  ],
+  [ElectionCountry.MEXICO]: [
+    'mexico', 'mexican',
+  ],
+  [ElectionCountry.BRAZIL]: [
+    'brazil', 'brazilian', 'bolsonaro', 'lula',
+  ],
+  [ElectionCountry.INDIA]: [
+    'india', 'indian', 'modi', 'lok sabha',
+  ],
+  [ElectionCountry.JAPAN]: [
+    'japan', 'japanese', 'diet',
+  ],
+  [ElectionCountry.SOUTH_KOREA]: [
+    'south korea', 'korean', 'seoul',
+  ],
+  [ElectionCountry.PHILIPPINES]: [
+    'philippines', 'filipino', 'duterte', 'marcos',
+  ],
   [ElectionCountry.UNKNOWN]: [],
 };
 
@@ -94,10 +139,10 @@ export const OFFICE_KEYWORDS: Record<ElectionOffice, string[]> = {
     'house of representatives',
   ],
   [ElectionOffice.GOVERNOR]: [
-    'governor', 'gubernatorial', 'state house',
+    'governor', 'governorship', 'gubernatorial', 'state house',
   ],
   [ElectionOffice.PRIME_MINISTER]: [
-    'prime minister', 'pm ', 'premier',
+    'prime minister', 'premier',
   ],
   [ElectionOffice.MAYOR]: [
     'mayor', 'mayoral', 'city hall',
@@ -236,6 +281,8 @@ export interface ElectionsSignals {
   titleTokens: string[];
   /** Confidence in extraction */
   confidence: number;
+  /** v3.0.10: Race key for indexing/diagnostics (country+office+year+state) */
+  raceKey: string;
 }
 
 /**
@@ -245,7 +292,8 @@ export function extractCountry(title: string): ElectionCountry {
   const lower = title.toLowerCase();
 
   // Default to US if no explicit country and has US-specific terms
-  const usTerms = ['president', 'congress', 'senate', 'governor', 'electoral'];
+  // v3.0.10: Added presidency, congressional
+  const usTerms = ['president', 'presidency', 'congress', 'congressional', 'senate', 'governor', 'electoral'];
   const hasUsTerm = usTerms.some(t => lower.includes(t));
 
   for (const [country, keywords] of Object.entries(COUNTRY_KEYWORDS)) {
@@ -268,9 +316,15 @@ export function extractCountry(title: string): ElectionCountry {
 
 /**
  * Extract office from title
+ * v3.0.10: Special handling for PM abbreviation
  */
 export function extractOffice(title: string): ElectionOffice {
   const lower = title.toLowerCase();
+
+  // v3.0.10: Special case for "PM" abbreviation (word boundary)
+  if (/\bpm\b/i.test(title)) {
+    return ElectionOffice.PRIME_MINISTER;
+  }
 
   for (const [office, keywords] of Object.entries(OFFICE_KEYWORDS)) {
     if (office === ElectionOffice.UNKNOWN) continue;
@@ -288,16 +342,28 @@ export function extractOffice(title: string): ElectionOffice {
 
 /**
  * Extract election intent
+ * v3.0.10: Check specific intents before generic WINNER to avoid false positives
  */
 export function extractIntent(title: string): ElectionIntent {
   const lower = title.toLowerCase();
 
-  for (const [intent, keywords] of Object.entries(INTENT_KEYWORDS)) {
-    if (intent === ElectionIntent.UNKNOWN) continue;
+  // v3.0.10: Check in priority order - more specific intents first
+  // This prevents "landslide" being overshadowed by "win" or "primary winner" by "winner"
+  const intentPriority: ElectionIntent[] = [
+    ElectionIntent.MARGIN,      // Check first: landslide, vote share, etc.
+    ElectionIntent.NOMINEE,     // Check second: primary, nomination, etc.
+    ElectionIntent.TURNOUT,     // Check third: voter turnout
+    ElectionIntent.PARTY_CONTROL, // Check fourth: control, majority
+    ElectionIntent.WINNER,      // Check last: generic win/wins/winner
+  ];
+
+  for (const intent of intentPriority) {
+    const keywords = INTENT_KEYWORDS[intent];
+    if (!keywords) continue;
 
     for (const keyword of keywords) {
       if (lower.includes(keyword.toLowerCase())) {
-        return intent as ElectionIntent;
+        return intent;
       }
     }
   }
@@ -331,13 +397,18 @@ export function extractElectionYear(title: string, closeTime?: Date | null): num
 
 /**
  * Extract US state from title
+ * v3.0.10: Use word boundaries to avoid false positives (e.g., "presidential" matching "AL")
  */
 export function extractState(title: string): string | null {
   const lower = title.toLowerCase();
 
   for (const [abbrev, keywords] of Object.entries(US_STATES)) {
     for (const keyword of keywords) {
-      if (lower.includes(keyword.toLowerCase())) {
+      // v3.0.10: Use word boundary regex to prevent false positives
+      // Remove trailing space from keyword pattern if present
+      const cleanKeyword = keyword.trim();
+      const pattern = new RegExp(`\\b${cleanKeyword}\\b`, 'i');
+      if (pattern.test(lower)) {
         return abbrev;
       }
     }
@@ -372,10 +443,11 @@ export function extractCandidates(title: string): string[] {
 export function extractParty(title: string): string | null {
   const lower = title.toLowerCase();
 
-  if (/\b(republican|gop|red)\b/i.test(lower)) {
+  // v3.0.10: Added plural forms
+  if (/\b(republican|republicans|gop|red)\b/i.test(lower)) {
     return 'REPUBLICAN';
   }
-  if (/\b(democrat|democratic|blue)\b/i.test(lower)) {
+  if (/\b(democrat|democrats|democratic|blue)\b/i.test(lower)) {
     return 'DEMOCRAT';
   }
   if (/\b(independent|third party)\b/i.test(lower)) {
@@ -415,6 +487,11 @@ export function extractElectionsSignals(market: EligibleMarket): ElectionsSignal
   if (candidates.length > 0) confidence += 0.20;
   if (intent !== ElectionIntent.UNKNOWN) confidence += 0.15;
 
+  // v3.0.10: Build raceKey for indexing/diagnostics
+  const raceKeyParts = [country, office, year ?? 'null'];
+  if (state) raceKeyParts.push(state);
+  const raceKey = raceKeyParts.join('|');
+
   return {
     country,
     office,
@@ -425,6 +502,7 @@ export function extractElectionsSignals(market: EligibleMarket): ElectionsSignal
     party,
     titleTokens,
     confidence,
+    raceKey,
   };
 }
 

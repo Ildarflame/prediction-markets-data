@@ -1,8 +1,12 @@
 /**
- * Elections Pipeline (v3.0.0)
+ * Elections Pipeline (v3.0.10)
  *
  * Pipeline for matching political/election markets across venues.
  * Presidential, senate, governor, and other election markets.
+ *
+ * v3.0.10: Hardened gates - UNKNOWN no longer passes against known values
+ *          Increased auto-reject threshold to 0.60
+ *          Better scoring for partial matches
  */
 
 import { CanonicalTopic, jaccard, clampScoreSimple } from '@data-module/core';
@@ -57,12 +61,16 @@ export interface ElectionsScoreResult {
 
 /**
  * Elections-specific keywords for DB query
+ * v3.0.10: Expanded keywords
  */
 const ELECTIONS_KEYWORDS = [
   'election', 'president', 'presidential', 'senate', 'senator',
-  'congress', 'house', 'governor', 'gubernatorial', 'electoral',
+  'congress', 'house', 'governor', 'gubernatorial', 'governorship', 'electoral',
   'trump', 'biden', 'harris', 'republican', 'democrat',
   'primary', 'nominee', 'vote', 'ballot',
+  // v3.0.10: More keywords for international elections
+  'prime minister', 'parliament', 'chancellor', 'referendum',
+  'malaysia', 'latvia', 'lebanon', 'mexico', 'brazil', 'india', 'japan',
 ];
 
 /**
@@ -111,7 +119,7 @@ function candidateOverlapScore(
  */
 export class ElectionsPipeline extends BasePipeline<ElectionsMarket, ElectionsSignals, ElectionsScoreResult> {
   readonly topic = CanonicalTopic.ELECTIONS;
-  readonly algoVersion = 'elections@3.0.0';
+  readonly algoVersion = 'elections@3.0.10';
   readonly description = 'Political and election market matching';
   readonly supportsAutoConfirm = false; // Elections require manual review
   readonly supportsAutoReject = true;
@@ -250,47 +258,61 @@ export class ElectionsPipeline extends BasePipeline<ElectionsMarket, ElectionsSi
 
   /**
    * Check hard gates for elections matching
+   * v3.0.10: UNKNOWN no longer passes against known values
    */
   checkHardGates(left: ElectionsMarket, right: ElectionsMarket): HardGateResult {
     const lSig = left.signals;
     const rSig = right.signals;
 
-    // Gate 1: Country must match
+    // Gate 1: Country must match (UNKNOWN vs known = FAIL)
     if (lSig.country !== rSig.country) {
-      // Allow UNKNOWN to match anything
-      if (lSig.country !== ElectionCountry.UNKNOWN && rSig.country !== ElectionCountry.UNKNOWN) {
+      // v3.0.10: Reject if one side is UNKNOWN and other is known
+      // This prevents Malaysia (UNKNOWN) matching US elections
+      return {
+        passed: false,
+        failReason: `Country mismatch: ${lSig.country} vs ${rSig.country}`,
+      };
+    }
+
+    // Gate 2: Office must be compatible (UNKNOWN vs known = FAIL)
+    if (lSig.office !== rSig.office) {
+      // If either is UNKNOWN, reject
+      if (lSig.office === ElectionOffice.UNKNOWN || rSig.office === ElectionOffice.UNKNOWN) {
         return {
           passed: false,
-          failReason: `Country mismatch: ${lSig.country} vs ${rSig.country}`,
+          failReason: `Office mismatch (one unknown): ${lSig.office} vs ${rSig.office}`,
+        };
+      }
+      // Special case: HOUSE/SENATE and PARTY_CONTROL are related
+      const compatible = (
+        (lSig.office === ElectionOffice.HOUSE && rSig.office === ElectionOffice.PARTY_CONTROL) ||
+        (lSig.office === ElectionOffice.PARTY_CONTROL && rSig.office === ElectionOffice.HOUSE) ||
+        (lSig.office === ElectionOffice.SENATE && rSig.office === ElectionOffice.PARTY_CONTROL) ||
+        (lSig.office === ElectionOffice.PARTY_CONTROL && rSig.office === ElectionOffice.SENATE)
+      );
+      if (!compatible) {
+        return {
+          passed: false,
+          failReason: `Office mismatch: ${lSig.office} vs ${rSig.office}`,
         };
       }
     }
 
-    // Gate 2: Office must be compatible
-    if (lSig.office !== ElectionOffice.UNKNOWN && rSig.office !== ElectionOffice.UNKNOWN) {
-      if (lSig.office !== rSig.office) {
-        // Special case: HOUSE and CONGRESS are related
-        const compatible = (
-          (lSig.office === ElectionOffice.HOUSE && rSig.office === ElectionOffice.PARTY_CONTROL) ||
-          (lSig.office === ElectionOffice.PARTY_CONTROL && rSig.office === ElectionOffice.HOUSE) ||
-          (lSig.office === ElectionOffice.SENATE && rSig.office === ElectionOffice.PARTY_CONTROL) ||
-          (lSig.office === ElectionOffice.PARTY_CONTROL && rSig.office === ElectionOffice.SENATE)
-        );
-        if (!compatible) {
-          return {
-            passed: false,
-            failReason: `Office mismatch: ${lSig.office} vs ${rSig.office}`,
-          };
-        }
-      }
-    }
-
-    // Gate 3: Year must match
-    if (lSig.year !== null && rSig.year !== null) {
-      if (lSig.year !== rSig.year) {
+    // Gate 3: Year must match (null/unknown = FAIL if other has year)
+    if (lSig.year !== rSig.year) {
+      // If both have years and they differ, reject
+      if (lSig.year !== null && rSig.year !== null) {
         return {
           passed: false,
           failReason: `Year mismatch: ${lSig.year} vs ${rSig.year}`,
+        };
+      }
+      // v3.0.10: If one has year and other doesn't, reject
+      // This prevents matching 2024 elections with undated markets
+      if ((lSig.year !== null && rSig.year === null) || (lSig.year === null && rSig.year !== null)) {
+        return {
+          passed: false,
+          failReason: `Year mismatch (one null): ${lSig.year} vs ${rSig.year}`,
         };
       }
     }
@@ -308,20 +330,23 @@ export class ElectionsPipeline extends BasePipeline<ElectionsMarket, ElectionsSi
 
   /**
    * Score elections market pair
+   * v3.0.10: Stricter scoring - UNKNOWN gives 0 not 0.5
    */
   score(left: ElectionsMarket, right: ElectionsMarket): ElectionsScoreResult | null {
     const lSig = left.signals;
     const rSig = right.signals;
 
-    // Country score (hard gate ensures compatibility)
-    const countryScore = (lSig.country === rSig.country || lSig.country === ElectionCountry.UNKNOWN || rSig.country === ElectionCountry.UNKNOWN) ? 1.0 : 0.0;
+    // Country score (hard gate ensures exact match now)
+    // v3.0.10: Only exact match gets 1.0
+    const countryScore = lSig.country === rSig.country ? 1.0 : 0.0;
 
     // Office score
+    // v3.0.10: UNKNOWN gets 0, not 0.5 (hard gate should have rejected anyway)
     let officeScore = 0;
-    if (lSig.office === ElectionOffice.UNKNOWN || rSig.office === ElectionOffice.UNKNOWN) {
-      officeScore = 0.5; // Partial credit for unknown
-    } else if (lSig.office === rSig.office) {
+    if (lSig.office === rSig.office) {
       officeScore = 1.0;
+    } else if (lSig.office === ElectionOffice.UNKNOWN || rSig.office === ElectionOffice.UNKNOWN) {
+      officeScore = 0.0; // v3.0.10: No partial credit for unknown
     } else {
       // Check for related offices
       const related = (
@@ -334,11 +359,12 @@ export class ElectionsPipeline extends BasePipeline<ElectionsMarket, ElectionsSi
     }
 
     // Year score
+    // v3.0.10: null year gets 0, not 0.5 (hard gate should have rejected)
     let yearScore = 0;
-    if (lSig.year === null || rSig.year === null) {
-      yearScore = 0.5; // Partial credit
-    } else if (lSig.year === rSig.year) {
+    if (lSig.year === rSig.year && lSig.year !== null) {
       yearScore = 1.0;
+    } else if (lSig.year === null || rSig.year === null) {
+      yearScore = 0.0; // v3.0.10: No partial credit for null year
     }
 
     // Candidate score
@@ -371,6 +397,11 @@ export class ElectionsPipeline extends BasePipeline<ElectionsMarket, ElectionsSi
       } else {
         score = Math.max(0, score - 0.1); // Penalty for state mismatch
       }
+    }
+
+    // v3.0.10: Cap score when both have candidates but no overlap
+    if (lSig.candidates.length > 0 && rSig.candidates.length > 0 && candidateOverlap === 0) {
+      score = Math.min(score, 0.65); // Cap at 0.65 per spec B2
     }
 
     score = clampScoreSimple(score);
@@ -421,6 +452,7 @@ export class ElectionsPipeline extends BasePipeline<ElectionsMarket, ElectionsSi
 
   /**
    * Check if match should be auto-rejected
+   * v3.0.10: Increased threshold from 0.50 to 0.60
    */
   shouldAutoReject(
     left: ElectionsMarket,
@@ -430,22 +462,24 @@ export class ElectionsPipeline extends BasePipeline<ElectionsMarket, ElectionsSi
     const lSig = left.signals;
     const rSig = right.signals;
 
-    // Reject if score < 0.50
-    if (scoreResult.score < 0.50) {
+    // v3.0.10: Increased threshold from 0.50 to 0.60
+    if (scoreResult.score < 0.60) {
       return {
         shouldReject: true,
         rule: 'LOW_SCORE',
-        reason: `Score ${scoreResult.score.toFixed(2)} < 0.50`,
+        reason: `Score ${scoreResult.score.toFixed(2)} < 0.60`,
       };
     }
 
-    // Reject if no candidate overlap when both have candidates
+    // v3.0.10: Reject if no candidate overlap when both have candidates
+    // Score is capped at 0.65 in score(), and we reject if < 0.70
+    // This effectively rejects all no-overlap cases (0.65 < 0.70)
     if (lSig.candidates.length > 0 && rSig.candidates.length > 0) {
-      if (scoreResult.candidateOverlap === 0) {
+      if (scoreResult.candidateOverlap === 0 && scoreResult.score < 0.70) {
         return {
           shouldReject: true,
           rule: 'NO_CANDIDATE_OVERLAP',
-          reason: `No candidate overlap: [${lSig.candidates.join(',')}] vs [${rSig.candidates.join(',')}]`,
+          reason: `No candidate overlap (score ${scoreResult.score.toFixed(2)} < 0.70): [${lSig.candidates.join(',')}] vs [${rSig.candidates.join(',')}]`,
         };
       }
     }
