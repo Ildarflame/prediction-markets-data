@@ -10,6 +10,7 @@ import {
   getClient,
   MarketRepository,
   MarketLinkRepository,
+  KalshiEventRepository,
 } from '@data-module/db';
 import {
   getPipeline,
@@ -114,6 +115,10 @@ export async function runMatchingV3(options: EngineV3Options): Promise<EngineV3R
   const client = getClient();
   const marketRepo = new MarketRepository(client);
   const linkRepo = new MarketLinkRepository(client);
+  // v3.0.14: Event repo for SPORTS enrichment
+  const eventRepo = canonicalTopic === CanonicalTopic.SPORTS
+    ? new KalshiEventRepository(client)
+    : undefined;
 
   try {
     // ================================================================
@@ -131,6 +136,7 @@ export async function runMatchingV3(options: EngineV3Options): Promise<EngineV3R
         limit: limits.maxLeft || 2000,
         excludeSports,
         useV3Eligibility,
+        eventRepo,  // v3.0.14: Pass event repo for SPORTS enrichment
       }),
       pipeline.fetchMarkets(marketRepo, {
         venue: toVenue,
@@ -138,6 +144,7 @@ export async function runMatchingV3(options: EngineV3Options): Promise<EngineV3R
         limit: limits.maxRight || 20000,
         excludeSports,
         useV3Eligibility,
+        eventRepo,  // v3.0.14: Pass event repo for SPORTS enrichment
       }),
     ]);
 
