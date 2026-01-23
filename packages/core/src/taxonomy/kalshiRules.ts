@@ -44,11 +44,14 @@ export const KALSHI_TICKER_RULES: TopicRule[] = [
   { pattern: /^KXXRP(?!UPDOWN|15MIN|1HR|30MIN)/i, topic: CanonicalTopic.CRYPTO_DAILY, confidence: 0.95, description: 'XRP daily price' },
 
   // Crypto Intraday - Up/down and short-term markets
-  { pattern: /UPDOWN/i, topic: CanonicalTopic.CRYPTO_INTRADAY, confidence: 0.98, description: 'Crypto up/down intraday' },
-  { pattern: /15MIN/i, topic: CanonicalTopic.CRYPTO_INTRADAY, confidence: 0.98, description: 'Crypto 15-minute' },
-  { pattern: /30MIN/i, topic: CanonicalTopic.CRYPTO_INTRADAY, confidence: 0.98, description: 'Crypto 30-minute' },
-  { pattern: /1HR/i, topic: CanonicalTopic.CRYPTO_INTRADAY, confidence: 0.98, description: 'Crypto 1-hour' },
-  { pattern: /INTRADAY/i, topic: CanonicalTopic.CRYPTO_INTRADAY, confidence: 0.98, description: 'Crypto intraday' },
+  // v3.0.8: Require crypto prefix (BTC/ETH/SOL/DOGE/XRP) to avoid misclassifying non-crypto UPDOWN markets
+  { pattern: /^KX(BTC|ETH|SOL|DOGE|XRP).*UPDOWN/i, topic: CanonicalTopic.CRYPTO_INTRADAY, confidence: 0.98, description: 'Crypto up/down intraday' },
+  { pattern: /^KX(BTC|ETH|SOL|DOGE|XRP).*15MIN/i, topic: CanonicalTopic.CRYPTO_INTRADAY, confidence: 0.98, description: 'Crypto 15-minute' },
+  { pattern: /^KX(BTC|ETH|SOL|DOGE|XRP).*30MIN/i, topic: CanonicalTopic.CRYPTO_INTRADAY, confidence: 0.98, description: 'Crypto 30-minute' },
+  { pattern: /^KX(BTC|ETH|SOL|DOGE|XRP).*1HR/i, topic: CanonicalTopic.CRYPTO_INTRADAY, confidence: 0.98, description: 'Crypto 1-hour' },
+  { pattern: /^KX(BTC|ETH|SOL|DOGE|XRP).*INTRADAY/i, topic: CanonicalTopic.CRYPTO_INTRADAY, confidence: 0.98, description: 'Crypto intraday' },
+  // Also catch any intraday pattern for known crypto tickers
+  { pattern: /^KXCRYPTO.*INTRADAY/i, topic: CanonicalTopic.CRYPTO_INTRADAY, confidence: 0.98, description: 'Crypto intraday generic' },
 
   // Macro - Economic indicators
   { pattern: /^KXCPI/i, topic: CanonicalTopic.MACRO, confidence: 0.98, description: 'CPI inflation' },
