@@ -1,11 +1,13 @@
 /**
- * Kalshi Events Smart Sync (v3.0.13)
+ * Kalshi Events Smart Sync (v3.0.14)
  *
  * Синхронизирует только события, которые нужны существующим markets:
  * 1. Собирает уникальные eventTicker из markets.metadata
  * 2. Группирует по seriesTicker (извлекает prefix)
  * 3. Запрашивает только нужные серии из API
  * 4. Линкует markets к events
+ *
+ * v3.0.14: Added --non-mve-only option to sync only for non-MVE markets
  *
  * Это гораздо эффективнее чем sync всех 1130 серий.
  */
@@ -36,6 +38,7 @@ export interface SmartSyncOptions {
   limit?: number;        // Max eventTickers to process
   apply?: boolean;       // Apply changes (default: dry-run)
   linkMarkets?: boolean; // Link markets to events after sync
+  nonMveOnly?: boolean;  // v3.0.14: Only sync events for non-MVE markets (isMve = false)
 }
 
 export interface SmartSyncResult {
@@ -144,10 +147,11 @@ export async function runKalshiEventsSmartSync(options: SmartSyncOptions): Promi
   const baseUrl = kalshiConfig.baseUrl || KALSHI_PROD_URL;
   const dryRun = !options.apply;
 
-  console.log('\n=== Kalshi Events Smart Sync (v3.0.13) ===\n');
+  console.log('\n=== Kalshi Events Smart Sync (v3.0.14) ===\n');
   console.log(`Base URL: ${baseUrl}`);
   console.log(`Mode: ${dryRun ? 'DRY-RUN' : 'APPLY'}`);
   console.log(`Topic filter: ${options.topic || 'none'}`);
+  console.log(`Non-MVE only: ${options.nonMveOnly ? 'YES' : 'NO'}`);
   console.log(`Limit: ${options.limit || 'unlimited'}`);
 
   const result: SmartSyncResult = {
@@ -168,6 +172,10 @@ export async function runKalshiEventsSmartSync(options: SmartSyncOptions): Promi
       ? Prisma.sql`AND derived_topic = ${options.topic}`
       : Prisma.empty;
 
+    const nonMveFilter = options.nonMveOnly
+      ? Prisma.sql`AND is_mve = false`
+      : Prisma.empty;
+
     const limitClause = options.limit
       ? Prisma.sql`LIMIT ${options.limit}`
       : Prisma.sql`LIMIT 100000`;
@@ -178,6 +186,7 @@ export async function runKalshiEventsSmartSync(options: SmartSyncOptions): Promi
       WHERE venue = 'kalshi'
         AND metadata->>'eventTicker' IS NOT NULL
         ${topicFilter}
+        ${nonMveFilter}
       ${limitClause}
     `;
 

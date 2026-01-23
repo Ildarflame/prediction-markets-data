@@ -1,5 +1,5 @@
 /**
- * Kalshi Event Repository (v3.0.12)
+ * Kalshi Event Repository (v3.0.14)
  *
  * Repository for Kalshi event operations.
  * Events contain team names and strike dates critical for SPORTS matching.
@@ -274,5 +274,28 @@ export class KalshiEventRepository {
     });
 
     return new Map(counts.map(c => [c.seriesTicker, c._count.id]));
+  }
+
+  /**
+   * v3.0.14: Get event tickers that are NOT in the database
+   * Used for smart sync to fetch only missing events
+   */
+  async getMissingTickers(tickers: string[]): Promise<string[]> {
+    if (tickers.length === 0) return [];
+
+    const existing = await this.prisma.kalshiEvent.findMany({
+      where: { eventTicker: { in: tickers } },
+      select: { eventTicker: true },
+    });
+
+    const existingSet = new Set(existing.map(e => e.eventTicker));
+    return tickers.filter(t => !existingSet.has(t));
+  }
+
+  /**
+   * v3.0.14: Alias for getEventsMap - get events by multiple tickers
+   */
+  async getByTickers(tickers: string[]): Promise<Map<string, KalshiEvent>> {
+    return this.getEventsMap(tickers);
   }
 }

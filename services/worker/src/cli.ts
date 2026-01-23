@@ -2316,14 +2316,15 @@ program
     }
   });
 
-// kalshi:events:smart-sync - Smart sync based on market eventTickers (v3.0.13)
+// kalshi:events:smart-sync - Smart sync based on market eventTickers (v3.0.14)
 program
   .command('kalshi:events:smart-sync')
-  .description('Smart sync Kalshi events based on market eventTickers (v3.0.13)')
+  .description('Smart sync Kalshi events based on market eventTickers (v3.0.14)')
   .option('--topic <topic>', 'Filter by derivedTopic (e.g., SPORTS)')
   .option('--limit <number>', 'Max eventTickers to process')
   .option('--apply', 'Apply changes (default: dry-run)', false)
   .option('--link-markets', 'Link markets to events after sync', false)
+  .option('--non-mve-only', 'Only sync events for non-MVE markets (v3.0.14)', false)
   .action(async (opts) => {
     const { runKalshiEventsSmartSync } = await import('./commands/index.js');
 
@@ -2333,6 +2334,7 @@ program
         limit: opts.limit ? parseInt(opts.limit, 10) : undefined,
         apply: opts.apply,
         linkMarkets: opts.linkMarkets,
+        nonMveOnly: opts.nonMveOnly,
       });
     } catch (error) {
       console.error('Kalshi events smart sync error:', error);
