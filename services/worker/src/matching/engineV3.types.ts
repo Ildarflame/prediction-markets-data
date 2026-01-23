@@ -262,6 +262,12 @@ export const DEFAULT_LIMITS: Record<string, PipelineLimits> = {
     maxPerLeft: 3,
     maxPerRight: 3,
   },
+  SPORTS: {
+    maxLeft: 5000,
+    maxRight: 50000,
+    maxPerLeft: 5,
+    maxPerRight: 5,
+  },
 };
 
 /**
@@ -274,6 +280,7 @@ export const DEFAULT_MIN_SCORES: Record<string, number> = {
   RATES: 0.60,
   ELECTIONS: 0.55,
   CLIMATE: 0.60,
+  SPORTS: 0.55,
 };
 
 /**
@@ -286,4 +293,5 @@ export const DEFAULT_LOOKBACK_HOURS: Record<string, number> = {
   RATES: 720,           // 30 days
   ELECTIONS: 720,       // 30 days
   CLIMATE: 720,         // 30 days
+  SPORTS: 168,          // 7 days (sports events are short-term)
 };

@@ -93,7 +93,7 @@ export interface OpsV3Result {
   };
 }
 
-// Default matchable topics for V3 (v3.0.10: added CLIMATE)
+// Default matchable topics for V3 (v3.0.11: added SPORTS)
 const V3_DEFAULT_TOPICS: CanonicalTopic[] = [
   CanonicalTopic.CRYPTO_DAILY,
   CanonicalTopic.CRYPTO_INTRADAY,
@@ -102,6 +102,7 @@ const V3_DEFAULT_TOPICS: CanonicalTopic[] = [
   CanonicalTopic.ELECTIONS,
   CanonicalTopic.COMMODITIES,
   CanonicalTopic.CLIMATE,
+  CanonicalTopic.SPORTS,
 ];
 
 /**

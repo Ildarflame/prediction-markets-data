@@ -1,5 +1,5 @@
 /**
- * Pipelines Index (v3.0.10)
+ * Pipelines Index (v3.0.11)
  *
  * Exports all topic-specific pipelines.
  */
@@ -62,3 +62,11 @@ export {
   type ClimateMarket,
   type ClimateScoreResult,
 } from './climatePipeline.js';
+
+// Sports Pipeline (v3.0.11)
+export {
+  sportsPipeline,
+  SportsPipeline,
+  type SportsMarket,
+  type SportsScoreResult,
+} from './sportsPipeline.js';

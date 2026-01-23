@@ -1,5 +1,5 @@
 /**
- * Signals Index (v3.0.10)
+ * Signals Index (v3.0.11)
  *
  * Exports all signal extraction modules.
  */
@@ -64,3 +64,15 @@ export {
   calculateDateScore,
   calculateThresholdScore,
 } from './climateSignals.js';
+
+// Sports signals (v3.0.11)
+export {
+  type SportsEventKey,
+  type SportsLine,
+  type SportsSignalQuality,
+  type SportsSignals,
+  extractSportsSignals,
+  isEligibleSportsMarket,
+  getExclusionReason,
+  SPORTS_KEYWORDS,
+} from './sportsSignals.js';
