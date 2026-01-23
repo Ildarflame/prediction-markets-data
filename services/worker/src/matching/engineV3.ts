@@ -178,30 +178,11 @@ export async function runMatchingV3(options: EngineV3Options): Promise<EngineV3R
     stats.indexSize = index.size;
     console.log(`[engineV3] Index size: ${index.size} keys`);
 
-    // v3.0.15: Debug - sample index keys
-    if (canonicalTopic === CanonicalTopic.SPORTS) {
-      const sampleKeys = [...index.keys()].slice(0, 10);
-      console.log(`[engineV3] Sample right index keys:`, sampleKeys);
-    }
-
     // ================================================================
     // Step 3: Find and score candidates
     // ================================================================
     console.log('[engineV3] Step 3: Finding and scoring candidates...');
     const allCandidates: ScoredCandidate<any, any>[] = [];
-
-    // v3.0.15: Debug - sample left market signals (for SPORTS)
-    if (canonicalTopic === CanonicalTopic.SPORTS) {
-      const sampleLeft = leftMarkets.slice(0, 5);
-      console.log(`[engineV3] Sample left market keys:`);
-      for (const m of sampleLeft) {
-        const sig = m.signals as any;
-        if (sig?.eventKey) {
-          const { league, teamA_norm, teamB_norm, startBucket } = sig.eventKey;
-          console.log(`  - ${league}|${teamA_norm}|${teamB_norm}|${startBucket} (title: ${m.market.title.slice(0, 50)}...)`);
-        }
-      }
-    }
 
     // Debug single market if specified
     const marketsToProcess = debugMarketId
