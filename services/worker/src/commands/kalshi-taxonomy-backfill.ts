@@ -32,6 +32,8 @@ export interface KalshiTaxonomyBackfillOptions {
   batchSize?: number;
   /** Filter by current derivedTopic (e.g., 'UNKNOWN') */
   currentTopic?: string;
+  /** v3.0.7: Filter by eventTicker pattern (e.g., 'KXBTC%' or 'KXCPI%,KXGDP%,KXNFP%') */
+  tickerPattern?: string;
 }
 
 export interface KalshiTaxonomyBackfillResult {
@@ -123,12 +125,14 @@ export async function runKalshiTaxonomyBackfill(
     force = false,
     batchSize = 500,
     currentTopic,
+    tickerPattern,
   } = options;
 
-  console.log('\n=== Kalshi Taxonomy Backfill (v3.0.6) ===\n');
+  console.log('\n=== Kalshi Taxonomy Backfill (v3.0.7) ===\n');
   console.log(`Mode: ${dryRun ? 'DRY-RUN' : 'LIVE'}`);
   console.log(`Options: onlyNull=${onlyNull}, force=${force}, limit=${limit || 'none'}`);
   if (currentTopic) console.log(`Filter: currentTopic=${currentTopic}`);
+  if (tickerPattern) console.log(`Filter: tickerPattern=${tickerPattern}`);
   console.log();
 
   const prisma = getClient();
@@ -153,27 +157,62 @@ export async function runKalshiTaxonomyBackfill(
   // Step 2: Fetch Kalshi markets
   console.log('[2/4] Fetching Kalshi markets...');
 
-  const whereClause: any = {
-    venue: 'kalshi' as Venue,
-  };
+  let markets: Array<{
+    id: number;
+    title: string;
+    metadata: unknown;
+    derivedTopic: string | null;
+  }>;
 
-  if (onlyNull && !force) {
-    whereClause.derivedTopic = null;
-  } else if (currentTopic) {
-    whereClause.derivedTopic = currentTopic === 'NULL' ? null : currentTopic;
+  // v3.0.7: If tickerPattern is provided, use raw query for eventTicker filtering
+  if (tickerPattern) {
+    const patterns = tickerPattern.split(',').map(p => p.trim());
+    const patternConditions = patterns.map(p => `(metadata->>'eventTicker')::text LIKE '${p}'`).join(' OR ');
+
+    let whereConditions = `venue = 'kalshi' AND (${patternConditions})`;
+    if (onlyNull && !force) {
+      whereConditions += ` AND derived_topic IS NULL`;
+    } else if (currentTopic) {
+      whereConditions += currentTopic === 'NULL'
+        ? ` AND derived_topic IS NULL`
+        : ` AND derived_topic = '${currentTopic}'`;
+    }
+
+    const limitClause = limit ? `LIMIT ${limit}` : '';
+
+    const rawQuery = `
+      SELECT id, title, metadata, derived_topic as "derivedTopic"
+      FROM markets
+      WHERE ${whereConditions}
+      ORDER BY id ASC
+      ${limitClause}
+    `;
+
+    markets = await prisma.$queryRawUnsafe(rawQuery);
+  } else {
+    // Standard Prisma query for non-ticker-pattern filtering
+    const whereClause: any = {
+      venue: 'kalshi' as Venue,
+    };
+
+    if (onlyNull && !force) {
+      whereClause.derivedTopic = null;
+    } else if (currentTopic) {
+      whereClause.derivedTopic = currentTopic === 'NULL' ? null : currentTopic;
+    }
+
+    markets = await prisma.market.findMany({
+      where: whereClause,
+      select: {
+        id: true,
+        title: true,
+        metadata: true,
+        derivedTopic: true,
+      },
+      take: limit,
+      orderBy: { id: 'asc' },
+    });
   }
-
-  const markets = await prisma.market.findMany({
-    where: whereClause,
-    select: {
-      id: true,
-      title: true,
-      metadata: true,
-      derivedTopic: true,
-    },
-    take: limit,
-    orderBy: { id: 'asc' },
-  });
 
   console.log(`  Found ${markets.length} markets to process`);
 

@@ -2077,16 +2077,17 @@ program
     }
   });
 
-// kalshi:taxonomy:backfill - Backfill derivedTopic for Kalshi markets
+// kalshi:taxonomy:backfill - Backfill derivedTopic for Kalshi markets (v3.0.7)
 program
   .command('kalshi:taxonomy:backfill')
-  .description('Backfill derivedTopic for Kalshi markets using series-based classification (v3.0.6)')
+  .description('Backfill derivedTopic for Kalshi markets using series-based classification (v3.0.7)')
   .option('--dry-run', 'Preview without writing to DB', false)
   .option('--limit <number>', 'Max markets to process')
   .option('--only-null', 'Only process markets with NULL derivedTopic', true)
   .option('--force', 'Force re-classify even if derivedTopic exists', false)
   .option('--batch-size <number>', 'Batch size for updates', '500')
   .option('--current-topic <topic>', 'Filter by current derivedTopic (e.g., UNKNOWN)')
+  .option('--ticker-pattern <pattern>', 'Filter by eventTicker pattern (e.g., KXBTC%,KXETH%,KXSOL%)')
   .option('--apply', 'Apply changes (same as not using --dry-run)')
   .action(async (opts) => {
     const { runKalshiTaxonomyBackfill } = await import('./commands/index.js');
@@ -2099,6 +2100,7 @@ program
         force: opts.force,
         batchSize: parseInt(opts.batchSize, 10),
         currentTopic: opts.currentTopic,
+        tickerPattern: opts.tickerPattern,
       });
     } catch (error) {
       console.error('Kalshi taxonomy backfill error:', error);
