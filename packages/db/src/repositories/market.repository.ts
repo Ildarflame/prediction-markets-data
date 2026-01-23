@@ -5,6 +5,11 @@ import { processInChunks } from '../utils/chunked-processor.js';
 /**
  * v3.0.15: Extract MVE truth fields from Kalshi market metadata
  * Returns the dedicated column values to save
+ *
+ * Detection priority:
+ * 1. If mveCollectionTicker or mveSelectedLegs has a truthy value → MVE
+ * 2. If the keys EXIST in metadata but are null → non-MVE (API explicitly says so)
+ * 3. If the keys DON'T EXIST in metadata → use heuristics (legacy data)
  */
 function extractKalshiMveFields(venue: Venue, metadata: Record<string, unknown> | null | undefined): {
   kalshiMveCollectionTicker: string | null;
@@ -23,25 +28,33 @@ function extractKalshiMveFields(venue: Venue, metadata: Record<string, unknown> 
   const mveCollectionTicker = (metadata.mveCollectionTicker as string | null) || null;
   const mveSelectedLegs = (metadata.mveSelectedLegs as unknown[] | null) || null;
 
+  // Check if the API fields exist in metadata (not just their values)
+  const hasMveCollectionTickerKey = 'mveCollectionTicker' in metadata;
+  const hasMveSelectedLegsKey = 'mveSelectedLegs' in metadata;
+  const hasAnyApiField = hasMveCollectionTickerKey || hasMveSelectedLegsKey;
+
   // Compute isMve based on truth fields (priority over heuristics)
   let isMve: boolean | null = null;
 
-  // Primary: truth fields from API
+  // Primary: truth fields from API (if they have values)
   if (mveCollectionTicker !== null) {
     isMve = true;
   } else if (Array.isArray(mveSelectedLegs) && mveSelectedLegs.length > 0) {
     isMve = true;
-  } else if (mveCollectionTicker === null && mveSelectedLegs === null) {
-    // Both fields present but null = non-MVE market
+  } else if (hasAnyApiField && mveCollectionTicker === null && mveSelectedLegs === null) {
+    // API fields EXIST but are null → non-MVE (API explicitly says so)
     isMve = false;
   }
 
-  // Fallback: heuristics if truth fields not available (legacy markets)
+  // Fallback: heuristics if truth fields not available (legacy markets without API fields)
   if (isMve === null) {
     const seriesTicker = metadata.seriesTicker as string | undefined;
     const eventTicker = metadata.eventTicker as string | undefined;
     if (seriesTicker?.startsWith('KXMV') || eventTicker?.startsWith('KXMV')) {
       isMve = true;
+    } else if (!hasAnyApiField) {
+      // Legacy data without API fields and no KXMV prefix → non-MVE
+      isMve = false;
     }
   }
 
