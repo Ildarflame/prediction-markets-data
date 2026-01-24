@@ -915,9 +915,16 @@ function datesMatch(a: ExtractedDateUniversal, b: ExtractedDateUniversal): boole
   // Month must match if both specified
   if (a.month && b.month && a.month !== b.month) return false;
 
-  // Day must match if both specified (and both have day precision)
-  if (a.precision === 'DAY' && b.precision === 'DAY') {
-    if (a.day && b.day && a.day !== b.day) return false;
+  // Day matching: if EITHER has day precision, require exact day match
+  // This prevents "January 31" from matching "January 2026"
+  const aHasDay = a.precision === 'DAY' && a.day;
+  const bHasDay = b.precision === 'DAY' && b.day;
+
+  if (aHasDay || bHasDay) {
+    // If one has day and other doesn't, no match
+    if (!aHasDay || !bHasDay) return false;
+    // Both have days, must be equal
+    if (a.day !== b.day) return false;
   }
 
   // At least month must match for a valid date match
