@@ -91,6 +91,7 @@ const TOPIC_KEYWORDS: Record<CanonicalTopic, string[]> = {
     'diplomacy', 'foreign', 'international',
   ],
   [CanonicalTopic.UNKNOWN]: [],
+  [CanonicalTopic.UNIVERSAL]: [],  // v3.0.16: Topic-agnostic - no specific keywords
 };
 
 /**

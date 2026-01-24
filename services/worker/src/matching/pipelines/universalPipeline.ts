@@ -83,10 +83,10 @@ export class UniversalPipeline extends BasePipeline<
   readonly supportsAutoConfirm = true;
   readonly supportsAutoReject = true;
 
-  constructor(topic: CanonicalTopic = CanonicalTopic.UNKNOWN) {
+  constructor(topic: CanonicalTopic = CanonicalTopic.UNIVERSAL) {
     super();
     this.topic = topic;
-    this.description = `Universal pipeline for ${topic || 'any'} markets`;
+    this.description = `Universal pipeline for ${topic === CanonicalTopic.UNIVERSAL ? 'any' : topic} markets`;
   }
 
   // --------------------------------------------------------------------------
@@ -448,6 +448,6 @@ export function createUniversalPipeline(topic?: CanonicalTopic): UniversalPipeli
 }
 
 /**
- * Singleton instance for general use
+ * Singleton instance for general use (topic = UNIVERSAL)
  */
-export const universalPipeline = new UniversalPipeline();
+export const universalPipeline = new UniversalPipeline(CanonicalTopic.UNIVERSAL);

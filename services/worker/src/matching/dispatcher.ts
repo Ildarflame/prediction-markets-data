@@ -1,5 +1,5 @@
 /**
- * Pipeline Dispatcher (v3.0.11)
+ * Pipeline Dispatcher (v3.0.16)
  *
  * Routes canonical topics to their corresponding pipelines.
  * Central registry for all matching pipelines.
@@ -71,7 +71,7 @@ export function clearPipelines(): void {
 }
 
 /**
- * Topics that are currently implemented (v3.0.11)
+ * Topics that are currently implemented (v3.0.16)
  * (Used for validation and CLI help text)
  */
 export const IMPLEMENTED_TOPICS: CanonicalTopic[] = [
@@ -83,6 +83,7 @@ export const IMPLEMENTED_TOPICS: CanonicalTopic[] = [
   CanonicalTopic.COMMODITIES,
   CanonicalTopic.CLIMATE,
   CanonicalTopic.SPORTS,
+  CanonicalTopic.UNIVERSAL,  // v3.0.16: Topic-agnostic matching
 ];
 
 /**
@@ -115,6 +116,8 @@ export function parseTopicString(topic: string): CanonicalTopic | null {
     'climate': CanonicalTopic.CLIMATE,
     'weather': CanonicalTopic.CLIMATE,
     'sports': CanonicalTopic.SPORTS,
+    'universal': CanonicalTopic.UNIVERSAL,  // v3.0.16
+    'all': CanonicalTopic.UNIVERSAL,         // v3.0.16: alias
   };
 
   const lower = topic.toLowerCase();

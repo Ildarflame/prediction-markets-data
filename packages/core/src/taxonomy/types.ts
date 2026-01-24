@@ -1,5 +1,5 @@
 /**
- * Taxonomy Types (v3.0.11)
+ * Taxonomy Types (v3.0.16)
  *
  * Unified topic classification system for cross-venue market matching.
  * Maps venue-specific categories/tags to canonical topics.
@@ -8,6 +8,7 @@
  * v3.0.4: Added COMMODITIES topic for oil, gold, agriculture futures
  * v3.0.10: Added CLIMATE to matchable topics
  * v3.0.11: Added SPORTS to matchable topics
+ * v3.0.16: Added UNIVERSAL for topic-agnostic matching
  */
 
 /**
@@ -25,6 +26,7 @@ export enum CanonicalTopic {
   ENTERTAINMENT = 'ENTERTAINMENT',
   COMMODITIES = 'COMMODITIES',  // v3.0.4: Oil, Gold, Agriculture futures
   CLIMATE = 'CLIMATE',
+  UNIVERSAL = 'UNIVERSAL',  // v3.0.16: Topic-agnostic matching for any category
   UNKNOWN = 'UNKNOWN',
 }
 
@@ -161,6 +163,7 @@ export const MATCHABLE_TOPICS = [
   CanonicalTopic.COMMODITIES,  // v3.0.4
   CanonicalTopic.CLIMATE,      // v3.0.10
   CanonicalTopic.SPORTS,       // v3.0.11
+  CanonicalTopic.UNIVERSAL,    // v3.0.16: Topic-agnostic matching
 ] as const;
 
 /**
