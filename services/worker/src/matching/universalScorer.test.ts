@@ -54,10 +54,9 @@ describe('Universal Scorer', () => {
 
       const result = scoreUniversal(left, right);
 
-      // With weights: entity=0.40, number=0.20, time=0.20, text=0.15, category=0.05
-      // Teams match gives ~0.67 entity score, time proximity ~0.95, text jaccard ~0.3
-      assert.ok(result.score >= 0.70, `Expected good score, got ${result.score}`);
-      assert.strictEqual(result.tier, 'STRONG');
+      // v3.0.17 weights: entity=0.45, event=0.15, number=0.15, time=0.10, text=0.10
+      // Teams match gives good entity score, time proximity ~0.95, no event detected
+      assert.ok(result.score >= 0.60, `Expected good score, got ${result.score}`);
       assert.ok(result.matchedEntities.length >= 2, 'Should have matched teams');
       assert.ok(result.overlapDetails.teams >= 2, 'Should have 2 team matches');
     });
@@ -79,7 +78,8 @@ describe('Universal Scorer', () => {
 
       const result = scoreUniversal(left, right);
 
-      assert.ok(result.score >= 0.75, `Expected good score, got ${result.score}`);
+      // v3.0.17: With event weight (0.15) taking from other components
+      assert.ok(result.score >= 0.65, `Expected good score, got ${result.score}`);
       assert.ok(result.overlapDetails.organizations >= 1, 'Should match BITCOIN org');
       assert.ok(result.overlapDetails.numbers >= 1, 'Should match 100k number');
       assert.ok(result.overlapDetails.dates >= 1, 'Should match Jan 31 date');
@@ -102,7 +102,8 @@ describe('Universal Scorer', () => {
 
       const result = scoreUniversal(left, right);
 
-      assert.ok(result.score >= 0.70, `Expected good score, got ${result.score}`);
+      // v3.0.17: Person match + time match, no event detected
+      assert.ok(result.score >= 0.60, `Expected good score, got ${result.score}`);
       assert.ok(result.overlapDetails.people >= 1, 'Should match Trump');
     });
 
@@ -207,6 +208,72 @@ describe('Universal Scorer', () => {
 
       assert.strictEqual(sameTopicScore.breakdown.categoryBoost, 1.0);
       assert.strictEqual(diffTopicScore.breakdown.categoryBoost, 0);
+    });
+
+    // v3.0.17: Event matching tests
+    test('event match boosts score for same tournament', () => {
+      const left = extractMarketEntities(
+        createMockMarket(1, 'Will Vitality win IEM Krakow 2026?', {
+          venue: 'polymarket',
+          closeTime: new Date('2026-02-15T00:00:00Z'),
+        })
+      );
+
+      const rightSameEvent = extractMarketEntities(
+        createMockMarket(2, 'Vitality to win IEM Krakow 2026', {
+          venue: 'kalshi',
+          closeTime: new Date('2026-02-15T12:00:00Z'),
+        })
+      );
+
+      const rightDiffEvent = extractMarketEntities(
+        createMockMarket(3, 'Vitality to win BLAST Premier 2026', {
+          venue: 'kalshi',
+          closeTime: new Date('2026-02-15T12:00:00Z'),
+        })
+      );
+
+      const sameEventScore = scoreUniversal(left, rightSameEvent);
+      const diffEventScore = scoreUniversal(left, rightDiffEvent);
+
+      // Same event should have higher eventMatch score
+      assert.ok(
+        sameEventScore.breakdown.eventMatch > diffEventScore.breakdown.eventMatch,
+        `Same event should score higher: ${sameEventScore.breakdown.eventMatch} > ${diffEventScore.breakdown.eventMatch}`
+      );
+
+      // Same event should have eventMatch = 1.0
+      assert.strictEqual(sameEventScore.breakdown.eventMatch, 1.0);
+
+      // Overall score should be higher for same event
+      assert.ok(
+        sameEventScore.score > diffEventScore.score,
+        `Same event overall score should be higher: ${sameEventScore.score} > ${diffEventScore.score}`
+      );
+    });
+
+    test('event match partial for same tournament base', () => {
+      const left = extractMarketEntities(
+        createMockMarket(1, 'Will Team Spirit win BLAST Premier Spring 2026?', {
+          venue: 'polymarket',
+          closeTime: new Date('2026-03-01T00:00:00Z'),
+        })
+      );
+
+      const rightPartialEvent = extractMarketEntities(
+        createMockMarket(2, 'Team Spirit to win BLAST Premier Fall 2026', {
+          venue: 'kalshi',
+          closeTime: new Date('2026-09-01T00:00:00Z'),
+        })
+      );
+
+      const result = scoreUniversal(left, rightPartialEvent);
+
+      // Should have partial event match (0.7) - same tournament base, different stage
+      assert.ok(
+        result.breakdown.eventMatch >= 0.5,
+        `Partial event match expected >= 0.5, got ${result.breakdown.eventMatch}`
+      );
     });
 
     test('reason string includes matched entities', () => {
@@ -340,6 +407,7 @@ describe('Universal Scorer', () => {
     test('DEFAULT_WEIGHTS sum to 1.0', () => {
       const sum =
         DEFAULT_WEIGHTS.entityOverlap +
+        DEFAULT_WEIGHTS.eventMatch +      // v3.0.17
         DEFAULT_WEIGHTS.numberMatch +
         DEFAULT_WEIGHTS.timeProximity +
         DEFAULT_WEIGHTS.textSimilarity +

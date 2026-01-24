@@ -1,14 +1,15 @@
 /**
- * Universal Scorer (v3.0.16)
+ * Universal Scorer (v3.0.17)
  *
  * Weighted multi-component scoring for Universal Hybrid Matcher.
  * Works for ALL market categories without category-specific pipelines.
  *
- * Scoring components:
- * - Entity Overlap: 0.40 (teams, people, orgs)
- * - Number Match: 0.20 (prices, spreads, percentages)
- * - Time Proximity: 0.20 (closeTime distance)
- * - Text Similarity: 0.15 (Jaccard on tokens)
+ * Scoring components (v3.0.17 - tuned):
+ * - Entity Overlap: 0.45 (teams, people, orgs)
+ * - Event Match: 0.15 (tournament/event name detection) - NEW
+ * - Number Match: 0.15 (prices, spreads, percentages)
+ * - Time Proximity: 0.10 (closeTime distance) - REDUCED
+ * - Text Similarity: 0.10 (Jaccard on tokens)
  * - Category Boost: 0.05 (same derivedTopic)
  */
 
@@ -47,6 +48,7 @@ export interface MarketWithUniversalEntities {
  */
 export interface UniversalWeights {
   entityOverlap: number;
+  eventMatch: number;      // v3.0.17: tournament/event name detection
   numberMatch: number;
   timeProximity: number;
   textSimilarity: number;
@@ -58,6 +60,7 @@ export interface UniversalWeights {
  */
 export interface UniversalScoreBreakdown {
   entityOverlap: number;
+  eventMatch: number;      // v3.0.17
   numberMatch: number;
   timeProximity: number;
   textSimilarity: number;
@@ -82,24 +85,29 @@ export interface UniversalScoreResult extends BaseScoreResult {
 // ============================================================================
 
 /**
- * Default weights - can be tuned
+ * Default weights - v3.0.17 tuned
+ * - Increased entity weight (40→45%)
+ * - Added event match (15%) for tournament/championship detection
+ * - Reduced time proximity (20→10%) - less penalty for different dates
+ * - Reduced text similarity (15→10%)
  */
 export const DEFAULT_WEIGHTS: UniversalWeights = {
-  entityOverlap: 0.40,
-  numberMatch: 0.20,
-  timeProximity: 0.20,
-  textSimilarity: 0.15,
-  categoryBoost: 0.05,
+  entityOverlap: 0.45,   // +5% from v3.0.16
+  eventMatch: 0.15,      // NEW in v3.0.17
+  numberMatch: 0.15,     // -5% from v3.0.16
+  timeProximity: 0.10,   // -10% from v3.0.16
+  textSimilarity: 0.10,  // -5% from v3.0.16
+  categoryBoost: 0.05,   // unchanged
 };
 
 /**
- * Score thresholds
+ * Score thresholds - v3.0.17 tuned
  */
 export const SCORE_THRESHOLDS = {
-  STRONG: 0.75,        // tier = STRONG
-  AUTO_CONFIRM: 0.92,  // Can auto-confirm
-  HIGH_CONFIDENCE: 0.85,
-  MEDIUM_CONFIDENCE: 0.65,
+  STRONG: 0.75,          // tier = STRONG
+  AUTO_CONFIRM: 0.85,    // LOWERED from 0.92 (v3.0.17)
+  HIGH_CONFIDENCE: 0.80, // LOWERED from 0.85
+  MEDIUM_CONFIDENCE: 0.60, // LOWERED from 0.65
 };
 
 // ============================================================================
@@ -235,6 +243,122 @@ function scoreCategoryBoost(
 }
 
 // ============================================================================
+// EVENT MATCHING (v3.0.17)
+// ============================================================================
+
+/**
+ * Event patterns for tournament/championship detection
+ */
+const EVENT_PATTERNS: RegExp[] = [
+  // Esports - CS2/Valorant/LoL
+  /\b(IEM\s+\w+(?:\s+\d{4})?)/i,
+  /\b(BLAST\s+(?:Premier|Bounty|World\s*Final)(?:\s+\w+)?(?:\s+\d{4})?)/i,
+  /\b(ESL\s+(?:Pro\s+League|One|Challenger)(?:\s+\w+)?(?:\s+\d{4})?)/i,
+  /\b(PGL\s+\w+(?:\s+\d{4})?)/i,
+  /\b((?:LEC|LCS|LCK|LPL)\s+(?:\d{4}\s+)?(?:Spring|Summer|Winter|Fall)?(?:\s+(?:Split|Playoffs|Finals))?)/i,
+  /\b(Worlds?\s+\d{4})/i,
+  /\b(The\s+International\s*\d*)/i,
+  /\b(VCT\s+(?:\w+\s+)?(?:\d{4})?)/i,
+  /\b(Champions\s+Tour(?:\s+\w+)?(?:\s+\d{4})?)/i,
+
+  // Traditional Sports
+  /\b(Super\s*Bowl\s*(?:L?[IVX]+|\d+)?)/i,
+  /\b(World\s+Cup\s*\d{4})/i,
+  /\b((?:Summer|Winter)\s+Olympics?\s*\d{4})/i,
+  /\b(UEFA\s+(?:Champions\s+League|Euro(?:pa)?(?:\s+League)?|Nations\s+League)(?:\s+\d{4}(?:[-\/]\d{2,4})?)?)/i,
+  /\b(NBA\s+(?:\d{4}[-\/]\d{2,4}\s+)?(?:Season|Playoffs|Finals|Championship))/i,
+  /\b(NFL\s+(?:\d{4}[-\/]\d{2,4}\s+)?(?:Season|Playoffs|Championship))/i,
+  /\b(MLB\s+(?:\d{4}\s+)?(?:World\s+Series|Playoffs|Season))/i,
+  /\b(NHL\s+(?:\d{4}[-\/]\d{2,4}\s+)?(?:Season|Playoffs|Stanley\s+Cup))/i,
+  /\b((?:Wimbledon|US\s+Open|French\s+Open|Australian\s+Open)(?:\s+\d{4})?)/i,
+  /\b((?:F1|Formula\s+(?:1|One))\s+(?:\d{4}\s+)?(?:\w+\s+)?Grand\s+Prix)/i,
+  /\b(UFC\s+\d+)/i,
+
+  // General patterns
+  /\b(\w+\s+Championship\s+\d{4})/i,
+  /\b(\w+\s+World\s+(?:Championship|Cup|Series)\s*\d{4}?)/i,
+  /\b(Major\s+(?:Championship|Tournament)(?:\s+\d{4})?)/i,
+];
+
+/**
+ * Extract event/tournament name from title
+ */
+function extractEventName(title: string): string | null {
+  for (const pattern of EVENT_PATTERNS) {
+    const match = title.match(pattern);
+    if (match) {
+      return normalizeEventName(match[1]);
+    }
+  }
+  return null;
+}
+
+/**
+ * Normalize event name for comparison
+ */
+function normalizeEventName(event: string): string {
+  return event
+    .toUpperCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Extract base event name (without year/stage) for partial matching
+ */
+function extractEventBase(event: string): string {
+  return event
+    .replace(/\d{4}/g, '')           // Remove years
+    .replace(/\s*(SPRING|SUMMER|WINTER|FALL|FINALS?|PLAYOFFS?|SPLIT)\s*/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Calculate event match score (0-1) - v3.0.17
+ * Detects matching tournament/championship names
+ */
+function scoreEventMatch(leftTitle: string, rightTitle: string): { score: number; event: string | null } {
+  const leftEvent = extractEventName(leftTitle);
+  const rightEvent = extractEventName(rightTitle);
+
+  // No events detected
+  if (!leftEvent && !rightEvent) {
+    return { score: 0, event: null };
+  }
+
+  // Only one has event - partial match possible via tokens
+  if (!leftEvent || !rightEvent) {
+    return { score: 0, event: null };
+  }
+
+  // Exact match
+  if (leftEvent === rightEvent) {
+    return { score: 1.0, event: leftEvent };
+  }
+
+  // Partial match (same tournament base, different year/stage)
+  const leftBase = extractEventBase(leftEvent);
+  const rightBase = extractEventBase(rightEvent);
+
+  if (leftBase === rightBase && leftBase.length > 3) {
+    return { score: 0.7, event: `${leftBase} (partial)` };
+  }
+
+  // Check for significant overlap in event names
+  const leftWords = new Set(leftEvent.split(/\s+/).filter(w => w.length > 2));
+  const rightWords = new Set(rightEvent.split(/\s+/).filter(w => w.length > 2));
+  const intersection = [...leftWords].filter(w => rightWords.has(w));
+  const union = new Set([...leftWords, ...rightWords]);
+
+  if (intersection.length >= 2 && intersection.length / union.size >= 0.5) {
+    return { score: 0.5, event: `${intersection.join(' ')} (overlap)` };
+  }
+
+  return { score: 0, event: null };
+}
+
+// ============================================================================
 // REASON BUILDER
 // ============================================================================
 
@@ -244,9 +368,15 @@ function scoreCategoryBoost(
 function buildReason(
   overlapDetails: EntityOverlapResult,
   breakdown: UniversalScoreBreakdown,
-  score: number
+  score: number,
+  matchedEvent: string | null  // v3.0.17
 ): string {
   const parts: string[] = [];
+
+  // Event match (v3.0.17)
+  if (matchedEvent) {
+    parts.push(`Event: ${matchedEvent}`);
+  }
 
   // Entity matches
   if (overlapDetails.matchedTeams.length > 0) {
@@ -275,9 +405,10 @@ function buildReason(
     parts.push(`Dates: ${dateStr}`);
   }
 
-  // Score breakdown summary
+  // Score breakdown summary (v3.0.17: added Ev for event)
   const breakdownStr = [
     `E=${(breakdown.entityOverlap * 100).toFixed(0)}%`,
+    `Ev=${(breakdown.eventMatch * 100).toFixed(0)}%`,
     `N=${(breakdown.numberMatch * 100).toFixed(0)}%`,
     `T=${(breakdown.timeProximity * 100).toFixed(0)}%`,
     `J=${(breakdown.textSimilarity * 100).toFixed(0)}%`,
@@ -311,6 +442,7 @@ export function scoreUniversal(
 
   // Calculate component scores
   const entityScore = scoreEntityOverlap(le, re, overlapDetails);
+  const eventResult = scoreEventMatch(left.market.title, right.market.title);  // v3.0.17
   const numberScore = scoreNumberMatch(overlapDetails);
   const timeScore = scoreTimeProximity(left.market.closeTime, right.market.closeTime);
   const textScore = scoreTextSimilarity(le.tokens, re.tokens);
@@ -319,17 +451,19 @@ export function scoreUniversal(
     right.market.derivedTopic
   );
 
-  // Calculate weighted score
+  // Calculate weighted score (v3.0.17: added eventMatch)
   const score =
     weights.entityOverlap * entityScore +
+    weights.eventMatch * eventResult.score +
     weights.numberMatch * numberScore +
     weights.timeProximity * timeScore +
     weights.textSimilarity * textScore +
     weights.categoryBoost * categoryScore;
 
-  // Build breakdown
+  // Build breakdown (v3.0.17: added eventMatch)
   const breakdown: UniversalScoreBreakdown = {
     entityOverlap: entityScore,
+    eventMatch: eventResult.score,
     numberMatch: numberScore,
     timeProximity: timeScore,
     textSimilarity: textScore,
@@ -354,8 +488,8 @@ export function scoreUniversal(
   // Determine tier
   const tier = score >= SCORE_THRESHOLDS.STRONG ? 'STRONG' : 'WEAK';
 
-  // Build reason
-  const reason = buildReason(overlapDetails, breakdown, score);
+  // Build reason (v3.0.17: pass matchedEvent)
+  const reason = buildReason(overlapDetails, breakdown, score, eventResult.event);
 
   return {
     score: Math.max(0, Math.min(1, score)),
