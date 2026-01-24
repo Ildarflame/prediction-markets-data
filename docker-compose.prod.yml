@@ -29,6 +29,10 @@ services:
       NODE_ENV: production
       DEDUP_EPSILON_POLYMARKET: ${DEDUP_EPSILON_POLYMARKET:-0.001}
       DEDUP_MIN_INTERVAL_SECONDS_POLYMARKET: ${DEDUP_MIN_INTERVAL_SECONDS_POLYMARKET:-60}
+      # Watchlist quotes (v2.6.7)
+      QUOTES_MODE: ${QUOTES_MODE:-watchlist}
+      QUOTES_WATCHLIST_LIMIT: ${QUOTES_WATCHLIST_LIMIT:-2000}
+      QUOTES_MAX_MARKETS: ${QUOTES_MAX_MARKETS:-5000}
     command: ["node", "services/worker/dist/cli.js", "ingest", "-v", "polymarket", "-m", "loop", "-i", "${INGEST_INTERVAL_SECONDS:-60}"]
     healthcheck:
       test: ["CMD", "node", "services/worker/dist/cli.js", "health", "--max-stale", "5", "--max-job-age", "10"]
@@ -68,6 +72,10 @@ services:
       # v2.6.2: Ingestion watchdog thresholds
       KALSHI_STUCK_THRESHOLD_MIN: ${KALSHI_STUCK_THRESHOLD_MIN:-30}
       KALSHI_MAX_FAILURES_IN_ROW: ${KALSHI_MAX_FAILURES_IN_ROW:-5}
+      # Watchlist quotes (v2.6.7)
+      QUOTES_MODE: ${QUOTES_MODE:-watchlist}
+      QUOTES_WATCHLIST_LIMIT: ${QUOTES_WATCHLIST_LIMIT:-2000}
+      QUOTES_MAX_MARKETS: ${QUOTES_MAX_MARKETS:-5000}
     command: ["node", "services/worker/dist/cli.js", "ingest", "-v", "kalshi", "-m", "loop", "-i", "${INGEST_INTERVAL_SECONDS:-60}"]
     healthcheck:
       test: ["CMD", "node", "services/worker/dist/cli.js", "health", "--max-stale", "5", "--max-job-age", "10"]
