@@ -1,5 +1,5 @@
 /**
- * Universal Scorer Tests (v3.0.26)
+ * Universal Scorer Tests (v3.0.27)
  */
 
 import { test, describe } from 'node:test';
@@ -481,6 +481,53 @@ describe('Universal Scorer', () => {
       assert.ok(
         scoreMatch.score > scoreConflict.score,
         `Same direction (${scoreMatch.score.toFixed(3)}) should score higher than conflict (${scoreConflict.score.toFixed(3)})`
+      );
+    });
+
+    test('smart number matching - price context bonus', () => {
+      // Two markets with same price target - should get bonus for price match
+      const leftPrice = extractMarketEntities(
+        createMockMarket(1, 'Bitcoin to reach $100,000 by end of 2026', {
+          venue: 'polymarket',
+          closeTime: new Date('2026-12-31T00:00:00Z'),
+        })
+      );
+
+      const rightPrice = extractMarketEntities(
+        createMockMarket(2, 'Will BTC hit $100k before 2027?', {
+          venue: 'kalshi',
+          closeTime: new Date('2026-12-31T00:00:00Z'),
+        })
+      );
+
+      // Markets with same number but no price context
+      const leftNoContext = extractMarketEntities(
+        createMockMarket(3, 'Will there be 100000 attendees at the event?', {
+          venue: 'polymarket',
+          closeTime: new Date('2026-06-15T00:00:00Z'),
+        })
+      );
+
+      const rightNoContext = extractMarketEntities(
+        createMockMarket(4, 'Event attendance to exceed 100k people', {
+          venue: 'kalshi',
+          closeTime: new Date('2026-06-15T00:00:00Z'),
+        })
+      );
+
+      const scorePrice = scoreUniversal(leftPrice, rightPrice);
+      const scoreNoContext = scoreUniversal(leftNoContext, rightNoContext);
+
+      // Price match should score higher on numberMatch due to price context bonus
+      assert.ok(
+        scorePrice.breakdown.numberMatch >= 0.5,
+        `Price match should have high numberMatch, got ${scorePrice.breakdown.numberMatch}`
+      );
+
+      // Both should have positive number match
+      assert.ok(
+        scoreNoContext.breakdown.numberMatch >= 0.3,
+        `Non-price match should still have positive numberMatch, got ${scoreNoContext.breakdown.numberMatch}`
       );
     });
   });

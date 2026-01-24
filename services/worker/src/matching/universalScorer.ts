@@ -1,12 +1,12 @@
 /**
- * Universal Scorer (v3.0.26)
+ * Universal Scorer (v3.0.27)
  *
  * Weighted multi-component scoring for Universal Hybrid Matcher.
  * Works for ALL market categories without category-specific pipelines.
  *
- * Scoring components (v3.0.26):
+ * Scoring components (v3.0.27):
  * - Entity Overlap: 0.50 (teams, people, orgs + multi-entity bonuses)
- * - Number Match: 0.15 (prices, spreads, percentages)
+ * - Number Match: 0.15 (prices, spreads, percentages) - ENHANCED
  * - Time Proximity: 0.10 (closeTime distance)
  * - Text Similarity: 0.15 (Jaccard on tokens)
  * - Category Boost: 0.10 (same derivedTopic)
@@ -14,6 +14,8 @@
  * BONUSES (added on top, capped at 1.0):
  * - Event Match: +15% for matching tournament/event names
  * - Matchup Match: +15% for exact "A vs B" both teams match
+ * - Multiple Price Matches: +10% for 2+ price matches (v3.0.27)
+ * - Multiple Exact Numbers: +10% for 2+ exact number matches (v3.0.27)
  *
  * PENALTY FACTORS (multipliers 0-1):
  * - Market Type Match: 0.3 for conflicting types (WINNER vs SPREAD)
@@ -220,6 +222,10 @@ function calculateSetOverlapRatio(
 /**
  * Calculate number match score (0-1)
  * v3.0.24: Changed neutral score from 0.3 to 0.5 for markets without numbers
+ * v3.0.27: Smart Number Matching
+ *   - Bonus for multiple exact matches
+ *   - Context-aware (price vs other)
+ *   - Ratio-based penalty for unmatched numbers
  */
 function scoreNumberMatch(overlapDetails: EntityOverlapResult): number {
   const { numbers, matchedNumbers } = overlapDetails;
@@ -228,24 +234,68 @@ function scoreNumberMatch(overlapDetails: EntityOverlapResult): number {
   // This prevents political/sports markets from being penalized
   if (numbers === 0) return 0.5;
 
-  // Numbers exist but none matched - slight penalty
-  if (matchedNumbers.length === 0) return 0.2;
+  // Numbers exist but none matched
+  if (matchedNumbers.length === 0) {
+    // v3.0.27: If both markets have only 1 number each and they don't match,
+    // it's likely they're different price targets - moderate penalty
+    if (numbers <= 2) return 0.3;
+    // Multiple unmatched numbers - lower score
+    return 0.2;
+  }
 
   // Score based on matched numbers quality
   let score = 0;
+  let priceMatches = 0;  // v3.0.27: track price context matches
+
   for (const matched of matchedNumbers) {
     const diff = Math.abs(matched.a.value - matched.b.value);
     const maxVal = Math.max(Math.abs(matched.a.value), Math.abs(matched.b.value));
     const relDiff = maxVal === 0 ? 0 : diff / maxVal;
 
     // Score based on precision
-    if (relDiff === 0) score += 1.0;
-    else if (relDiff <= 0.001) score += 0.95;
-    else if (relDiff <= 0.01) score += 0.85;
-    else if (relDiff <= 0.05) score += 0.60;
+    let matchScore: number;
+    if (relDiff === 0) {
+      matchScore = 1.0;
+    } else if (relDiff <= 0.001) {
+      matchScore = 0.95;
+    } else if (relDiff <= 0.01) {
+      matchScore = 0.85;
+    } else if (relDiff <= 0.05) {
+      matchScore = 0.60;
+    } else {
+      matchScore = 0.40;  // Still a partial match within tolerance
+    }
+
+    // v3.0.27: Bonus for price context matches
+    // Both being prices (USD context) is a stronger signal
+    if (matched.a.unit === 'USD' && matched.b.unit === 'USD') {
+      priceMatches++;
+    }
+
+    score += matchScore;
   }
 
-  return score / matchedNumbers.length;
+  // Average match quality
+  let avgScore = score / matchedNumbers.length;
+
+  // v3.0.27: Bonuses for strong number matches
+  // Multiple exact price matches = very high confidence
+  if (priceMatches >= 2) {
+    avgScore = Math.min(1.0, avgScore + 0.10);
+  } else if (priceMatches === 1 && matchedNumbers.length === 1) {
+    // Single price match when that's the only number
+    avgScore = Math.min(1.0, avgScore + 0.05);
+  }
+
+  // v3.0.27: Bonus for multiple exact matches
+  const exactMatches = matchedNumbers.filter(m =>
+    Math.abs(m.a.value - m.b.value) === 0
+  ).length;
+  if (exactMatches >= 2) {
+    avgScore = Math.min(1.0, avgScore + 0.10);
+  }
+
+  return avgScore;
 }
 
 /**
