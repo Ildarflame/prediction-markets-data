@@ -4,8 +4,9 @@
 import { getClient, type Market } from '@data-module/db';
 import {
   extractUniversalEntities,
-  countEntityOverlap,
+  countEntityOverlapDetailed,
   type UniversalEntities,
+  type EntityOverlapResult,
 } from '@data-module/core';
 
 export interface TestExtractorOptions {
@@ -77,18 +78,26 @@ export async function runTestExtractor(opts: TestExtractorOptions): Promise<Test
         const kHasEntities = k.entities.teams.length > 0 || k.entities.people.length > 0 || k.entities.organizations.length > 0;
         if (!kHasEntities) continue;
 
-        const overlap = countEntityOverlap(p.entities, k.entities);
-        if (overlap >= 2) {
+        const overlap = countEntityOverlapDetailed(p.entities, k.entities);
+        if (overlap.total >= 2) {
           matchCount++;
-          console.log(`MATCH (overlap=${overlap}):`);
-          console.log(`  Poly: ${p.market.title.substring(0, 70)}`);
-          console.log(`    Teams: ${p.entities.teams.join(', ') || 'none'}`);
-          console.log(`    People: ${p.entities.people.join(', ') || 'none'}`);
-          console.log(`    Orgs: ${p.entities.organizations.join(', ') || 'none'}`);
-          console.log(`  Kalshi: ${k.market.title.substring(0, 70)}`);
-          console.log(`    Teams: ${k.entities.teams.join(', ') || 'none'}`);
-          console.log(`    People: ${k.entities.people.join(', ') || 'none'}`);
-          console.log(`    Orgs: ${k.entities.organizations.join(', ') || 'none'}`);
+          // Show breakdown
+          const breakdown: string[] = [];
+          if (overlap.organizations > 0) breakdown.push(`orgs=${overlap.organizations}`);
+          if (overlap.numbers > 0) breakdown.push(`nums=${overlap.numbers}`);
+          if (overlap.dates > 0) breakdown.push(`dates=${overlap.dates}`);
+          if (overlap.teams > 0) breakdown.push(`teams=${overlap.teams}`);
+          if (overlap.people > 0) breakdown.push(`people=${overlap.people}`);
+
+          console.log(`MATCH (total=${overlap.total}: ${breakdown.join(', ')}):`);
+          console.log(`  Poly: ${p.market.title.substring(0, 80)}`);
+          console.log(`  Kalshi: ${k.market.title.substring(0, 80)}`);
+          if (overlap.matchedNumbers.length > 0) {
+            console.log(`    Matched numbers: ${overlap.matchedNumbers.map(n => `${n.a.raw}≈${n.b.raw}`).join(', ')}`);
+          }
+          if (overlap.matchedDates.length > 0) {
+            console.log(`    Matched dates: ${overlap.matchedDates.map(d => `${d.a.raw}≈${d.b.raw}`).join(', ')}`);
+          }
           console.log('');
         }
       }
