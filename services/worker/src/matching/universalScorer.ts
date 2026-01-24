@@ -48,7 +48,8 @@ export interface MarketWithUniversalEntities {
  */
 export interface UniversalWeights {
   entityOverlap: number;
-  eventMatch: number;      // v3.0.17: tournament/event name detection
+  eventMatch: number;      // v3.0.17: tournament/event name detection (BONUS)
+  matchupBonus: number;    // v3.0.18: "A vs B" both teams match (BONUS)
   numberMatch: number;
   timeProximity: number;
   textSimilarity: number;
@@ -60,7 +61,8 @@ export interface UniversalWeights {
  */
 export interface UniversalScoreBreakdown {
   entityOverlap: number;
-  eventMatch: number;      // v3.0.17
+  eventMatch: number;      // v3.0.17 (BONUS)
+  matchupMatch: number;    // v3.0.18 (BONUS)
   numberMatch: number;
   timeProximity: number;
   textSimilarity: number;
@@ -85,18 +87,27 @@ export interface UniversalScoreResult extends BaseScoreResult {
 // ============================================================================
 
 /**
- * Default weights - v3.0.17 tuned
- * - Increased entity weight (40→50%)
- * - Reduced time proximity (20→10%) - less penalty for different dates
- * - Event match is a BONUS (not counted in base 1.0)
+ * Default weights - v3.0.18 tuned
+ * Base weights sum to 1.0, bonuses are added on top
+ *
+ * - Entity overlap: 50% (team, people, org matches)
+ * - Number match: 15% (price brackets, percentages)
+ * - Time proximity: 10% (close time distance)
+ * - Text similarity: 15% (Jaccard on tokens)
+ * - Category boost: 10% (same derived topic)
+ *
+ * BONUSES (added on top, capped at 1.0 total):
+ * - Event match: +15% for same tournament/championship
+ * - Matchup bonus: +15% for exact "A vs B" match
  */
 export const DEFAULT_WEIGHTS: UniversalWeights = {
-  entityOverlap: 0.50,   // +10% from v3.0.16
-  eventMatch: 0.15,      // BONUS: added on top (not part of 1.0 total)
-  numberMatch: 0.15,     // -5% from v3.0.16
-  timeProximity: 0.10,   // -10% from v3.0.16
-  textSimilarity: 0.15,  // unchanged from v3.0.16
-  categoryBoost: 0.10,   // +5% from v3.0.16 (fills the gap)
+  entityOverlap: 0.50,   // Base: 50%
+  eventMatch: 0.15,      // BONUS: +15% for tournament match
+  matchupBonus: 0.15,    // BONUS: +15% for exact matchup (v3.0.18)
+  numberMatch: 0.15,     // Base: 15%
+  timeProximity: 0.10,   // Base: 10%
+  textSimilarity: 0.15,  // Base: 15%
+  categoryBoost: 0.10,   // Base: 10%
 };
 
 /**
@@ -358,6 +369,160 @@ function scoreEventMatch(leftTitle: string, rightTitle: string): { score: number
 }
 
 // ============================================================================
+// TWO-TEAM MATCHUP DETECTION (v3.0.18)
+// ============================================================================
+
+/**
+ * Matchup patterns for "Team A vs Team B" detection
+ */
+const MATCHUP_PATTERNS: RegExp[] = [
+  // "Team A vs Team B", "A versus B", "A v B"
+  /^(.+?)\s+(?:vs\.?|versus|v\.?)\s+(.+?)(?:\s*[-–—]\s*|\s+(?:match|game|fight|bout|series|map)|\?|$)/i,
+  // "Team A - Team B" (with dash separator)
+  /^(.+?)\s*[-–—]\s*(.+?)(?:\s+(?:match|game|fight|bout|series|map)|\?|$)/i,
+  // "Will X beat Y", "Can X defeat Y"
+  /(?:will|can)\s+(.+?)\s+(?:beat|defeat|win\s+against|lose\s+to)\s+(.+?)(?:\?|$)/i,
+];
+
+/**
+ * Team name normalization patterns
+ */
+const TEAM_PREFIXES = ['team', 'the', 'fc', 'ac', 'sc', 'cf'];
+const TEAM_SUFFIXES = [
+  'esports', 'gaming', 'fc', 'united', 'city',
+  // Game names often appear after team names
+  'cs2', 'csgo', 'valorant', 'dota', 'dota2', 'lol',
+  'league of legends', 'overwatch', 'ow2', 'r6', 'rainbow six',
+  // Match descriptors
+  'match', 'game', 'bout', 'fight', 'series',
+];
+
+/**
+ * Normalize team name for comparison
+ */
+function normalizeTeamName(team: string): string {
+  let normalized = team
+    .replace(/[^\w\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
+
+  // Remove common prefixes (case-insensitive)
+  for (const prefix of TEAM_PREFIXES) {
+    const prefixUpper = prefix.toUpperCase() + ' ';
+    if (normalized.startsWith(prefixUpper)) {
+      normalized = normalized.slice(prefixUpper.length).trim();
+    }
+  }
+
+  // Remove common suffixes (case-insensitive)
+  for (const suffix of TEAM_SUFFIXES) {
+    const suffixUpper = ' ' + suffix.toUpperCase();
+    if (normalized.endsWith(suffixUpper)) {
+      normalized = normalized.slice(0, -suffixUpper.length).trim();
+    }
+  }
+
+  return normalized;
+}
+
+/**
+ * Extract matchup (two teams) from title
+ */
+interface Matchup {
+  teamA: string;
+  teamB: string;
+  normalized: [string, string];  // Sorted for comparison
+}
+
+function extractMatchup(title: string): Matchup | null {
+  for (const pattern of MATCHUP_PATTERNS) {
+    const match = title.match(pattern);
+    if (match && match[1] && match[2]) {
+      const teamA = match[1].trim();
+      const teamB = match[2].trim();
+
+      // Filter out non-team matches (too short, contains numbers only, etc.)
+      if (teamA.length < 2 || teamB.length < 2) continue;
+      if (/^\d+$/.test(teamA) || /^\d+$/.test(teamB)) continue;
+
+      const normA = normalizeTeamName(teamA);
+      const normB = normalizeTeamName(teamB);
+
+      // Skip if normalized names are too short
+      if (normA.length < 2 || normB.length < 2) continue;
+
+      // Sort for consistent comparison (A vs B == B vs A)
+      const sorted = [normA, normB].sort() as [string, string];
+
+      return {
+        teamA,
+        teamB,
+        normalized: sorted,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Calculate matchup match score (0-1) - v3.0.18
+ * Detects "Team A vs Team B" patterns and requires BOTH teams to match
+ */
+interface MatchupResult {
+  score: number;
+  matchup: string | null;
+  bothTeamsMatch: boolean;
+  oneTeamMatch: boolean;
+}
+
+function scoreMatchupMatch(leftTitle: string, rightTitle: string): MatchupResult {
+  const leftMatchup = extractMatchup(leftTitle);
+  const rightMatchup = extractMatchup(rightTitle);
+
+  // No matchups detected
+  if (!leftMatchup && !rightMatchup) {
+    return { score: 0, matchup: null, bothTeamsMatch: false, oneTeamMatch: false };
+  }
+
+  // Only one has matchup
+  if (!leftMatchup || !rightMatchup) {
+    return { score: 0, matchup: null, bothTeamsMatch: false, oneTeamMatch: false };
+  }
+
+  // Both have matchups - compare normalized teams
+  const [leftA, leftB] = leftMatchup.normalized;
+  const [rightA, rightB] = rightMatchup.normalized;
+
+  // Exact matchup (both teams match)
+  if (leftA === rightA && leftB === rightB) {
+    return {
+      score: 1.0,
+      matchup: `${leftMatchup.teamA} vs ${leftMatchup.teamB}`,
+      bothTeamsMatch: true,
+      oneTeamMatch: true,
+    };
+  }
+
+  // Check for partial match (one team matches)
+  const leftTeams = new Set([leftA, leftB]);
+  const rightTeams = new Set([rightA, rightB]);
+  const intersection = [...leftTeams].filter(t => rightTeams.has(t));
+
+  if (intersection.length === 1) {
+    return {
+      score: 0.3,  // Low score for only one team matching
+      matchup: `${intersection[0]} (partial)`,
+      bothTeamsMatch: false,
+      oneTeamMatch: true,
+    };
+  }
+
+  // No match
+  return { score: 0, matchup: null, bothTeamsMatch: false, oneTeamMatch: false };
+}
+
+// ============================================================================
 // REASON BUILDER
 // ============================================================================
 
@@ -368,9 +533,15 @@ function buildReason(
   overlapDetails: EntityOverlapResult,
   breakdown: UniversalScoreBreakdown,
   score: number,
-  matchedEvent: string | null  // v3.0.17
+  matchedEvent: string | null,  // v3.0.17
+  matchedMatchup: string | null // v3.0.18
 ): string {
   const parts: string[] = [];
+
+  // Matchup match (v3.0.18)
+  if (matchedMatchup) {
+    parts.push(`Matchup: ${matchedMatchup}`);
+  }
 
   // Event match (v3.0.17)
   if (matchedEvent) {
@@ -405,13 +576,22 @@ function buildReason(
   }
 
   // Score breakdown summary (v3.0.17: added Ev for event)
-  const breakdownStr = [
+  // v3.0.18: Show matchup and event bonuses only if > 0
+  const breakdownParts = [
     `E=${(breakdown.entityOverlap * 100).toFixed(0)}%`,
-    `Ev=${(breakdown.eventMatch * 100).toFixed(0)}%`,
+  ];
+  if (breakdown.matchupMatch > 0) {
+    breakdownParts.push(`M=${(breakdown.matchupMatch * 100).toFixed(0)}%`);
+  }
+  if (breakdown.eventMatch > 0) {
+    breakdownParts.push(`Ev=${(breakdown.eventMatch * 100).toFixed(0)}%`);
+  }
+  breakdownParts.push(
     `N=${(breakdown.numberMatch * 100).toFixed(0)}%`,
     `T=${(breakdown.timeProximity * 100).toFixed(0)}%`,
-    `J=${(breakdown.textSimilarity * 100).toFixed(0)}%`,
-  ].join(' ');
+    `J=${(breakdown.textSimilarity * 100).toFixed(0)}%`
+  );
+  const breakdownStr = breakdownParts.join(' ');
 
   return `${parts.join('; ')} [${breakdownStr}] (${(score * 100).toFixed(0)}%)`;
 }
@@ -442,6 +622,7 @@ export function scoreUniversal(
   // Calculate component scores
   const entityScore = scoreEntityOverlap(le, re, overlapDetails);
   const eventResult = scoreEventMatch(left.market.title, right.market.title);  // v3.0.17
+  const matchupResult = scoreMatchupMatch(left.market.title, right.market.title);  // v3.0.18
   const numberScore = scoreNumberMatch(overlapDetails);
   const timeScore = scoreTimeProximity(left.market.closeTime, right.market.closeTime);
   const textScore = scoreTextSimilarity(le.tokens, re.tokens);
@@ -458,15 +639,17 @@ export function scoreUniversal(
     weights.textSimilarity * textScore +
     weights.categoryBoost * categoryScore;
 
-  // Event match is a BONUS added on top (v3.0.17)
-  // Only applied when event is detected, doesn't penalize non-event markets
+  // BONUSES added on top (v3.0.17, v3.0.18)
+  // Only applied when detected, doesn't penalize non-matching markets
   const eventBonus = weights.eventMatch * eventResult.score;
-  const score = Math.min(1.0, baseScore + eventBonus);
+  const matchupBonus = weights.matchupBonus * matchupResult.score;
+  const score = Math.min(1.0, baseScore + eventBonus + matchupBonus);
 
-  // Build breakdown (v3.0.17: added eventMatch)
+  // Build breakdown (v3.0.18: added matchupMatch)
   const breakdown: UniversalScoreBreakdown = {
     entityOverlap: entityScore,
     eventMatch: eventResult.score,
+    matchupMatch: matchupResult.score,
     numberMatch: numberScore,
     timeProximity: timeScore,
     textSimilarity: textScore,
@@ -491,8 +674,8 @@ export function scoreUniversal(
   // Determine tier
   const tier = score >= SCORE_THRESHOLDS.STRONG ? 'STRONG' : 'WEAK';
 
-  // Build reason (v3.0.17: pass matchedEvent)
-  const reason = buildReason(overlapDetails, breakdown, score, eventResult.event);
+  // Build reason (v3.0.18: pass matchedEvent and matchedMatchup)
+  const reason = buildReason(overlapDetails, breakdown, score, eventResult.event, matchupResult.matchup);
 
   return {
     score: Math.max(0, Math.min(1, score)),

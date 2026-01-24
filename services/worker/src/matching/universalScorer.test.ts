@@ -1,5 +1,5 @@
 /**
- * Universal Scorer Tests (v3.0.16)
+ * Universal Scorer Tests (v3.0.18)
  */
 
 import { test, describe } from 'node:test';
@@ -276,6 +276,85 @@ describe('Universal Scorer', () => {
       );
     });
 
+    // v3.0.18: Two-team matchup tests
+    test('matchup detection - exact match (both teams)', () => {
+      const left = extractMarketEntities(
+        createMockMarket(1, 'Vitality vs Falcons - CS2 Match', {
+          venue: 'polymarket',
+          closeTime: new Date('2026-02-15T12:00:00Z'),
+        })
+      );
+
+      const right = extractMarketEntities(
+        createMockMarket(2, 'Team Falcons vs Team Vitality CS2', {
+          venue: 'kalshi',
+          closeTime: new Date('2026-02-15T14:00:00Z'),
+        })
+      );
+
+      const result = scoreUniversal(left, right);
+
+      // Both teams match (order doesn't matter) - should get matchup bonus
+      assert.strictEqual(result.breakdown.matchupMatch, 1.0, 'Both teams should match');
+      assert.ok(result.reason.includes('Matchup:'), 'Reason should include matchup');
+    });
+
+    test('matchup detection - partial match (one team only)', () => {
+      const left = extractMarketEntities(
+        createMockMarket(1, 'Vitality vs Falcons', {
+          venue: 'polymarket',
+          closeTime: new Date('2026-02-15T12:00:00Z'),
+        })
+      );
+
+      const right = extractMarketEntities(
+        createMockMarket(2, 'Vitality vs Spirit', {
+          venue: 'kalshi',
+          closeTime: new Date('2026-02-15T14:00:00Z'),
+        })
+      );
+
+      const result = scoreUniversal(left, right);
+
+      // Only one team matches - should get partial/low matchup score
+      assert.ok(
+        result.breakdown.matchupMatch <= 0.5,
+        `One team match should score low: ${result.breakdown.matchupMatch}`
+      );
+    });
+
+    test('matchup bonus increases overall score', () => {
+      const left = extractMarketEntities(
+        createMockMarket(1, 'NaVi vs G2 - IEM Cologne', {
+          venue: 'polymarket',
+          closeTime: new Date('2026-02-15T12:00:00Z'),
+        })
+      );
+
+      const rightExactMatchup = extractMarketEntities(
+        createMockMarket(2, 'G2 vs NaVi - IEM Cologne 2026', {
+          venue: 'kalshi',
+          closeTime: new Date('2026-02-15T14:00:00Z'),
+        })
+      );
+
+      const rightDiffMatchup = extractMarketEntities(
+        createMockMarket(3, 'NaVi vs Liquid - IEM Cologne', {
+          venue: 'kalshi',
+          closeTime: new Date('2026-02-15T14:00:00Z'),
+        })
+      );
+
+      const exactScore = scoreUniversal(left, rightExactMatchup);
+      const diffScore = scoreUniversal(left, rightDiffMatchup);
+
+      // Exact matchup should score significantly higher
+      assert.ok(
+        exactScore.score > diffScore.score,
+        `Exact matchup (${exactScore.score}) should score higher than partial (${diffScore.score})`
+      );
+    });
+
     test('reason string includes matched entities', () => {
       const left = extractMarketEntities(
         createMockMarket(1, 'Vitality vs Falcons CS2', { venue: 'polymarket' })
@@ -405,7 +484,7 @@ describe('Universal Scorer', () => {
 
   describe('scoring thresholds', () => {
     test('DEFAULT_WEIGHTS base components sum to 1.0', () => {
-      // v3.0.17: eventMatch is a BONUS, not part of base 1.0
+      // v3.0.18: eventMatch and matchupBonus are BONUSES, not part of base 1.0
       const baseSum =
         DEFAULT_WEIGHTS.entityOverlap +
         DEFAULT_WEIGHTS.numberMatch +
@@ -415,6 +494,7 @@ describe('Universal Scorer', () => {
 
       assert.strictEqual(baseSum, 1.0, 'Base weights should sum to 1.0');
       assert.ok(DEFAULT_WEIGHTS.eventMatch > 0, 'Event bonus should be positive');
+      assert.ok(DEFAULT_WEIGHTS.matchupBonus > 0, 'Matchup bonus should be positive');
     });
 
     test('SCORE_THRESHOLDS are in correct order', () => {
