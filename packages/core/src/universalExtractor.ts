@@ -622,12 +622,13 @@ const WIN_KEYWORDS = [
 export function extractUniversalComparator(title: string): UniversalComparator {
   const lower = title.toLowerCase();
 
-  // Check for BETWEEN first
+  // Check for BETWEEN first (patterns support k/m/b suffixes)
+  const numWithSuffix = '\\$?[\\d,]+(?:\\.\\d+)?[kmb]?';
   const betweenPatterns = [
-    /between\s+\$?[\d,]+\s+and\s+\$?[\d,]+/i,
-    /from\s+\$?[\d,]+\s+to\s+\$?[\d,]+/i,
-    /\$?[\d,]+\s*[-–]\s*\$?[\d,]+/,
-    /\$?[\d,]+\s+to\s+\$?[\d,]+/i,
+    new RegExp(`between\\s+${numWithSuffix}\\s+and\\s+${numWithSuffix}`, 'i'),
+    new RegExp(`from\\s+${numWithSuffix}\\s+to\\s+${numWithSuffix}`, 'i'),
+    new RegExp(`${numWithSuffix}\\s*[-–]\\s*${numWithSuffix}`),
+    new RegExp(`${numWithSuffix}\\s+to\\s+${numWithSuffix}`, 'i'),
   ];
 
   for (const pattern of betweenPatterns) {

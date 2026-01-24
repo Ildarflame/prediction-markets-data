@@ -19,7 +19,7 @@ export const ESPORTS_TEAMS: Record<string, string[]> = {
   'NAVI': ['navi', 'natus vincere', "na'vi", 'natus', 'navi cs'],
   'G2_ESPORTS': ['g2', 'g2 esports', 'g2.esports', 'g2esports'],
   'FAZE_CLAN': ['faze', 'faze clan', 'fazeclan'],
-  'TEAM_SPIRIT': ['spirit', 'team spirit', 'ts'],
+  'TEAM_SPIRIT': ['spirit', 'team spirit'],
   'MOUZ': ['mouz', 'mousesports', 'mouse'],
   'HEROIC': ['heroic', 'heroic gg'],
   'COMPLEXITY': ['complexity', 'col', 'complexity gaming'],
@@ -39,7 +39,7 @@ export const ESPORTS_TEAMS: Record<string, string[]> = {
   'LEGACY': ['legacy', 'legacy esports'],
   'IMPERIAL': ['imperial', 'imperial esports'],
   'THE_MONGOLZ': ['the mongolz', 'mongolz'],
-  'FLYQUEST': ['flyquest', 'fq'],
+  'FLYQUEST': ['flyquest', 'fq', 'fly'],
   'BETBOOM': ['betboom', 'betboom team', 'bb'],
   'PASSION_UA': ['passion ua', 'passionua', 'passion'],
   'GAMERLEGION': ['gamerlegion', 'gl', 'gamer legion'],
@@ -57,11 +57,11 @@ export const ESPORTS_TEAMS: Record<string, string[]> = {
   'LOUD': ['loud', 'loud gg'],
   'DRX': ['drx', 'drx valorant'],
   'PAPER_REX': ['paper rex', 'prx', 'paperrex'],
-  'GEN_G': ['gen.g', 'geng', 'gen g'],
+  'GEN_G': ['gen.g', 'geng', 'gen g', 'samsung', 'ssg'],
   'EVIL_GENIUSES': ['evil geniuses', 'eg'],
   'NRG': ['nrg', 'nrg esports'],
   '100_THIEVES': ['100 thieves', '100t', '100thieves'],
-  'T1': ['t1', 't1 esports'],
+  'T1': ['t1', 't1 esports', 'sk telecom', 'skt', 'sk telecom t1'],
   'KARMINE_CORP': ['karmine corp', 'kc', 'karmine'],
   'KRU_ESPORTS': ['kru', 'kru esports'],
   'EDWARD_GAMING': ['edward gaming', 'edg'],
@@ -69,46 +69,39 @@ export const ESPORTS_TEAMS: Record<string, string[]> = {
   'TALON_ESPORTS': ['talon', 'talon esports'],
   'TEAM_HERETICS': ['team heretics', 'heretics', 'th'],
 
-  // LoL Teams - LCK
-  'T1_LOL': ['t1', 'sk telecom', 'skt', 'sk telecom t1'],
-  'GEN_G_LOL': ['gen.g', 'geng', 'gen g', 'samsung', 'ssg'],
+  // LoL Teams - LCK (unique teams not in CS2)
+  // Note: T1, GEN_G are already defined above - shared orgs across games
   'DK': ['damwon', 'dk', 'damwon kia', 'dwg'],
   'HANWHA_LIFE': ['hanwha', 'hanwha life', 'hle'],
   'KT_ROLSTER': ['kt', 'kt rolster', 'ktb'],
-  'DPLUS_KIA': ['dplus', 'dplus kia', 'dk'],
+  'DPLUS_KIA': ['dplus', 'dplus kia'],
   'KWANGDONG_FREECS': ['kwangdong', 'freecs', 'kdf'],
 
   // LoL Teams - LPL
   'JDG': ['jd gaming', 'jdg', 'jd'],
-  'TOP_ESPORTS': ['top esports', 'tes', 'top'],
+  'TOP_ESPORTS': ['top esports', 'tes'],
   'WEIBO_GAMING': ['weibo', 'weibo gaming', 'wbg'],
   'LNG_ESPORTS': ['lng', 'lng esports'],
   'ROYAL_NEVER_GIVE_UP': ['rng', 'royal never give up', 'royal'],
   'FUNPLUS_PHOENIX': ['fpx', 'funplus', 'funplus phoenix'],
 
-  // LoL Teams - LEC
-  'G2_ESPORTS_LOL': ['g2', 'g2 esports'],
-  'FNATIC_LOL': ['fnatic', 'fnc'],
+  // LoL Teams - LEC (unique - shared orgs removed)
+  // Note: G2, FNATIC, VITALITY are already defined above
   'MAD_LIONS': ['mad lions', 'mad'],
   'ROGUE': ['rogue', 'rge'],
   'EXCEL': ['excel', 'xl'],
   'TEAM_BDS': ['bds', 'team bds'],
-  'VITALITY_LOL': ['vitality', 'vit', 'team vitality'],
-  'SK_GAMING': ['sk', 'sk gaming'],
+  'SK_GAMING': ['sk gaming'],
 
-  // LoL Teams - LCS
-  'CLOUD9_LOL': ['cloud9', 'c9'],
-  'TEAM_LIQUID_LOL': ['liquid', 'tl', 'team liquid'],
-  'FLYQUEST_LOL': ['flyquest', 'fq', 'fly'],
-  '100_THIEVES_LOL': ['100 thieves', '100t'],
-  'NRG_LOL': ['nrg'],
+  // LoL Teams - LCS (unique - shared orgs removed)
+  // Note: CLOUD9, LIQUID, FLYQUEST, 100_THIEVES, NRG are already defined above
   'DIGNITAS': ['dignitas', 'dig'],
   'IMMORTALS': ['immortals', 'imt'],
-  'GOLDEN_GUARDIANS': ['golden guardians', 'gg'],
+  'GOLDEN_GUARDIANS': ['golden guardians'],
 
-  // Dota 2 Teams
-  'TEAM_SPIRIT_DOTA': ['spirit', 'team spirit', 'ts'],
-  'GAIMIN_GLADIATORS': ['gaimin', 'gaimin gladiators', 'gg'],
+  // Dota 2 Teams (unique - shared orgs removed)
+  // Note: TEAM_SPIRIT is already defined above
+  'GAIMIN_GLADIATORS': ['gaimin', 'gaimin gladiators'],
   'TUNDRA_ESPORTS': ['tundra', 'tundra esports'],
   'QUEST': ['quest', 'quest esports'],
   'OG': ['og', 'og dota'],

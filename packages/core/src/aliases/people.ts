@@ -220,7 +220,7 @@ export const INTERNATIONAL_POLITICIANS: Record<string, string[]> = {
 // ============================================================================
 
 export const TECH_EXECUTIVES: Record<string, string[]> = {
-  'ELON_MUSK_TECH': ['elon', 'musk', 'elon musk'],
+  // ELON_MUSK is defined in CELEBRITIES with more aliases
   'JEFF_BEZOS': ['bezos', 'jeff bezos'],
   'MARK_ZUCKERBERG': ['zuckerberg', 'zuck', 'mark zuckerberg'],
   'TIM_COOK': ['tim cook', 'cook'],

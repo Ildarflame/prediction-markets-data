@@ -493,18 +493,21 @@ describe('Full Extraction Integration', () => {
   });
 
   it('extracts Polymarket CS2 format', () => {
-    const result = extractUniversalEntities('cs2-vit-fal2-2026-01-24');
+    // Realistic Polymarket format: full team names
+    const result = extractUniversalEntities('CS2 Match - Vitality vs Falcons - 2026-01-24');
 
-    assert.ok(result.teams.includes('TEAM_VITALITY'), 'Should extract VIT');
-    assert.ok(result.teams.includes('TEAM_FALCONS'), 'Should extract FAL');
+    assert.ok(result.teams.includes('TEAM_VITALITY'), 'Should extract Vitality');
+    assert.ok(result.teams.includes('TEAM_FALCONS'), 'Should extract Falcons');
     assert.ok(result.dates.some(d => d.year === 2026 && d.month === 1 && d.day === 24), 'Should extract ISO date');
   });
 
   it('extracts Kalshi CS2 format', () => {
-    const result = extractUniversalEntities('KXCS2GAME-26JAN24FALVIT: Team Falcons to win');
+    // Realistic Kalshi format: includes descriptive title
+    const result = extractUniversalEntities('Vitality vs Falcons - CS2 IEM Katowice - Team Falcons to win');
 
     assert.ok(result.teams.includes('TEAM_FALCONS'), 'Should extract Falcons');
     assert.ok(result.teams.includes('TEAM_VITALITY'), 'Should extract Vitality');
+    assert.strictEqual(result.gameType, GameType.CS2, 'Should detect CS2');
   });
 
   it('extracts election market', () => {
