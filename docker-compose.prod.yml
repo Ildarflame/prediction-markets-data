@@ -33,7 +33,7 @@ services:
       QUOTES_MODE: ${QUOTES_MODE:-watchlist}
       QUOTES_WATCHLIST_LIMIT: ${QUOTES_WATCHLIST_LIMIT:-2000}
       QUOTES_MAX_MARKETS: ${QUOTES_MAX_MARKETS:-5000}
-    command: ["node", "services/worker/dist/cli.js", "ingest", "-v", "polymarket", "-m", "loop", "-i", "${INGEST_INTERVAL_SECONDS:-60}"]
+    command: ["node", "services/worker/dist/cli.js", "ingest", "-v", "polymarket", "-m", "split"]
     healthcheck:
       test: ["CMD", "node", "services/worker/dist/cli.js", "health", "--max-stale", "5", "--max-job-age", "10"]
       interval: 1m
@@ -76,7 +76,7 @@ services:
       QUOTES_MODE: ${QUOTES_MODE:-watchlist}
       QUOTES_WATCHLIST_LIMIT: ${QUOTES_WATCHLIST_LIMIT:-2000}
       QUOTES_MAX_MARKETS: ${QUOTES_MAX_MARKETS:-5000}
-    command: ["node", "services/worker/dist/cli.js", "ingest", "-v", "kalshi", "-m", "loop", "-i", "${INGEST_INTERVAL_SECONDS:-60}"]
+    command: ["node", "services/worker/dist/cli.js", "ingest", "-v", "kalshi", "-m", "split"]
     healthcheck:
       test: ["CMD", "node", "services/worker/dist/cli.js", "health", "--max-stale", "5", "--max-job-age", "10"]
       interval: 1m
