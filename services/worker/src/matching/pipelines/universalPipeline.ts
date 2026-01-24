@@ -78,7 +78,7 @@ export class UniversalPipeline extends BasePipeline<
   UniversalScoreResult
 > {
   readonly topic: CanonicalTopic;
-  readonly algoVersion = 'universal@3.0.19';
+  readonly algoVersion = 'universal@3.0.20';
   readonly description: string;
   readonly supportsAutoConfirm = true;
   readonly supportsAutoReject = true;
@@ -321,10 +321,11 @@ export class UniversalPipeline extends BasePipeline<
   ): AutoConfirmResult {
     // Rule 1: Exact matchup (both teams match in "A vs B" pattern)
     // Strongest signal - if both teams match, it's almost certainly the same match
+    // v3.0.20: Lowered score to 0.70
     if (
       score.breakdown.matchupMatch >= 1.0 &&
       score.breakdown.timeProximity >= 0.50 &&
-      score.score >= 0.75
+      score.score >= 0.70
     ) {
       return {
         shouldConfirm: true,
@@ -333,12 +334,13 @@ export class UniversalPipeline extends BasePipeline<
       };
     }
 
-    // Rule 2: Exact event + strong entity match
-    // Same tournament/championship with multiple entity matches
+    // Rule 2: Exact event + entity match
+    // Same tournament/championship with entity match
+    // v3.0.20: Lowered to 1 entity, score to 0.75
     if (
       score.breakdown.eventMatch >= 0.9 &&
-      score.matchedEntities.length >= 2 &&
-      score.score >= 0.80
+      score.matchedEntities.length >= 1 &&
+      score.score >= 0.75
     ) {
       return {
         shouldConfirm: true,
@@ -361,12 +363,12 @@ export class UniversalPipeline extends BasePipeline<
     }
 
     // Rule 4: Strong entity overlap with multiple matches
-    // Lowered from 0.90 to 0.80, requires 2+ entity matches
+    // v3.0.20: Lowered entity overlap to 0.70, score to 0.70
     if (
-      score.breakdown.entityOverlap >= 0.80 &&
+      score.breakdown.entityOverlap >= 0.70 &&
       score.breakdown.timeProximity >= 0.50 &&
       score.matchedEntities.length >= 2 &&
-      score.score >= 0.75
+      score.score >= 0.70
     ) {
       return {
         shouldConfirm: true,
@@ -375,12 +377,13 @@ export class UniversalPipeline extends BasePipeline<
       };
     }
 
-    // Rule 5: Perfect number match with entity overlap (lowered score threshold)
+    // Rule 5: Perfect number match with entity overlap
+    // v3.0.20: Lowered score to 0.70
     if (
       score.overlapDetails.numbers >= 1 &&
       score.breakdown.numberMatch >= 0.95 &&
       score.matchedEntities.length >= 1 &&
-      score.score >= 0.80
+      score.score >= 0.70
     ) {
       return {
         shouldConfirm: true,
@@ -390,16 +393,32 @@ export class UniversalPipeline extends BasePipeline<
     }
 
     // Rule 6: Multiple strong signals (high text similarity + time + entities)
-    // Catches cases where title wording is very similar
+    // v3.0.20: Lowered text similarity to 0.35, time to 0.50, score to 0.70
     if (
-      score.breakdown.textSimilarity >= 0.40 &&
-      score.breakdown.timeProximity >= 0.70 &&
+      score.breakdown.textSimilarity >= 0.35 &&
+      score.breakdown.timeProximity >= 0.50 &&
       score.matchedEntities.length >= 2 &&
-      score.score >= 0.75
+      score.score >= 0.70
     ) {
       return {
         shouldConfirm: true,
         rule: 'UNIVERSAL_MULTI_SIGNAL',
+        confidence: score.score,
+      };
+    }
+
+    // Rule 7: Good entity + text match (NEW in v3.0.20)
+    // For cases with 1 entity match but good text overlap
+    if (
+      score.matchedEntities.length >= 1 &&
+      score.breakdown.textSimilarity >= 0.30 &&
+      score.breakdown.entityOverlap >= 0.50 &&
+      score.breakdown.timeProximity >= 0.70 &&
+      score.score >= 0.75
+    ) {
+      return {
+        shouldConfirm: true,
+        rule: 'UNIVERSAL_ENTITY_TEXT',
         confidence: score.score,
       };
     }
