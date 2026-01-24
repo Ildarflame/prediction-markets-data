@@ -78,7 +78,7 @@ export class UniversalPipeline extends BasePipeline<
   UniversalScoreResult
 > {
   readonly topic: CanonicalTopic;
-  readonly algoVersion = 'universal@3.0.20';
+  readonly algoVersion = 'universal@3.0.21';
   readonly description: string;
   readonly supportsAutoConfirm = true;
   readonly supportsAutoReject = true;
@@ -407,7 +407,7 @@ export class UniversalPipeline extends BasePipeline<
       };
     }
 
-    // Rule 7: Good entity + text match (NEW in v3.0.20)
+    // Rule 7: Good entity + text match
     // For cases with 1 entity match but good text overlap
     if (
       score.matchedEntities.length >= 1 &&
@@ -419,6 +419,35 @@ export class UniversalPipeline extends BasePipeline<
       return {
         shouldConfirm: true,
         rule: 'UNIVERSAL_ENTITY_TEXT',
+        confidence: score.score,
+      };
+    }
+
+    // Rule 8: Single entity with strong time proximity (NEW v3.0.21)
+    // If same entity and very close close times, likely same market
+    if (
+      score.matchedEntities.length >= 1 &&
+      score.breakdown.timeProximity >= 0.85 &&
+      score.score >= 0.75
+    ) {
+      return {
+        shouldConfirm: true,
+        rule: 'UNIVERSAL_ENTITY_TIME',
+        confidence: score.score,
+      };
+    }
+
+    // Rule 9: Good overall score with at least 1 entity (NEW v3.0.21)
+    // Catches borderline cases with decent combined signals
+    if (
+      score.matchedEntities.length >= 1 &&
+      score.breakdown.entityOverlap >= 0.40 &&
+      score.breakdown.textSimilarity >= 0.20 &&
+      score.score >= 0.78
+    ) {
+      return {
+        shouldConfirm: true,
+        rule: 'UNIVERSAL_COMBINED',
         confidence: score.score,
       };
     }
