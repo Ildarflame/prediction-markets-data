@@ -70,3 +70,12 @@ export {
   type SportsMarket,
   type SportsScoreResult,
 } from './sportsPipeline.js';
+
+// Universal Pipeline (v3.0.16)
+export {
+  UniversalPipeline,
+  universalPipeline,
+  createUniversalPipeline,
+  type UniversalMarket,
+  type UniversalSignals,
+} from './universalPipeline.js';

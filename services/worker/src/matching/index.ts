@@ -214,3 +214,27 @@ export {
   applyBracketGrouping,
   analyzeBrackets,
 } from './cryptoBrackets.js';
+
+// Universal Scorer (v3.0.16)
+export {
+  scoreUniversal,
+  extractMarketEntities,
+  extractMarketEntitiesBatch,
+  quickMatchCheck,
+  DEFAULT_WEIGHTS,
+  SCORE_THRESHOLDS,
+  type MarketWithUniversalEntities,
+  type EligibleMarketWithTopic,
+  type UniversalWeights,
+  type UniversalScoreBreakdown,
+  type UniversalScoreResult,
+} from './universalScorer.js';
+
+// Universal Pipeline (v3.0.16)
+export {
+  UniversalPipeline,
+  universalPipeline,
+  createUniversalPipeline,
+  type UniversalMarket,
+  type UniversalSignals,
+} from './pipelines/index.js';
