@@ -6,7 +6,6 @@ import {
   extractUniversalEntities,
   countEntityOverlapDetailed,
   type UniversalEntities,
-  type EntityOverlapResult,
 } from '@data-module/core';
 
 export interface TestExtractorOptions {
