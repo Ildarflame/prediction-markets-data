@@ -78,7 +78,7 @@ export class UniversalPipeline extends BasePipeline<
   UniversalScoreResult
 > {
   readonly topic: CanonicalTopic;
-  readonly algoVersion = 'universal@3.0.21';
+  readonly algoVersion = 'universal@3.0.22';
   readonly description: string;
   readonly supportsAutoConfirm = true;
   readonly supportsAutoReject = true;
@@ -437,7 +437,7 @@ export class UniversalPipeline extends BasePipeline<
       };
     }
 
-    // Rule 9: Good overall score with at least 1 entity (NEW v3.0.21)
+    // Rule 9: Good overall score with at least 1 entity
     // Catches borderline cases with decent combined signals
     if (
       score.matchedEntities.length >= 1 &&
@@ -448,6 +448,36 @@ export class UniversalPipeline extends BasePipeline<
       return {
         shouldConfirm: true,
         rule: 'UNIVERSAL_COMBINED',
+        confidence: score.score,
+      };
+    }
+
+    // Rule 10: Very high entity + text overlap (NEW v3.0.22)
+    // For cases where entity and text strongly match, time proximity not critical
+    // Example: election markets with same wording but different close dates
+    if (
+      score.matchedEntities.length >= 1 &&
+      score.breakdown.entityOverlap >= 0.90 &&
+      score.breakdown.textSimilarity >= 0.70 &&
+      score.score >= 0.70
+    ) {
+      return {
+        shouldConfirm: true,
+        rule: 'UNIVERSAL_ENTITY_TEXT_HIGH',
+        confidence: score.score,
+      };
+    }
+
+    // Rule 11: High text similarity alone (NEW v3.0.22)
+    // If text is 80%+ similar and score is decent, likely same market
+    if (
+      score.breakdown.textSimilarity >= 0.80 &&
+      score.matchedEntities.length >= 1 &&
+      score.score >= 0.70
+    ) {
+      return {
+        shouldConfirm: true,
+        rule: 'UNIVERSAL_TEXT_HIGH',
         confidence: score.score,
       };
     }
