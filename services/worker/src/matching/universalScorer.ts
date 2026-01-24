@@ -208,11 +208,17 @@ function calculateSetOverlapRatio(
 
 /**
  * Calculate number match score (0-1)
+ * v3.0.24: Changed neutral score from 0.3 to 0.5 for markets without numbers
  */
 function scoreNumberMatch(overlapDetails: EntityOverlapResult): number {
   const { numbers, matchedNumbers } = overlapDetails;
 
-  if (numbers === 0) return 0.3; // Neutral if no numbers in either
+  // v3.0.24: True neutral if no numbers in either market
+  // This prevents political/sports markets from being penalized
+  if (numbers === 0) return 0.5;
+
+  // Numbers exist but none matched - slight penalty
+  if (matchedNumbers.length === 0) return 0.2;
 
   // Score based on matched numbers quality
   let score = 0;
@@ -228,7 +234,7 @@ function scoreNumberMatch(overlapDetails: EntityOverlapResult): number {
     else if (relDiff <= 0.05) score += 0.60;
   }
 
-  return matchedNumbers.length > 0 ? score / matchedNumbers.length : 0;
+  return score / matchedNumbers.length;
 }
 
 /**

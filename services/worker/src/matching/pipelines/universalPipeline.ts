@@ -78,7 +78,7 @@ export class UniversalPipeline extends BasePipeline<
   UniversalScoreResult
 > {
   readonly topic: CanonicalTopic;
-  readonly algoVersion = 'universal@3.0.23';
+  readonly algoVersion = 'universal@3.0.24';
   readonly description: string;
   readonly supportsAutoConfirm = true;
   readonly supportsAutoReject = true;
