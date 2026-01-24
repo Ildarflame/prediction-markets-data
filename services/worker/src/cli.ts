@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit, runCryptoTruthDateAudit, runCryptoTypeAudit, runCryptoEthDebug, runCryptoSeriesAudit, runCryptoEligibleExplain, runKalshiIngestionDiag, runKalshiSanityStatus, runQuotesFreshness, runPolymarketCursorDiag, runLinksStats, runLinksCleanup, runLinksBackfill, runIntradayBest, runVenueSanityEligible, runLinksWatchlistSync, runWatchlistStats, runWatchlistList, runWatchlistCleanup, runLinksQueue, runLinksAutoReject, runAutoConfirm, runOps, runOpsKpi, runKalshiSeriesSync, runTaxonomyTruthAudit, runPolymarketTaxonomyBackfill, runPolymarketEventsSync, runPolymarketEventsCoverage, runCommoditiesCounts, runCommoditiesOverlap, runCommoditiesBest, runTestExtractor } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit, runCryptoTruthDateAudit, runCryptoTypeAudit, runCryptoEthDebug, runCryptoSeriesAudit, runCryptoEligibleExplain, runKalshiIngestionDiag, runKalshiSanityStatus, runQuotesFreshness, runPolymarketCursorDiag, runLinksStats, runLinksCleanup, runLinksBackfill, runIntradayBest, runVenueSanityEligible, runLinksWatchlistSync, runWatchlistStats, runWatchlistList, runWatchlistCleanup, runLinksQueue, runLinksAutoReject, runAutoConfirm, runOps, runOpsKpi, runKalshiSeriesSync, runTaxonomyTruthAudit, runPolymarketTaxonomyBackfill, runPolymarketEventsSync, runPolymarketEventsCoverage, runCommoditiesCounts, runCommoditiesOverlap, runCommoditiesBest, runTestExtractor, runTestUniversalScorer } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -1632,6 +1632,28 @@ program
       });
     } catch (error) {
       console.error('Test extractor error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// v3.0.16: test:universal-scorer - Test Universal Scorer on real data
+program
+  .command('test:universal-scorer')
+  .description('Test Universal Scorer on real markets (v3.0.16)')
+  .option('--query <query>', 'Search query in title', 'vs')
+  .option('--limit <n>', 'Number of markets per venue to test', '50')
+  .option('--min-score <score>', 'Minimum score threshold', '0.50')
+  .action(async (opts) => {
+    try {
+      await runTestUniversalScorer({
+        query: opts.query,
+        limit: parseInt(opts.limit, 10),
+        minScore: parseFloat(opts.minScore),
+      });
+    } catch (error) {
+      console.error('Test universal scorer error:', error);
       process.exit(1);
     } finally {
       await disconnect();

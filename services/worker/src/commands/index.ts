@@ -131,6 +131,9 @@ export {
 // v3.0.16: Universal Extractor test command
 export { runTestExtractor, type TestExtractorOptions, type TestExtractorResult } from './test-extractor.js';
 
+// v3.0.16: Universal Scorer test command
+export { runTestUniversalScorer, type TestUniversalScorerOptions, type TestUniversalScorerResult } from './test-universal-scorer.js';
+
 // v3.0.5: Topic overlap dashboard and ops:run v3
 export { runTaxonomyOverlap, type TaxonomyOverlapOptions, type TaxonomyOverlapResult } from './taxonomy-overlap.js';
 export { runOpsV3, type OpsV3Options, type OpsV3Result } from './ops-run-v3.js';
