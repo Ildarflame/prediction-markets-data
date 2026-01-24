@@ -404,16 +404,17 @@ describe('Universal Scorer', () => {
   });
 
   describe('scoring thresholds', () => {
-    test('DEFAULT_WEIGHTS sum to 1.0', () => {
-      const sum =
+    test('DEFAULT_WEIGHTS base components sum to 1.0', () => {
+      // v3.0.17: eventMatch is a BONUS, not part of base 1.0
+      const baseSum =
         DEFAULT_WEIGHTS.entityOverlap +
-        DEFAULT_WEIGHTS.eventMatch +      // v3.0.17
         DEFAULT_WEIGHTS.numberMatch +
         DEFAULT_WEIGHTS.timeProximity +
         DEFAULT_WEIGHTS.textSimilarity +
         DEFAULT_WEIGHTS.categoryBoost;
 
-      assert.strictEqual(sum, 1.0, 'Weights should sum to 1.0');
+      assert.strictEqual(baseSum, 1.0, 'Base weights should sum to 1.0');
+      assert.ok(DEFAULT_WEIGHTS.eventMatch > 0, 'Event bonus should be positive');
     });
 
     test('SCORE_THRESHOLDS are in correct order', () => {

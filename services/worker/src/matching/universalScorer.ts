@@ -86,18 +86,17 @@ export interface UniversalScoreResult extends BaseScoreResult {
 
 /**
  * Default weights - v3.0.17 tuned
- * - Increased entity weight (40→45%)
- * - Added event match (15%) for tournament/championship detection
+ * - Increased entity weight (40→50%)
  * - Reduced time proximity (20→10%) - less penalty for different dates
- * - Reduced text similarity (15→10%)
+ * - Event match is a BONUS (not counted in base 1.0)
  */
 export const DEFAULT_WEIGHTS: UniversalWeights = {
-  entityOverlap: 0.45,   // +5% from v3.0.16
-  eventMatch: 0.15,      // NEW in v3.0.17
+  entityOverlap: 0.50,   // +10% from v3.0.16
+  eventMatch: 0.15,      // BONUS: added on top (not part of 1.0 total)
   numberMatch: 0.15,     // -5% from v3.0.16
   timeProximity: 0.10,   // -10% from v3.0.16
-  textSimilarity: 0.10,  // -5% from v3.0.16
-  categoryBoost: 0.05,   // unchanged
+  textSimilarity: 0.15,  // unchanged from v3.0.16
+  categoryBoost: 0.10,   // +5% from v3.0.16 (fills the gap)
 };
 
 /**
@@ -451,14 +450,18 @@ export function scoreUniversal(
     right.market.derivedTopic
   );
 
-  // Calculate weighted score (v3.0.17: added eventMatch)
-  const score =
+  // Calculate base score (entity, number, time, text, category = 1.0 total)
+  const baseScore =
     weights.entityOverlap * entityScore +
-    weights.eventMatch * eventResult.score +
     weights.numberMatch * numberScore +
     weights.timeProximity * timeScore +
     weights.textSimilarity * textScore +
     weights.categoryBoost * categoryScore;
+
+  // Event match is a BONUS added on top (v3.0.17)
+  // Only applied when event is detected, doesn't penalize non-event markets
+  const eventBonus = weights.eventMatch * eventResult.score;
+  const score = Math.min(1.0, baseScore + eventBonus);
 
   // Build breakdown (v3.0.17: added eventMatch)
   const breakdown: UniversalScoreBreakdown = {
