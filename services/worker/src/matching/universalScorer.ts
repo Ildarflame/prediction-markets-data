@@ -17,6 +17,7 @@ import {
   extractUniversalEntities,
   countEntityOverlapDetailed,
   jaccardSets,
+  UniversalMarketType,
   type UniversalEntities,
   type EntityOverlapResult,
 } from '@data-module/core';
@@ -63,6 +64,7 @@ export interface UniversalScoreBreakdown {
   entityOverlap: number;
   eventMatch: number;      // v3.0.17 (BONUS)
   matchupMatch: number;    // v3.0.18 (BONUS)
+  marketTypeMatch: number; // v3.0.25 (PENALTY factor)
   numberMatch: number;
   timeProximity: number;
   textSimilarity: number;
@@ -279,6 +281,71 @@ function scoreCategoryBoost(
 ): number {
   if (!leftTopic || !rightTopic) return 0;
   return leftTopic === rightTopic ? 1.0 : 0;
+}
+
+// ============================================================================
+// MARKET TYPE MATCHING (v3.0.25)
+// ============================================================================
+
+/**
+ * Compatible market type pairs
+ * Some market types can reasonably refer to the same underlying market
+ */
+const COMPATIBLE_MARKET_TYPES: [UniversalMarketType, UniversalMarketType][] = [
+  [UniversalMarketType.WINNER, UniversalMarketType.YES_NO],     // "Will X win?" = "X wins? Yes/No"
+  [UniversalMarketType.PRICE_TARGET, UniversalMarketType.YES_NO], // "BTC above $100k?" = binary
+  [UniversalMarketType.TOTAL, UniversalMarketType.YES_NO],     // "Over/under 200?" = binary
+];
+
+/**
+ * Check if two market types are compatible
+ */
+function areMarketTypesCompatible(
+  typeA: UniversalMarketType,
+  typeB: UniversalMarketType
+): boolean {
+  if (typeA === typeB) return true;
+  if (typeA === UniversalMarketType.UNKNOWN || typeB === UniversalMarketType.UNKNOWN) return true;
+
+  return COMPATIBLE_MARKET_TYPES.some(
+    ([a, b]) => (typeA === a && typeB === b) || (typeA === b && typeB === a)
+  );
+}
+
+/**
+ * Calculate market type match score (v3.0.25)
+ * Returns a penalty factor (0-1) applied to the final score
+ *
+ * - 1.0: Same type or both UNKNOWN
+ * - 0.9: One is UNKNOWN
+ * - 0.8: Compatible types (e.g., WINNER and YES_NO)
+ * - 0.3: Conflicting types (strong penalty)
+ */
+function scoreMarketTypeMatch(
+  leftType: UniversalMarketType,
+  rightType: UniversalMarketType
+): number {
+  // Same type - no penalty
+  if (leftType === rightType) return 1.0;
+
+  // Both unknown - neutral
+  if (leftType === UniversalMarketType.UNKNOWN && rightType === UniversalMarketType.UNKNOWN) {
+    return 1.0;
+  }
+
+  // One unknown - slight penalty
+  if (leftType === UniversalMarketType.UNKNOWN || rightType === UniversalMarketType.UNKNOWN) {
+    return 0.9;
+  }
+
+  // Compatible types - small penalty
+  if (areMarketTypesCompatible(leftType, rightType)) {
+    return 0.8;
+  }
+
+  // Conflicting types - strong penalty
+  // e.g., SPREAD vs PRICE_TARGET, TOTAL vs WINNER
+  return 0.3;
 }
 
 // ============================================================================
@@ -606,6 +673,7 @@ function buildReason(
 
   // Score breakdown summary (v3.0.17: added Ev for event)
   // v3.0.18: Show matchup and event bonuses only if > 0
+  // v3.0.25: Show market type penalty if < 1.0
   const breakdownParts = [
     `E=${(breakdown.entityOverlap * 100).toFixed(0)}%`,
   ];
@@ -614,6 +682,10 @@ function buildReason(
   }
   if (breakdown.eventMatch > 0) {
     breakdownParts.push(`Ev=${(breakdown.eventMatch * 100).toFixed(0)}%`);
+  }
+  // v3.0.25: Show market type penalty if applied
+  if (breakdown.marketTypeMatch < 1.0) {
+    breakdownParts.push(`MT=${(breakdown.marketTypeMatch * 100).toFixed(0)}%`);
   }
   breakdownParts.push(
     `N=${(breakdown.numberMatch * 100).toFixed(0)}%`,
@@ -652,6 +724,7 @@ export function scoreUniversal(
   const entityScore = scoreEntityOverlap(le, re, overlapDetails);
   const eventResult = scoreEventMatch(left.market.title, right.market.title);  // v3.0.17
   const matchupResult = scoreMatchupMatch(left.market.title, right.market.title);  // v3.0.18
+  const marketTypeScore = scoreMarketTypeMatch(le.marketType, re.marketType);  // v3.0.25
   const numberScore = scoreNumberMatch(overlapDetails);
   const timeScore = scoreTimeProximity(left.market.closeTime, right.market.closeTime);
   const textScore = scoreTextSimilarity(le.tokens, re.tokens);
@@ -672,13 +745,18 @@ export function scoreUniversal(
   // Only applied when detected, doesn't penalize non-matching markets
   const eventBonus = weights.eventMatch * eventResult.score;
   const matchupBonus = weights.matchupBonus * matchupResult.score;
-  const score = Math.min(1.0, baseScore + eventBonus + matchupBonus);
 
-  // Build breakdown (v3.0.18: added matchupMatch)
+  // v3.0.25: Apply market type penalty (multiplier)
+  // Conflicting market types get penalized (e.g., SPREAD vs WINNER)
+  const rawScore = Math.min(1.0, baseScore + eventBonus + matchupBonus);
+  const score = rawScore * marketTypeScore;
+
+  // Build breakdown (v3.0.25: added marketTypeMatch)
   const breakdown: UniversalScoreBreakdown = {
     entityOverlap: entityScore,
     eventMatch: eventResult.score,
     matchupMatch: matchupResult.score,
+    marketTypeMatch: marketTypeScore,
     numberMatch: numberScore,
     timeProximity: timeScore,
     textSimilarity: textScore,
