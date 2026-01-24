@@ -70,10 +70,12 @@ export async function runTestExtractor(opts: TestExtractorOptions): Promise<Test
     // Find potential matches
     let matchCount = 0;
     for (const p of polyEntities) {
-      if (p.entities.teams.length === 0 && p.entities.people.length === 0) continue;
+      const pHasEntities = p.entities.teams.length > 0 || p.entities.people.length > 0 || p.entities.organizations.length > 0;
+      if (!pHasEntities) continue;
 
       for (const k of kalshiEntities) {
-        if (k.entities.teams.length === 0 && k.entities.people.length === 0) continue;
+        const kHasEntities = k.entities.teams.length > 0 || k.entities.people.length > 0 || k.entities.organizations.length > 0;
+        if (!kHasEntities) continue;
 
         const overlap = countEntityOverlap(p.entities, k.entities);
         if (overlap >= 2) {
@@ -82,9 +84,11 @@ export async function runTestExtractor(opts: TestExtractorOptions): Promise<Test
           console.log(`  Poly: ${p.market.title.substring(0, 70)}`);
           console.log(`    Teams: ${p.entities.teams.join(', ') || 'none'}`);
           console.log(`    People: ${p.entities.people.join(', ') || 'none'}`);
+          console.log(`    Orgs: ${p.entities.organizations.join(', ') || 'none'}`);
           console.log(`  Kalshi: ${k.market.title.substring(0, 70)}`);
           console.log(`    Teams: ${k.entities.teams.join(', ') || 'none'}`);
           console.log(`    People: ${k.entities.people.join(', ') || 'none'}`);
+          console.log(`    Orgs: ${k.entities.organizations.join(', ') || 'none'}`);
           console.log('');
         }
       }
@@ -92,12 +96,19 @@ export async function runTestExtractor(opts: TestExtractorOptions): Promise<Test
 
     console.log(`Total potential matches: ${matchCount}`);
 
+    const withTeams = polyEntities.filter((e) => e.entities.teams.length > 0).length +
+      kalshiEntities.filter((e) => e.entities.teams.length > 0).length;
+    const withPeople = polyEntities.filter((e) => e.entities.people.length > 0).length +
+      kalshiEntities.filter((e) => e.entities.people.length > 0).length;
+    const withOrgs = polyEntities.filter((e) => e.entities.organizations.length > 0).length +
+      kalshiEntities.filter((e) => e.entities.organizations.length > 0).length;
+
+    console.log(`\nStats: ${withTeams} with teams, ${withPeople} with people, ${withOrgs} with orgs`);
+
     return {
       totalMarkets: polymarkets.length + kalshiMarkets.length,
-      withTeams: polyEntities.filter((e) => e.entities.teams.length > 0).length +
-        kalshiEntities.filter((e) => e.entities.teams.length > 0).length,
-      withPeople: polyEntities.filter((e) => e.entities.people.length > 0).length +
-        kalshiEntities.filter((e) => e.entities.people.length > 0).length,
+      withTeams,
+      withPeople,
       matches: matchCount,
     };
   } else {
