@@ -892,33 +892,145 @@ export function jaccardSets<T>(setA: Set<T> | T[], setB: Set<T> | T[]): number {
 }
 
 /**
- * Count overlapping entities between two extraction results
+ * Check if two numbers match (within tolerance)
+ */
+function numbersMatch(a: NumberEntity, b: NumberEntity, tolerance = 0.01): boolean {
+  // Must have same unit (or both null)
+  if (a.unit !== b.unit) return false;
+
+  // Check value within tolerance (1% default)
+  const diff = Math.abs(a.value - b.value);
+  const maxVal = Math.max(Math.abs(a.value), Math.abs(b.value));
+  if (maxVal === 0) return diff === 0;
+  return diff / maxVal <= tolerance;
+}
+
+/**
+ * Check if two dates match
+ */
+function datesMatch(a: ExtractedDateUniversal, b: ExtractedDateUniversal): boolean {
+  // Year must match if both specified
+  if (a.year && b.year && a.year !== b.year) return false;
+
+  // Month must match if both specified
+  if (a.month && b.month && a.month !== b.month) return false;
+
+  // Day must match if both specified (and both have day precision)
+  if (a.precision === 'DAY' && b.precision === 'DAY') {
+    if (a.day && b.day && a.day !== b.day) return false;
+  }
+
+  // At least month must match for a valid date match
+  return !!(a.month && b.month && a.month === b.month);
+}
+
+/**
+ * Detailed overlap result for debugging and scoring
+ */
+export interface EntityOverlapResult {
+  total: number;
+  teams: number;
+  people: number;
+  organizations: number;
+  numbers: number;
+  dates: number;
+  matchedTeams: string[];
+  matchedPeople: string[];
+  matchedOrgs: string[];
+  matchedNumbers: Array<{ a: NumberEntity; b: NumberEntity }>;
+  matchedDates: Array<{ a: ExtractedDateUniversal; b: ExtractedDateUniversal }>;
+}
+
+/**
+ * Count overlapping entities between two extraction results (v2 - includes numbers and dates)
  */
 export function countEntityOverlap(
   entitiesA: UniversalEntities,
   entitiesB: UniversalEntities
 ): number {
-  let overlap = 0;
+  return countEntityOverlapDetailed(entitiesA, entitiesB).total;
+}
+
+/**
+ * Get detailed overlap breakdown between two extraction results
+ */
+export function countEntityOverlapDetailed(
+  entitiesA: UniversalEntities,
+  entitiesB: UniversalEntities
+): EntityOverlapResult {
+  const result: EntityOverlapResult = {
+    total: 0,
+    teams: 0,
+    people: 0,
+    organizations: 0,
+    numbers: 0,
+    dates: 0,
+    matchedTeams: [],
+    matchedPeople: [],
+    matchedOrgs: [],
+    matchedNumbers: [],
+    matchedDates: [],
+  };
 
   // Count team overlaps
   const teamsA = new Set(entitiesA.teams);
   for (const team of entitiesB.teams) {
-    if (teamsA.has(team)) overlap++;
+    if (teamsA.has(team)) {
+      result.teams++;
+      result.matchedTeams.push(team);
+    }
   }
 
   // Count people overlaps
   const peopleA = new Set(entitiesA.people);
   for (const person of entitiesB.people) {
-    if (peopleA.has(person)) overlap++;
+    if (peopleA.has(person)) {
+      result.people++;
+      result.matchedPeople.push(person);
+    }
   }
 
   // Count org overlaps
   const orgsA = new Set(entitiesA.organizations);
   for (const org of entitiesB.organizations) {
-    if (orgsA.has(org)) overlap++;
+    if (orgsA.has(org)) {
+      result.organizations++;
+      result.matchedOrgs.push(org);
+    }
   }
 
-  return overlap;
+  // Count number overlaps (each number can only match once)
+  const usedNumbersB = new Set<number>();
+  for (const numA of entitiesA.numbers) {
+    for (let i = 0; i < entitiesB.numbers.length; i++) {
+      if (usedNumbersB.has(i)) continue;
+      const numB = entitiesB.numbers[i];
+      if (numbersMatch(numA, numB)) {
+        result.numbers++;
+        result.matchedNumbers.push({ a: numA, b: numB });
+        usedNumbersB.add(i);
+        break;
+      }
+    }
+  }
+
+  // Count date overlaps (each date can only match once)
+  const usedDatesB = new Set<number>();
+  for (const dateA of entitiesA.dates) {
+    for (let i = 0; i < entitiesB.dates.length; i++) {
+      if (usedDatesB.has(i)) continue;
+      const dateB = entitiesB.dates[i];
+      if (datesMatch(dateA, dateB)) {
+        result.dates++;
+        result.matchedDates.push({ a: dateA, b: dateB });
+        usedDatesB.add(i);
+        break;
+      }
+    }
+  }
+
+  result.total = result.teams + result.people + result.organizations + result.numbers + result.dates;
+  return result;
 }
 
 // Re-export with short aliases for convenience (internal use)

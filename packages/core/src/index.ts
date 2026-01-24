@@ -35,6 +35,8 @@ export {
   tokenizeUniversal,
   jaccardSets,
   countEntityOverlap,
+  countEntityOverlapDetailed,
+  type EntityOverlapResult,
 } from './universalExtractor.js';
 
 // Alias exports

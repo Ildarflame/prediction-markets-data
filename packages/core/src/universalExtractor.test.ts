@@ -32,6 +32,7 @@ import {
   UniversalComparator,
   jaccardSets,
   countEntityOverlap,
+  countEntityOverlapDetailed,
   tokenize,
   normalizeTitle,
 } from './universalExtractor.js';
@@ -591,6 +592,46 @@ describe('Utility Functions', () => {
     const a = extractUniversalEntities('Lakers vs Celtics');
     const b = extractUniversalEntities('Trump vs Biden');
     assert.strictEqual(countEntityOverlap(a, b), 0, 'Should have no overlap');
+  });
+
+  it('countEntityOverlap: crypto with same price target', () => {
+    const a = extractUniversalEntities('Bitcoin above $100k on Jan 31');
+    const b = extractUniversalEntities('Will BTC be above $100,000 on January 31?');
+    // Should match: BITCOIN (org) + $100k (number) + Jan 31 (date) = 3
+    assert.ok(countEntityOverlap(a, b) >= 3, `Should have at least 3 overlaps (org + number + date), got ${countEntityOverlap(a, b)}`);
+  });
+
+  it('countEntityOverlap: crypto with different price targets', () => {
+    const a = extractUniversalEntities('Bitcoin above $100k');
+    const b = extractUniversalEntities('Bitcoin above $79k');
+    // Should match: BITCOIN (org) only, numbers are different = 1
+    assert.strictEqual(countEntityOverlap(a, b), 1, 'Should have 1 overlap (org only)');
+  });
+
+  it('countEntityOverlap: same date different year should not match', () => {
+    const a = extractUniversalEntities('Bitcoin by Jan 31, 2025');
+    const b = extractUniversalEntities('Bitcoin by Jan 31, 2026');
+    // Same month/day but different year = no date match, only org match
+    assert.strictEqual(countEntityOverlap(a, b), 1, 'Should have 1 overlap (org only, dates have different years)');
+  });
+
+  it('countEntityOverlap: election with same candidate and year', () => {
+    const a = extractUniversalEntities('Will Trump win the 2024 election?');
+    const b = extractUniversalEntities('Trump to win 2024 Presidential race');
+    // Should match: DONALD_TRUMP (person) + maybe year overlap
+    assert.ok(countEntityOverlap(a, b) >= 1, 'Should have at least 1 overlap (person)');
+  });
+
+  it('countEntityOverlapDetailed: shows breakdown', () => {
+    const a = extractUniversalEntities('Bitcoin above $100k on Jan 31, 2026');
+    const b = extractUniversalEntities('BTC over $100,000 by January 31, 2026');
+    const result = countEntityOverlapDetailed(a, b);
+
+    assert.strictEqual(result.organizations, 1, 'Should have 1 org match (BITCOIN)');
+    assert.strictEqual(result.numbers, 1, 'Should have 1 number match ($100k)');
+    assert.strictEqual(result.dates, 1, 'Should have 1 date match (Jan 31)');
+    assert.strictEqual(result.total, 3, 'Total should be 3');
+    assert.ok(result.matchedOrgs.includes('BITCOIN'), 'Should include BITCOIN in matched orgs');
   });
 
   it('tokenize: handles special characters', () => {
