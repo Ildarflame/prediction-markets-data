@@ -372,6 +372,69 @@ describe('Universal Scorer', () => {
         'Reason should include team name'
       );
     });
+
+    // v3.0.23: Multi-entity bonus test
+    test('multi-entity bonus increases score for multiple matches', () => {
+      // Market with 2 teams - should get multi-entity bonus
+      const left2Teams = extractMarketEntities(
+        createMockMarket(1, 'Vitality vs Falcons CS2', {
+          venue: 'polymarket',
+          closeTime: new Date('2026-02-15T12:00:00Z'),
+        })
+      );
+
+      const right2Teams = extractMarketEntities(
+        createMockMarket(2, 'Team Vitality vs Team Falcons', {
+          venue: 'kalshi',
+          closeTime: new Date('2026-02-15T14:00:00Z'),
+        })
+      );
+
+      // Market with 1 team only (different market context to avoid matchup detection)
+      const left1Team = extractMarketEntities(
+        createMockMarket(3, 'Will Vitality win the CS2 tournament?', {
+          venue: 'polymarket',
+          closeTime: new Date('2026-02-15T12:00:00Z'),
+        })
+      );
+
+      const right1Team = extractMarketEntities(
+        createMockMarket(4, 'Vitality to win tournament', {
+          venue: 'kalshi',
+          closeTime: new Date('2026-02-15T14:00:00Z'),
+        })
+      );
+
+      const score2Teams = scoreUniversal(left2Teams, right2Teams);
+      const score1Team = scoreUniversal(left1Team, right1Team);
+
+      // Verify 2 teams were detected in first pair
+      assert.ok(
+        score2Teams.overlapDetails.teams >= 2,
+        `Should have 2+ team matches, got ${score2Teams.overlapDetails.teams}`
+      );
+
+      // Verify 1 team in second pair
+      assert.ok(
+        score1Team.overlapDetails.teams >= 1,
+        `Should have 1+ team match, got ${score1Team.overlapDetails.teams}`
+      );
+
+      // 2 team matches should score higher overall due to:
+      // - multi-entity bonus (2 entities = +0.10)
+      // - same-category bonus (2 teams = +0.05)
+      // - matchup bonus (both teams detected)
+      assert.ok(
+        score2Teams.score > score1Team.score,
+        `2 teams (${score2Teams.score.toFixed(3)}) should score higher than 1 team (${score1Team.score.toFixed(3)})`
+      );
+
+      // The 2-team market should have more matched entities
+      assert.ok(
+        score2Teams.matchedEntities.length > score1Team.matchedEntities.length,
+        `2 teams (${score2Teams.matchedEntities.length} entities) > 1 team (${score1Team.matchedEntities.length} entities)`
+      );
+    });
   });
 
   describe('quickMatchCheck', () => {

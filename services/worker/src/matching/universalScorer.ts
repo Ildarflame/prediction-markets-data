@@ -126,7 +126,12 @@ export const SCORE_THRESHOLDS = {
 
 /**
  * Calculate entity overlap score (0-1)
- * Takes the max overlap ratio from any category
+ * Takes the max overlap ratio from any category + multi-entity bonuses
+ *
+ * v3.0.23: Enhanced with multi-entity bonus
+ * - Bonus for total matched entities (3+ = +0.15, 2 = +0.10)
+ * - Bonus for multiple entities in same category (2+ teams/people = +0.05)
+ * - Existing bonus for multiple entity types matching (2+ types = +0.10)
  */
 function scoreEntityOverlap(
   left: UniversalEntities,
@@ -155,16 +160,34 @@ function scoreEntityOverlap(
   // Take the best score from any category
   const bestEntityScore = Math.max(teamScore, peopleScore, orgScore);
 
-  // Bonus for multiple entity types matching
+  // Bonus 1: Multiple entity types matching (existing)
   const typesMatching = [
     overlapDetails.teams > 0,
     overlapDetails.people > 0,
     overlapDetails.organizations > 0,
   ].filter(Boolean).length;
+  const multiTypeBonus = typesMatching >= 2 ? 0.10 : 0;
 
-  const multiTypeBonus = typesMatching >= 2 ? 0.1 : 0;
+  // Bonus 2: Total number of matched entities (NEW v3.0.23)
+  // Rewards markets that share many entities (e.g., "Team A vs Team B" matching both teams)
+  const totalMatched = overlapDetails.teams + overlapDetails.people + overlapDetails.organizations;
+  let multiEntityBonus = 0;
+  if (totalMatched >= 3) {
+    multiEntityBonus = 0.15;
+  } else if (totalMatched >= 2) {
+    multiEntityBonus = 0.10;
+  }
 
-  return Math.min(bestEntityScore + multiTypeBonus, 1.0);
+  // Bonus 3: Multiple entities within same category (NEW v3.0.23)
+  // e.g., 2 teams matching is stronger signal than 1 team
+  const sameCategoryMultiple =
+    overlapDetails.teams >= 2 ||
+    overlapDetails.people >= 2 ||
+    overlapDetails.organizations >= 2;
+  const sameCategoryBonus = sameCategoryMultiple ? 0.05 : 0;
+
+  // Combined score (capped at 1.0)
+  return Math.min(bestEntityScore + multiTypeBonus + multiEntityBonus + sameCategoryBonus, 1.0);
 }
 
 /**
