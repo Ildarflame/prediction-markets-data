@@ -1,5 +1,5 @@
 /**
- * Universal Scorer Tests (v3.0.18)
+ * Universal Scorer Tests (v3.0.26)
  */
 
 import { test, describe } from 'node:test';
@@ -433,6 +433,54 @@ describe('Universal Scorer', () => {
       assert.ok(
         score2Teams.matchedEntities.length > score1Team.matchedEntities.length,
         `2 teams (${score2Teams.matchedEntities.length} entities) > 1 team (${score1Team.matchedEntities.length} entities)`
+      );
+    });
+
+    test('comparator match penalizes ABOVE vs BELOW conflicts', () => {
+      // Same asset but opposite directions - should NOT match!
+      const leftAbove = extractMarketEntities(
+        createMockMarket(1, 'Bitcoin above $100k by March 2026?', {
+          venue: 'polymarket',
+          closeTime: new Date('2026-03-31T00:00:00Z'),
+        })
+      );
+
+      const rightBelow = extractMarketEntities(
+        createMockMarket(2, 'Will Bitcoin fall below $100k in March 2026?', {
+          venue: 'kalshi',
+          closeTime: new Date('2026-03-31T00:00:00Z'),
+        })
+      );
+
+      // Same direction - should match
+      const rightAbove = extractMarketEntities(
+        createMockMarket(3, 'BTC to exceed $100k by end of March 2026', {
+          venue: 'kalshi',
+          closeTime: new Date('2026-03-31T00:00:00Z'),
+        })
+      );
+
+      const scoreConflict = scoreUniversal(leftAbove, rightBelow);
+      const scoreMatch = scoreUniversal(leftAbove, rightAbove);
+
+      // ABOVE vs BELOW should get 0 comparator score → final score = 0
+      assert.ok(
+        scoreConflict.breakdown.comparatorMatch === 0,
+        `ABOVE vs BELOW should have comparatorMatch=0, got ${scoreConflict.breakdown.comparatorMatch}`
+      );
+      assert.ok(
+        scoreConflict.score === 0,
+        `ABOVE vs BELOW conflict should have score=0, got ${scoreConflict.score}`
+      );
+
+      // Same direction should have higher comparator score
+      assert.ok(
+        scoreMatch.breakdown.comparatorMatch > 0,
+        `Same direction should have comparatorMatch > 0, got ${scoreMatch.breakdown.comparatorMatch}`
+      );
+      assert.ok(
+        scoreMatch.score > scoreConflict.score,
+        `Same direction (${scoreMatch.score.toFixed(3)}) should score higher than conflict (${scoreConflict.score.toFixed(3)})`
       );
     });
   });

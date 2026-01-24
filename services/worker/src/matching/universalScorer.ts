@@ -1,16 +1,23 @@
 /**
- * Universal Scorer (v3.0.17)
+ * Universal Scorer (v3.0.26)
  *
  * Weighted multi-component scoring for Universal Hybrid Matcher.
  * Works for ALL market categories without category-specific pipelines.
  *
- * Scoring components (v3.0.17 - tuned):
- * - Entity Overlap: 0.45 (teams, people, orgs)
- * - Event Match: 0.15 (tournament/event name detection) - NEW
+ * Scoring components (v3.0.26):
+ * - Entity Overlap: 0.50 (teams, people, orgs + multi-entity bonuses)
  * - Number Match: 0.15 (prices, spreads, percentages)
- * - Time Proximity: 0.10 (closeTime distance) - REDUCED
- * - Text Similarity: 0.10 (Jaccard on tokens)
- * - Category Boost: 0.05 (same derivedTopic)
+ * - Time Proximity: 0.10 (closeTime distance)
+ * - Text Similarity: 0.15 (Jaccard on tokens)
+ * - Category Boost: 0.10 (same derivedTopic)
+ *
+ * BONUSES (added on top, capped at 1.0):
+ * - Event Match: +15% for matching tournament/event names
+ * - Matchup Match: +15% for exact "A vs B" both teams match
+ *
+ * PENALTY FACTORS (multipliers 0-1):
+ * - Market Type Match: 0.3 for conflicting types (WINNER vs SPREAD)
+ * - Comparator Match: 0.0 for ABOVE vs BELOW (opposite directions!)
  */
 
 import {
@@ -18,6 +25,7 @@ import {
   countEntityOverlapDetailed,
   jaccardSets,
   UniversalMarketType,
+  UniversalComparator,
   type UniversalEntities,
   type EntityOverlapResult,
 } from '@data-module/core';
@@ -65,6 +73,7 @@ export interface UniversalScoreBreakdown {
   eventMatch: number;      // v3.0.17 (BONUS)
   matchupMatch: number;    // v3.0.18 (BONUS)
   marketTypeMatch: number; // v3.0.25 (PENALTY factor)
+  comparatorMatch: number; // v3.0.26 (PENALTY factor)
   numberMatch: number;
   timeProximity: number;
   textSimilarity: number;
@@ -346,6 +355,79 @@ function scoreMarketTypeMatch(
   // Conflicting types - strong penalty
   // e.g., SPREAD vs PRICE_TARGET, TOTAL vs WINNER
   return 0.3;
+}
+
+// ============================================================================
+// COMPARATOR MATCHING (v3.0.26)
+// ============================================================================
+
+/**
+ * Calculate comparator match score (v3.0.26)
+ * Returns a penalty factor (0-1) applied to the final score
+ *
+ * Comparators indicate the direction of the market condition:
+ * - ABOVE: "Bitcoin above $100k"
+ * - BELOW: "Bitcoin below $90k"
+ * - WIN: "Team X to win"
+ * - BETWEEN: "Price between $90k-$110k"
+ * - EXACT: "Price at exactly $100k"
+ *
+ * Matching rules:
+ * - 1.0: Same comparator or both UNKNOWN
+ * - 0.95: One is UNKNOWN
+ * - 0.9: Both are WIN (always compatible)
+ * - 0.7: BETWEEN with ABOVE/BELOW (partial overlap possible)
+ * - 0.0: ABOVE vs BELOW (complete conflict - opposite directions!)
+ */
+function scoreComparatorMatch(
+  leftComp: UniversalComparator,
+  rightComp: UniversalComparator
+): number {
+  // Same comparator - no penalty
+  if (leftComp === rightComp) return 1.0;
+
+  // Both unknown - neutral
+  if (leftComp === UniversalComparator.UNKNOWN && rightComp === UniversalComparator.UNKNOWN) {
+    return 1.0;
+  }
+
+  // One unknown - very slight penalty
+  if (leftComp === UniversalComparator.UNKNOWN || rightComp === UniversalComparator.UNKNOWN) {
+    return 0.95;
+  }
+
+  // WIN is generally compatible with other types
+  if (leftComp === UniversalComparator.WIN || rightComp === UniversalComparator.WIN) {
+    return 0.9;
+  }
+
+  // BETWEEN can partially overlap with ABOVE/BELOW
+  if (
+    (leftComp === UniversalComparator.BETWEEN && (rightComp === UniversalComparator.ABOVE || rightComp === UniversalComparator.BELOW)) ||
+    (rightComp === UniversalComparator.BETWEEN && (leftComp === UniversalComparator.ABOVE || leftComp === UniversalComparator.BELOW))
+  ) {
+    return 0.7;
+  }
+
+  // ABOVE vs BELOW - complete conflict!
+  // This is the most critical case - opposite market directions
+  if (
+    (leftComp === UniversalComparator.ABOVE && rightComp === UniversalComparator.BELOW) ||
+    (leftComp === UniversalComparator.BELOW && rightComp === UniversalComparator.ABOVE)
+  ) {
+    return 0.0; // Zero score - these markets are opposite!
+  }
+
+  // EXACT with ABOVE/BELOW - usually different markets
+  if (
+    (leftComp === UniversalComparator.EXACT && (rightComp === UniversalComparator.ABOVE || rightComp === UniversalComparator.BELOW)) ||
+    (rightComp === UniversalComparator.EXACT && (leftComp === UniversalComparator.ABOVE || leftComp === UniversalComparator.BELOW))
+  ) {
+    return 0.5;
+  }
+
+  // Default: slight penalty for mismatched comparators
+  return 0.8;
 }
 
 // ============================================================================
@@ -674,6 +756,7 @@ function buildReason(
   // Score breakdown summary (v3.0.17: added Ev for event)
   // v3.0.18: Show matchup and event bonuses only if > 0
   // v3.0.25: Show market type penalty if < 1.0
+  // v3.0.26: Show comparator penalty if < 1.0
   const breakdownParts = [
     `E=${(breakdown.entityOverlap * 100).toFixed(0)}%`,
   ];
@@ -686,6 +769,10 @@ function buildReason(
   // v3.0.25: Show market type penalty if applied
   if (breakdown.marketTypeMatch < 1.0) {
     breakdownParts.push(`MT=${(breakdown.marketTypeMatch * 100).toFixed(0)}%`);
+  }
+  // v3.0.26: Show comparator penalty if applied (C=0% for ABOVE vs BELOW!)
+  if (breakdown.comparatorMatch < 1.0) {
+    breakdownParts.push(`C=${(breakdown.comparatorMatch * 100).toFixed(0)}%`);
   }
   breakdownParts.push(
     `N=${(breakdown.numberMatch * 100).toFixed(0)}%`,
@@ -725,6 +812,7 @@ export function scoreUniversal(
   const eventResult = scoreEventMatch(left.market.title, right.market.title);  // v3.0.17
   const matchupResult = scoreMatchupMatch(left.market.title, right.market.title);  // v3.0.18
   const marketTypeScore = scoreMarketTypeMatch(le.marketType, re.marketType);  // v3.0.25
+  const comparatorScore = scoreComparatorMatch(le.comparator, re.comparator);  // v3.0.26
   const numberScore = scoreNumberMatch(overlapDetails);
   const timeScore = scoreTimeProximity(left.market.closeTime, right.market.closeTime);
   const textScore = scoreTextSimilarity(le.tokens, re.tokens);
@@ -746,17 +834,19 @@ export function scoreUniversal(
   const eventBonus = weights.eventMatch * eventResult.score;
   const matchupBonus = weights.matchupBonus * matchupResult.score;
 
-  // v3.0.25: Apply market type penalty (multiplier)
-  // Conflicting market types get penalized (e.g., SPREAD vs WINNER)
+  // v3.0.26: Apply penalty factors (multipliers)
+  // - Market type penalty: conflicting types (e.g., SPREAD vs WINNER)
+  // - Comparator penalty: ABOVE vs BELOW = 0 (opposite market directions!)
   const rawScore = Math.min(1.0, baseScore + eventBonus + matchupBonus);
-  const score = rawScore * marketTypeScore;
+  const score = rawScore * marketTypeScore * comparatorScore;
 
-  // Build breakdown (v3.0.25: added marketTypeMatch)
+  // Build breakdown (v3.0.26: added comparatorMatch)
   const breakdown: UniversalScoreBreakdown = {
     entityOverlap: entityScore,
     eventMatch: eventResult.score,
     matchupMatch: matchupResult.score,
     marketTypeMatch: marketTypeScore,
+    comparatorMatch: comparatorScore,
     numberMatch: numberScore,
     timeProximity: timeScore,
     textSimilarity: textScore,
