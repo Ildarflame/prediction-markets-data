@@ -7,7 +7,7 @@ import { type Venue, DEFAULT_DEDUP_CONFIG, loadVenueConfig, formatVenueConfig } 
 import { disconnect } from '@data-module/db';
 import { runIngestion, runIngestionLoop } from './pipeline/ingest.js';
 import { runSplitIngestionLoop } from './pipeline/split-runner.js';
-import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit, runCryptoTruthDateAudit, runCryptoTypeAudit, runCryptoEthDebug, runCryptoSeriesAudit, runCryptoEligibleExplain, runKalshiIngestionDiag, runKalshiSanityStatus, runQuotesFreshness, runPolymarketCursorDiag, runLinksStats, runLinksCleanup, runLinksBackfill, runIntradayBest, runVenueSanityEligible, runLinksWatchlistSync, runWatchlistStats, runWatchlistList, runWatchlistCleanup, runLinksQueue, runLinksAutoReject, runAutoConfirm, runOps, runOpsKpi, runKalshiSeriesSync, runTaxonomyTruthAudit, runPolymarketTaxonomyBackfill, runPolymarketEventsSync, runPolymarketEventsCoverage, runCommoditiesCounts, runCommoditiesOverlap, runCommoditiesBest } from './commands/index.js';
+import { runSeed, runArchive, runSanityCheck, runHealthCheck, runReconcile, runSuggestMatches, runListSuggestions, runShowLink, runConfirmMatch, runRejectMatch, runKalshiReport, runKalshiSmoke, runKalshiDiscoverSeries, KNOWN_POLITICAL_TICKERS, runOverlapReport, DEFAULT_OVERLAP_KEYWORDS, runMetaSample, runMacroOverlap, runMacroProbe, runMacroCounts, runMacroBest, runMacroAudit, runAuditPack, getSupportedEntities, runTruthAudit, runTruthAuditBatch, getSupportedTruthAuditEntities, runCryptoCounts, runCryptoOverlap, runCryptoTruthAudit, runCryptoTruthAuditBatch, getSupportedCryptoTruthAuditEntities, runCryptoQuality, runCryptoBrackets, runCryptoDateAudit, runCryptoTruthDateAudit, runCryptoTypeAudit, runCryptoEthDebug, runCryptoSeriesAudit, runCryptoEligibleExplain, runKalshiIngestionDiag, runKalshiSanityStatus, runQuotesFreshness, runPolymarketCursorDiag, runLinksStats, runLinksCleanup, runLinksBackfill, runIntradayBest, runVenueSanityEligible, runLinksWatchlistSync, runWatchlistStats, runWatchlistList, runWatchlistCleanup, runLinksQueue, runLinksAutoReject, runAutoConfirm, runOps, runOpsKpi, runKalshiSeriesSync, runTaxonomyTruthAudit, runPolymarketTaxonomyBackfill, runPolymarketEventsSync, runPolymarketEventsCoverage, runCommoditiesCounts, runCommoditiesOverlap, runCommoditiesBest, runTestExtractor } from './commands/index.js';
 import type { LinkStatus } from '@data-module/db';
 import { getSupportedVenues, type KalshiAuthConfig } from './adapters/index.js';
 
@@ -1608,6 +1608,30 @@ program
       await runOpsKpi();
     } catch (error) {
       console.error('Ops KPI error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
+// v3.0.16: test:extractor - Test Universal Entity Extractor
+program
+  .command('test:extractor')
+  .description('Test Universal Entity Extractor on real markets (v3.0.16)')
+  .option('--venue <venue>', 'Filter by venue (polymarket, kalshi)')
+  .option('--query <query>', 'Search query in title', 'vs')
+  .option('--limit <n>', 'Number of markets to test', '10')
+  .option('--cross-match', 'Try to find cross-venue matches')
+  .action(async (opts) => {
+    try {
+      await runTestExtractor({
+        venue: opts.venue,
+        query: opts.query,
+        limit: parseInt(opts.limit, 10),
+        crossMatch: opts.crossMatch,
+      });
+    } catch (error) {
+      console.error('Test extractor error:', error);
       process.exit(1);
     } finally {
       await disconnect();
