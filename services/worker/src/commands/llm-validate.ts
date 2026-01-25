@@ -42,15 +42,40 @@ async function validateWithLLM(
   ollamaUrl: string,
   model: string
 ): Promise<ValidationDecision | null> {
-  const prompt = `You are a prediction market matching expert. Compare these two market titles and determine if they are asking about the EXACT SAME EVENT.
+  const prompt = `You are a prediction market matching expert. Your task is to determine if two market titles from different platforms are asking about the EXACT SAME EVENT.
+
+Rules:
+- Markets must have the SAME outcome condition (e.g., both asking "will X happen by date Y?")
+- Minor wording differences are OK if the underlying event is identical
+- Different price targets, dates, or conditions mean DIFFERENT events
+
+Examples:
+
+Market A: "Bitcoin above $100,000 on January 31?"
+Market B: "Will Bitcoin price be above $100k by end of January 2025?"
+Answer: YES (same asset, same target, same timeframe)
+
+Market A: "Will Trump win 2024 election?"
+Market B: "Will Biden win 2024 election?"
+Answer: NO (different candidates = different outcomes)
+
+Market A: "S&P 500 above 5000 by March 1?"
+Market B: "S&P 500 above 5500 by March 1?"
+Answer: NO (different price targets = different events)
+
+Market A: "Will Russia invade Ukraine by end of 2024?"
+Market B: "Will there be peace in Ukraine by end of 2024?"
+Answer: NO (opposite outcomes)
+
+Now evaluate these markets:
 
 Market A (Polymarket): "${leftTitle}"
 Market B (Kalshi): "${rightTitle}"
 
-Answer with ONLY ONE WORD:
+Think step by step, then answer with ONLY ONE WORD:
 - YES if they are clearly the same event
 - NO if they are different events
-- UNCERTAIN if you cannot tell
+- UNCERTAIN if you cannot determine
 
 Answer:`;
 
@@ -64,7 +89,7 @@ Answer:`;
         stream: false,
         options: {
           temperature: 0.1,  // Low temperature for consistent answers
-          num_predict: 10,   // Short response
+          num_predict: 100,  // Allow reasoning before answer
         },
       }),
     });
