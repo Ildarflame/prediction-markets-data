@@ -102,6 +102,9 @@ export { runOpsKpi, type OpsKpiResult } from './ops-kpi.js';
 export { runTaxonomyCoverage, type TaxonomyCoverageOptions } from './taxonomy-coverage.js';
 export { runV3SuggestMatches, type V3SuggestMatchesOptions, type V3SuggestMatchesResult } from './v3-suggest-matches.js';
 
+// v3.1.0: Suggest all topics at once
+export { runV3SuggestAll, type V3SuggestAllOptions } from './v3-suggest-all.js';
+
 // v3.0.1: Taxonomy truth-audit and series sync
 export { runKalshiSeriesSync, type KalshiSeriesSyncOptions } from './kalshi-series-sync.js';
 export { runTaxonomyTruthAudit, type TaxonomyTruthAuditOptions, type TaxonomyTruthAuditResult } from './taxonomy-truth-audit.js';

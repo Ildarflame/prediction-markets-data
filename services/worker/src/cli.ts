@@ -1914,6 +1914,54 @@ program
     }
   });
 
+// V3 suggest-all (v3.1.0: run all topics at once)
+program
+  .command('v3:suggest-all')
+  .description('Run V3 matching for all registered topics (v3.1.0)')
+  .option('--from <venue>', 'Source venue', 'polymarket')
+  .option('--to <venue>', 'Target venue', 'kalshi')
+  .option('--topics <topics>', 'Comma-separated topics (empty = all registered)')
+  .option('--lookback-hours <hours>', 'Lookback window (default per-topic)')
+  .option('--limit-left <number>', 'Max source markets per topic', '5000')
+  .option('--limit-right <number>', 'Max target markets per topic', '50000')
+  .option('--min-score <number>', 'Minimum score threshold (default per-topic)')
+  .option('--dry-run', 'Preview without writing to DB', false)
+  .option('--auto-confirm', 'Auto-confirm safe matches', false)
+  .option('--auto-reject', 'Auto-reject bad matches', false)
+  .action(async (opts) => {
+    const { runV3SuggestAll } = await import('./commands/index.js');
+    const supportedVenues = getSupportedVenues();
+
+    if (!supportedVenues.includes(opts.from)) {
+      console.error(`Invalid --from venue: ${opts.from}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+    if (!supportedVenues.includes(opts.to)) {
+      console.error(`Invalid --to venue: ${opts.to}. Supported: ${supportedVenues.join(', ')}`);
+      process.exit(1);
+    }
+
+    try {
+      await runV3SuggestAll({
+        fromVenue: opts.from as Venue,
+        toVenue: opts.to as Venue,
+        topics: opts.topics ? opts.topics.split(',').map((t: string) => t.trim()) : undefined,
+        lookbackHours: opts.lookbackHours ? parseInt(opts.lookbackHours, 10) : undefined,
+        limitLeft: parseInt(opts.limitLeft, 10),
+        limitRight: parseInt(opts.limitRight, 10),
+        minScore: opts.minScore ? parseFloat(opts.minScore) : undefined,
+        dryRun: opts.dryRun,
+        autoConfirm: opts.autoConfirm,
+        autoReject: opts.autoReject,
+      });
+    } catch (error) {
+      console.error('V3 suggest-all error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
 // Kalshi series sync (v3.0.1)
 program
   .command('kalshi:series:sync')
