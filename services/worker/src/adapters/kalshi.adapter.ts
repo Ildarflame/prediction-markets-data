@@ -13,6 +13,7 @@ import {
 import { type VenueAdapter, type AdapterConfig, DEFAULT_ADAPTER_CONFIG } from './types.js';
 import { type KalshiConfig, loadKalshiConfig, formatKalshiConfig, KALSHI_PROD_URL } from './kalshi.config.js';
 import { jwtCache } from '../utils/kalshi-auth.js';
+import { ProxyAgent } from 'undici';
 
 interface KalshiMarket {
   ticker: string;
@@ -103,6 +104,7 @@ export class KalshiAdapter implements VenueAdapter {
   private readonly config: Required<AdapterConfig>;
   private readonly kalshiConfig: KalshiConfig;
   private readonly auth?: KalshiAuthConfig;
+  private readonly proxyAgent?: ProxyAgent;
 
   constructor(config: AdapterConfig = {}, auth?: KalshiAuthConfig, kalshiConfig?: KalshiConfig) {
     this.kalshiConfig = kalshiConfig || loadKalshiConfig();
@@ -112,6 +114,13 @@ export class KalshiAdapter implements VenueAdapter {
       baseUrl: config.baseUrl || this.kalshiConfig.baseUrl || KALSHI_PROD_URL,
     };
     this.auth = auth;
+
+    // Initialize proxy agent if KALSHI_PROXY_URL is set
+    const proxyUrl = process.env.KALSHI_PROXY_URL;
+    if (proxyUrl) {
+      this.proxyAgent = new ProxyAgent(proxyUrl);
+      console.log(`[kalshi] Using proxy: ${proxyUrl}`);
+    }
 
     console.log(formatKalshiConfig(this.kalshiConfig));
 
@@ -627,6 +636,8 @@ export class KalshiAdapter implements VenueAdapter {
         ...options,
         signal: controller.signal,
         headers,
+        // @ts-ignore - dispatcher is supported by undici-based fetch
+        dispatcher: this.proxyAgent,
       });
     } finally {
       clearTimeout(timeout);
