@@ -12,6 +12,7 @@ import {
 } from '@data-module/core';
 import { type VenueAdapter, type AdapterConfig, DEFAULT_ADAPTER_CONFIG } from './types.js';
 import { type KalshiConfig, loadKalshiConfig, formatKalshiConfig, KALSHI_PROD_URL } from './kalshi.config.js';
+import { jwtCache } from '../utils/kalshi-auth.js';
 
 interface KalshiMarket {
   ticker: string;
@@ -589,14 +590,32 @@ export class KalshiAdapter implements VenueAdapter {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
 
+    // Build headers with JWT auth if available
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+    };
+
+    // Copy existing headers if present
+    if (options.headers) {
+      const existing = options.headers as Record<string, string>;
+      Object.assign(headers, existing);
+    }
+
+    // Add JWT authentication if configured
+    if (this.auth) {
+      const token = jwtCache.get({
+        apiKeyId: this.auth.apiKeyId,
+        privateKeyPem: this.auth.privateKeyPem,
+        expiresIn: 300, // 5 minutes
+      });
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
     try {
       return await fetch(url, {
         ...options,
         signal: controller.signal,
-        headers: {
-          ...options.headers,
-          'Accept': 'application/json',
-        },
+        headers,
       });
     } finally {
       clearTimeout(timeout);
