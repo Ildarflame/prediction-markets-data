@@ -12,6 +12,7 @@ export interface LLMValidateOptions {
   minScore?: number;           // Minimum score to validate (default: 0.75)
   limit?: number;              // Max links to process (default: 100)
   batchSize?: number;          // Links to process in parallel (default: 5)
+  batchDelayMs?: number;       // Delay between batches in ms (default: 500 for ollama, 3000 for openai)
   provider?: 'ollama' | 'openai';  // LLM provider (default: ollama)
   ollamaUrl?: string;          // Ollama API URL (default: http://localhost:11434)
   openaiApiKey?: string;       // OpenAI API key (default: from OPENAI_API_KEY env)
@@ -233,6 +234,7 @@ export async function runLLMValidate(options: LLMValidateOptions): Promise<LLMVa
     minScore = 0.75,
     limit = 100,
     batchSize = 5,
+    batchDelayMs,
     provider = 'ollama',
     ollamaUrl = 'http://localhost:11434',
     openaiApiKey = process.env.OPENAI_API_KEY,
@@ -246,6 +248,9 @@ export async function runLLMValidate(options: LLMValidateOptions): Promise<LLMVa
   // Default models based on provider
   const defaultModel = provider === 'openai' ? 'gpt-4o-mini' : 'llama3.2:3b';
   const finalModel = model || defaultModel;
+
+  // Default batch delay based on provider (OpenAI needs more delay for rate limits)
+  const finalBatchDelay = batchDelayMs ?? (provider === 'openai' ? 3000 : 500);
 
   const effectiveDryRun = !apply || dryRun;
 
@@ -265,6 +270,7 @@ export async function runLLMValidate(options: LLMValidateOptions): Promise<LLMVa
   console.log(`Min Score: ${minScore}`);
   console.log(`Limit: ${limit}`);
   console.log(`Batch Size: ${batchSize}`);
+  console.log(`Batch Delay: ${finalBatchDelay}ms`);
   console.log(`Topic: ${topic || 'all (excluding topic=all)'}`);
   console.log(`Mode: ${effectiveDryRun ? 'DRY RUN' : '⚠️  APPLY (will confirm)'}`);
   console.log();
@@ -415,8 +421,8 @@ export async function runLLMValidate(options: LLMValidateOptions): Promise<LLMVa
     // Progress
     console.log(`Progress: ${Math.min(i + batchSize, links.length)}/${links.length}\\n`);
 
-    // Rate limiting (don't hammer the LLM)
-    await new Promise((r) => setTimeout(r, 500));
+    // Rate limiting (prevent hitting API rate limits)
+    await new Promise((r) => setTimeout(r, finalBatchDelay));
   }
 
   // Summary

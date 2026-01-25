@@ -1970,6 +1970,7 @@ program
   .option('--min-score <number>', 'Minimum score to consider', '0.75')
   .option('--limit <number>', 'Max links to process', '100')
   .option('--batch-size <number>', 'Parallel batch size', '5')
+  .option('--batch-delay-ms <number>', 'Delay between batches in ms (default: 500 for ollama, 3000 for openai)')
   .option('--ollama-url <url>', 'Ollama API URL', 'http://localhost:11434')
   .option('--openai-api-key <key>', 'OpenAI API key (or use OPENAI_API_KEY env)')
   .option('--proxy-url <url>', 'HTTP/HTTPS proxy URL (e.g., http://199.217.98.13:8888)')
@@ -1985,6 +1986,7 @@ program
         minScore: parseFloat(opts.minScore),
         limit: parseInt(opts.limit, 10),
         batchSize: parseInt(opts.batchSize, 10),
+        batchDelayMs: opts.batchDelayMs ? parseInt(opts.batchDelayMs, 10) : undefined,
         provider: opts.provider as 'ollama' | 'openai',
         ollamaUrl: opts.ollamaUrl,
         openaiApiKey: opts.openaiApiKey,
