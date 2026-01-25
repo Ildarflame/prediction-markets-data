@@ -30,6 +30,9 @@ export function createKalshiJWT(options: KalshiJWTOptions): string {
     exp: now + expiresIn,
   };
 
+  console.log('[kalshi-auth] Creating JWT with payload:', JSON.stringify(payload));
+  console.log('[kalshi-auth] Private key starts with:', privateKeyPem.substring(0, 30));
+
   const token = jwt.sign(payload, privateKeyPem, {
     algorithm: 'RS256',
     header: {
@@ -37,6 +40,8 @@ export function createKalshiJWT(options: KalshiJWTOptions): string {
       typ: 'JWT',
     },
   });
+
+  console.log('[kalshi-auth] JWT token created, length:', token.length);
 
   return token;
 }

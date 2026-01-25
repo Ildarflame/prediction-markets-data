@@ -609,6 +609,8 @@ export class KalshiAdapter implements VenueAdapter {
         expiresIn: 300, // 5 minutes
       });
       headers['Authorization'] = `Bearer ${token}`;
+      console.log(`[kalshi] JWT token generated (first 20 chars): ${token.substring(0, 20)}...`);
+      console.log(`[kalshi] Authorization header: Bearer ${token.substring(0, 20)}...`);
     }
 
     try {
