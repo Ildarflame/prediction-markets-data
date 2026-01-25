@@ -1834,7 +1834,7 @@ program
   .description('Show topic coverage report across venues (v3.0.0)')
   .option('--topic <topic>', 'Filter by specific topic')
   .option('--lookback-hours <hours>', 'Lookback window', '720')
-  .option('--limit <number>', 'Max markets per venue', '10000')
+  .option('--limit <number>', 'Max markets per venue', '999999999')
   .option('--sample-size <number>', 'Sample titles per topic', '3')
   .action(async (opts) => {
     const { runTaxonomyCoverage } = await import('./commands/index.js');
