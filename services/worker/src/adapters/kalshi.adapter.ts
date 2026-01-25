@@ -567,9 +567,18 @@ export class KalshiAdapter implements VenueAdapter {
       async () => {
         const response = await this.fetchWithTimeout(url);
         if (!response.ok) {
+          // Try to read the error response body
+          let errorBody = '';
+          try {
+            errorBody = await response.text();
+            console.log(`[kalshi] Error response body: ${errorBody}`);
+          } catch (e) {
+            // Ignore if we can't read the body
+          }
+
           const retryAfterMs = parseRetryAfter(response.headers.get('Retry-After'));
           throw new HttpError(
-            `Kalshi API error: ${response.status} ${response.statusText}`,
+            `Kalshi API error: ${response.status} ${response.statusText}${errorBody ? `: ${errorBody}` : ''}`,
             response.status,
             retryAfterMs ? retryAfterMs / 1000 : undefined
           );
