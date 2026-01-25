@@ -1962,6 +1962,40 @@ program
     }
   });
 
+// LLM validation (v3.1.0: use local Ollama to validate suggestions)
+program
+  .command('llm:validate')
+  .description('Validate link suggestions using local LLM (Ollama) (v3.1.0)')
+  .option('--min-score <number>', 'Minimum score to consider', '0.75')
+  .option('--limit <number>', 'Max links to process', '100')
+  .option('--batch-size <number>', 'Parallel batch size', '5')
+  .option('--ollama-url <url>', 'Ollama API URL', 'http://localhost:11434')
+  .option('--model <model>', 'Model name', 'llama3.2:3b')
+  .option('--topic <topic>', 'Filter by topic')
+  .option('--dry-run', 'Preview without confirming', false)
+  .option('--apply', 'Actually confirm links', false)
+  .action(async (opts) => {
+    const { runLLMValidate } = await import('./commands/index.js');
+
+    try {
+      await runLLMValidate({
+        minScore: parseFloat(opts.minScore),
+        limit: parseInt(opts.limit, 10),
+        batchSize: parseInt(opts.batchSize, 10),
+        ollamaUrl: opts.ollamaUrl,
+        model: opts.model,
+        topic: opts.topic,
+        dryRun: opts.dryRun,
+        apply: opts.apply,
+      });
+    } catch (error) {
+      console.error('LLM validation error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
 // Kalshi series sync (v3.0.1)
 program
   .command('kalshi:series:sync')
