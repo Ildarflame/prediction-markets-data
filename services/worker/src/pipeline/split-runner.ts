@@ -301,7 +301,7 @@ async function syncQuotes(
 export async function runSplitIngestionLoop(config: SplitRunnerConfig): Promise<never> {
   const {
     venue,
-    maxMarkets = 10000,
+    maxMarkets = 100000,
     pageSize = 100,
     marketsRefreshSeconds,
     quotesRefreshSeconds,
