@@ -58,7 +58,7 @@ program
   .requiredOption('-v, --venue <venue>', `Venue to ingest from (${getSupportedVenues().join(', ')})`)
   .option('-m, --mode <mode>', 'Mode: once, loop, or split', 'once')
   .option('-i, --interval <seconds>', 'Interval between ingestion cycles (loop mode)', '60')
-  .option('--max-markets <number>', 'Maximum markets to fetch', '10000')
+  .option('--max-markets <number>', 'Maximum markets to fetch', '100000')
   .option('--page-size <number>', 'Page size for API requests', '100')
   .option('--epsilon <number>', 'Price change threshold for dedup', String(DEFAULT_DEDUP_CONFIG.epsilon))
   .option('--min-interval <seconds>', 'Minimum interval between quotes', String(DEFAULT_DEDUP_CONFIG.minIntervalSeconds))
