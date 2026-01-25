@@ -28,7 +28,7 @@ export interface IngestResult {
  */
 export async function runIngestion(options: IngestOptions): Promise<IngestResult> {
   const startTime = Date.now();
-  const { venue, maxMarkets = 100000, pageSize = 100 } = options;
+  const { venue, maxMarkets = Number.MAX_SAFE_INTEGER, pageSize = 100 } = options;
   const dedupConfig = options.dedupConfig ?? DEFAULT_DEDUP_CONFIG;
 
   const prisma = getClient();

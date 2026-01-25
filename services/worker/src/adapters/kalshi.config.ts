@@ -38,7 +38,7 @@ export const DEFAULT_KALSHI_CONFIG: KalshiConfig = {
   seriesCategories: [],
   eventsStatus: ['open', 'closed'],
   withNestedMarkets: true,
-  globalCapMarkets: 100000,
+  globalCapMarkets: Number.MAX_SAFE_INTEGER, // ~9 quadrillion, effectively unlimited
 };
 
 /**
@@ -95,7 +95,7 @@ export function loadKalshiConfig(): KalshiConfig {
   }
 
   if (process.env.KALSHI_GLOBAL_CAP_MARKETS) {
-    config.globalCapMarkets = parseInt(process.env.KALSHI_GLOBAL_CAP_MARKETS, 10) || 100000;
+    config.globalCapMarkets = parseInt(process.env.KALSHI_GLOBAL_CAP_MARKETS, 10) || Number.MAX_SAFE_INTEGER;
   }
 
   return config;
