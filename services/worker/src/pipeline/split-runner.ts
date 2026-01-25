@@ -8,7 +8,7 @@ import {
   WatchlistRepository,
   type Venue as DbVenue,
 } from '@data-module/db';
-import { createAdapter, type VenueAdapter, type KalshiAuthConfig } from '../adapters/index.js';
+import { createAdapter, type VenueAdapter, type KalshiAuthConfig, KalshiAdapter } from '../adapters/index.js';
 
 // v2.6.7: Quotes mode from environment
 const QUOTES_MODE = process.env.QUOTES_MODE || 'global';
@@ -50,46 +50,60 @@ async function syncMarkets(
   const startTime = Date.now();
 
   try {
-    const state = await ingestionRepo.getOrCreateState(venue, 'markets');
     const allMarkets: MarketDTO[] = [];
-    let cursor = state.cursor ?? undefined;
-    let totalFetched = 0;
 
-    while (totalFetched < maxMarkets) {
-      console.log(`[${venue}:markets] Fetching (cursor: ${cursor ?? 'start'})...`);
-      const result = await adapter.fetchMarkets({ cursor, limit: pageSize });
-      allMarkets.push(...result.items);
-      totalFetched += result.items.length;
-      console.log(`[${venue}:markets] Fetched ${result.items.length} (total: ${totalFetched})`);
+    // v3.1.0: Use fetchAllMarkets for Kalshi to support catalog mode
+    if (adapter instanceof KalshiAdapter) {
+      console.log(`[${venue}:markets] Using fetchAllMarkets (supports catalog mode)...`);
+      const fetchedMarkets = await adapter.fetchAllMarkets((progress) => {
+        console.log(`[${venue}:markets] Progress: ${progress.totalMarkets} markets fetched`);
+        if (progress.seriesFetched !== undefined) {
+          console.log(`[${venue}:markets] Series: ${progress.seriesFetched}, Events: ${progress.eventsFetched}`);
+        }
+      });
+      allMarkets.push(...fetchedMarkets.slice(0, maxMarkets));
+    } else {
+      // Other venues: use paginated fetchMarkets
+      const state = await ingestionRepo.getOrCreateState(venue, 'markets');
+      let cursor = state.cursor ?? undefined;
+      let totalFetched = 0;
 
-      // v2.6.6: If we got 0 results but had a cursor, check for stuck cursor
-      if (result.items.length === 0 && cursor) {
-        const key = `${venue}:markets`;
-        const prevZero = zeroFetchCycles.get(key) || 0;
-        zeroFetchCycles.set(key, prevZero + 1);
+      while (totalFetched < maxMarkets) {
+        console.log(`[${venue}:markets] Fetching (cursor: ${cursor ?? 'start'})...`);
+        const result = await adapter.fetchMarkets({ cursor, limit: pageSize });
+        allMarkets.push(...result.items);
+        totalFetched += result.items.length;
+        console.log(`[${venue}:markets] Fetched ${result.items.length} (total: ${totalFetched})`);
 
-        if (prevZero + 1 >= 3) {
-          console.warn(`[${venue}:markets] Detected ${prevZero + 1} consecutive zero-fetch cycles with cursor=${cursor}. Resetting cursor.`);
+        // v2.6.6: If we got 0 results but had a cursor, check for stuck cursor
+        if (result.items.length === 0 && cursor) {
+          const key = `${venue}:markets`;
+          const prevZero = zeroFetchCycles.get(key) || 0;
+          zeroFetchCycles.set(key, prevZero + 1);
+
+          if (prevZero + 1 >= 3) {
+            console.warn(`[${venue}:markets] Detected ${prevZero + 1} consecutive zero-fetch cycles with cursor=${cursor}. Resetting cursor.`);
+            await ingestionRepo.updateCursor(venue, 'markets', null);
+            zeroFetchCycles.set(key, 0);
+            break;
+          }
+        } else if (result.items.length > 0) {
+          // Reset zero-fetch counter on successful fetch
+          zeroFetchCycles.set(`${venue}:markets`, 0);
+        }
+
+        if (result.nextCursor) {
+          await ingestionRepo.updateCursor(venue, 'markets', result.nextCursor);
+          cursor = result.nextCursor;
+        } else {
+          // v2.6.6: Explicitly reset cursor when no nextCursor (end of data)
+          console.log(`[${venue}:markets] Reached end of data, resetting cursor`);
           await ingestionRepo.updateCursor(venue, 'markets', null);
-          zeroFetchCycles.set(key, 0);
+          zeroFetchCycles.set(`${venue}:markets`, 0);
           break;
         }
-      } else if (result.items.length > 0) {
-        // Reset zero-fetch counter on successful fetch
-        zeroFetchCycles.set(`${venue}:markets`, 0);
+        await new Promise((r) => setTimeout(r, 100));
       }
-
-      if (result.nextCursor) {
-        await ingestionRepo.updateCursor(venue, 'markets', result.nextCursor);
-        cursor = result.nextCursor;
-      } else {
-        // v2.6.6: Explicitly reset cursor when no nextCursor (end of data)
-        console.log(`[${venue}:markets] Reached end of data, resetting cursor`);
-        await ingestionRepo.updateCursor(venue, 'markets', null);
-        zeroFetchCycles.set(`${venue}:markets`, 0);
-        break;
-      }
-      await new Promise((r) => setTimeout(r, 100));
     }
 
     console.log(`[${venue}:markets] Upserting ${allMarkets.length} markets...`);
