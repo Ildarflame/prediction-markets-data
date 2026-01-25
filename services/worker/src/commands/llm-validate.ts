@@ -6,7 +6,7 @@
  */
 
 import { getClient, type LinkStatus } from '@data-module/db';
-import { HttpsProxyAgent } from 'https-proxy-agent';
+import { ProxyAgent } from 'undici';
 
 export interface LLMValidateOptions {
   minScore?: number;           // Minimum score to validate (default: 0.75)
@@ -80,7 +80,7 @@ Market B (Kalshi): "${rightTitle}"
 Answer with ONLY ONE WORD: YES, NO, or UNCERTAIN`;
 
   try {
-    const agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+    const dispatcher = proxyUrl ? new ProxyAgent(proxyUrl) : undefined;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -97,8 +97,8 @@ Answer with ONLY ONE WORD: YES, NO, or UNCERTAIN`;
         temperature: 0.1,
         max_tokens: 10,
       }),
-      // @ts-ignore - agent is not in standard fetch types but works in Node.js
-      agent,
+      // @ts-ignore - dispatcher is not in standard fetch types but works in Node.js with undici
+      dispatcher,
     });
 
     if (!response.ok) {
