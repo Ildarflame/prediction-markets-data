@@ -1,5 +1,5 @@
 /**
- * Kalshi Taxonomy Rules (v3.0.10)
+ * Kalshi Taxonomy Rules (v3.1.0)
  *
  * Maps Kalshi series tickers and categories to canonical topics.
  * Based on analysis of Kalshi API series data.
@@ -8,6 +8,7 @@
  * v3.0.8: Added COMMODITIES detection via tags, improved ELECTIONS coverage
  * v3.0.9: Added CLIMATE classification (category "Climate and Weather", ticker patterns, tags)
  * v3.0.10: Fixed COMMODITIES false positives (KXGOLDCARDS, KXGASOSR), added WTI/SPR/AAA patterns
+ * v3.1.0: Added FINANCE (indices, forex, bonds), GEOPOLITICS, ENTERTAINMENT patterns
  */
 
 import { CanonicalTopic, TopicRule, KalshiSeriesInfo, TopicClassification, TopicSource } from './types.js';
@@ -138,6 +139,49 @@ export const KALSHI_TICKER_RULES: TopicRule[] = [
   { pattern: /^KXNFL/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'NFL' },
   { pattern: /^KXMLB/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'MLB' },
   { pattern: /^KXNHL/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'NHL' },
+
+  // Finance - Indices, Forex, Bonds (v3.1.0)
+  { pattern: /^KXSPX/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: 'S&P 500' },
+  { pattern: /^KXSP500/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: 'S&P 500' },
+  { pattern: /^KXNDX/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: 'Nasdaq' },
+  { pattern: /^KXNASDAQ/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: 'Nasdaq' },
+  { pattern: /^KXDOW/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: 'Dow Jones' },
+  { pattern: /^KXDJIA/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: 'DJIA' },
+  { pattern: /^KXEURUSD/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: 'EUR/USD' },
+  { pattern: /^KXUSDJPY/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: 'USD/JPY' },
+  { pattern: /^KXGBPUSD/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: 'GBP/USD' },
+  { pattern: /^KXFOREX/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: 'Forex' },
+  { pattern: /^KXTREASURY/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: 'Treasury' },
+  { pattern: /^KXBOND/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: 'Bond' },
+  { pattern: /^KXYIELD/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: 'Yield' },
+  { pattern: /^KX10Y/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: '10-Year' },
+  { pattern: /^KX2Y/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: '2-Year' },
+
+  // Geopolitics - War, Peace, Sanctions, International Relations (v3.1.0)
+  { pattern: /^KXUKRAINE/i, topic: CanonicalTopic.GEOPOLITICS, confidence: 0.95, description: 'Ukraine' },
+  { pattern: /^KXRUSSIA/i, topic: CanonicalTopic.GEOPOLITICS, confidence: 0.95, description: 'Russia' },
+  { pattern: /^KXCHINA/i, topic: CanonicalTopic.GEOPOLITICS, confidence: 0.95, description: 'China' },
+  { pattern: /^KXTAIWAN/i, topic: CanonicalTopic.GEOPOLITICS, confidence: 0.95, description: 'Taiwan' },
+  { pattern: /^KXIRAN/i, topic: CanonicalTopic.GEOPOLITICS, confidence: 0.95, description: 'Iran' },
+  { pattern: /^KXISRAEL/i, topic: CanonicalTopic.GEOPOLITICS, confidence: 0.95, description: 'Israel' },
+  { pattern: /^KXGAZA/i, topic: CanonicalTopic.GEOPOLITICS, confidence: 0.95, description: 'Gaza' },
+  { pattern: /^KXNATO/i, topic: CanonicalTopic.GEOPOLITICS, confidence: 0.95, description: 'NATO' },
+  { pattern: /^KXWAR/i, topic: CanonicalTopic.GEOPOLITICS, confidence: 0.95, description: 'War' },
+  { pattern: /^KXPEACE/i, topic: CanonicalTopic.GEOPOLITICS, confidence: 0.95, description: 'Peace' },
+  { pattern: /^KXSANCTION/i, topic: CanonicalTopic.GEOPOLITICS, confidence: 0.95, description: 'Sanctions' },
+  { pattern: /^KXCEASEFIRE/i, topic: CanonicalTopic.GEOPOLITICS, confidence: 0.95, description: 'Ceasefire' },
+
+  // Entertainment - Awards, Movies, TV, Music (v3.1.0)
+  { pattern: /^KXOSCAR/i, topic: CanonicalTopic.ENTERTAINMENT, confidence: 0.95, description: 'Oscars' },
+  { pattern: /^KXGRAMMY/i, topic: CanonicalTopic.ENTERTAINMENT, confidence: 0.95, description: 'Grammys' },
+  { pattern: /^KXEMMY/i, topic: CanonicalTopic.ENTERTAINMENT, confidence: 0.95, description: 'Emmys' },
+  { pattern: /^KXGOLDENGLOBE/i, topic: CanonicalTopic.ENTERTAINMENT, confidence: 0.95, description: 'Golden Globes' },
+  { pattern: /^KXBOXOFFICE/i, topic: CanonicalTopic.ENTERTAINMENT, confidence: 0.95, description: 'Box Office' },
+  { pattern: /^KXMOVIE/i, topic: CanonicalTopic.ENTERTAINMENT, confidence: 0.90, description: 'Movie' },
+  { pattern: /^KXTV/i, topic: CanonicalTopic.ENTERTAINMENT, confidence: 0.90, description: 'TV' },
+  { pattern: /^KXSTREAMING/i, topic: CanonicalTopic.ENTERTAINMENT, confidence: 0.90, description: 'Streaming' },
+  { pattern: /^KXSPOTIFY/i, topic: CanonicalTopic.ENTERTAINMENT, confidence: 0.90, description: 'Spotify' },
+  { pattern: /^KXBILLBOARD/i, topic: CanonicalTopic.ENTERTAINMENT, confidence: 0.90, description: 'Billboard' },
 ];
 
 /**
@@ -153,9 +197,9 @@ export const KALSHI_CATEGORY_MAP: Record<string, CanonicalTopic> = {
   'economics': CanonicalTopic.MACRO,
   'economy': CanonicalTopic.MACRO,
 
-  // Financial - often contains rates
-  'financial': CanonicalTopic.RATES,
-  'financials': CanonicalTopic.RATES,
+  // Financial - often contains indices, forex, bonds (v3.1.0: changed from RATES to FINANCE)
+  'financial': CanonicalTopic.FINANCE,
+  'financials': CanonicalTopic.FINANCE,
 
   // Politics - elections
   'politics': CanonicalTopic.ELECTIONS,
@@ -232,13 +276,68 @@ export const KALSHI_TAG_MAP: Record<string, CanonicalTopic> = {
   'f1': CanonicalTopic.SPORTS,
   'formula 1': CanonicalTopic.SPORTS,
 
-  // Entertainment tags
+  // Entertainment tags (v3.1.0: expanded)
   'movies': CanonicalTopic.ENTERTAINMENT,
   'tv': CanonicalTopic.ENTERTAINMENT,
   'oscars': CanonicalTopic.ENTERTAINMENT,
   'grammys': CanonicalTopic.ENTERTAINMENT,
   'emmys': CanonicalTopic.ENTERTAINMENT,
   'awards': CanonicalTopic.ENTERTAINMENT,
+  'golden globes': CanonicalTopic.ENTERTAINMENT,
+  'box office': CanonicalTopic.ENTERTAINMENT,
+  'streaming': CanonicalTopic.ENTERTAINMENT,
+  'netflix': CanonicalTopic.ENTERTAINMENT,
+  'spotify': CanonicalTopic.ENTERTAINMENT,
+  'billboard': CanonicalTopic.ENTERTAINMENT,
+  'celebrity': CanonicalTopic.ENTERTAINMENT,
+  'celebrities': CanonicalTopic.ENTERTAINMENT,
+  'music': CanonicalTopic.ENTERTAINMENT,
+  'album': CanonicalTopic.ENTERTAINMENT,
+
+  // Geopolitics tags (v3.1.0)
+  'ukraine': CanonicalTopic.GEOPOLITICS,
+  'russia': CanonicalTopic.GEOPOLITICS,
+  'china': CanonicalTopic.GEOPOLITICS,
+  'taiwan': CanonicalTopic.GEOPOLITICS,
+  'iran': CanonicalTopic.GEOPOLITICS,
+  'israel': CanonicalTopic.GEOPOLITICS,
+  'gaza': CanonicalTopic.GEOPOLITICS,
+  'middle east': CanonicalTopic.GEOPOLITICS,
+  'war': CanonicalTopic.GEOPOLITICS,
+  'peace': CanonicalTopic.GEOPOLITICS,
+  'ceasefire': CanonicalTopic.GEOPOLITICS,
+  'sanctions': CanonicalTopic.GEOPOLITICS,
+  'nato': CanonicalTopic.GEOPOLITICS,
+  'putin': CanonicalTopic.GEOPOLITICS,
+  'zelensky': CanonicalTopic.GEOPOLITICS,
+  'international': CanonicalTopic.GEOPOLITICS,
+  'conflict': CanonicalTopic.GEOPOLITICS,
+
+  // Finance tags (v3.1.0)
+  's&p 500': CanonicalTopic.FINANCE,
+  's&p500': CanonicalTopic.FINANCE,
+  'sp500': CanonicalTopic.FINANCE,
+  'spx': CanonicalTopic.FINANCE,
+  'nasdaq': CanonicalTopic.FINANCE,
+  'nasdaq-100': CanonicalTopic.FINANCE,
+  'dow jones': CanonicalTopic.FINANCE,
+  'dow': CanonicalTopic.FINANCE,
+  'djia': CanonicalTopic.FINANCE,
+  'indices': CanonicalTopic.FINANCE,
+  'index': CanonicalTopic.FINANCE,
+  'forex': CanonicalTopic.FINANCE,
+  'eur/usd': CanonicalTopic.FINANCE,
+  'eurusd': CanonicalTopic.FINANCE,
+  'usd/jpy': CanonicalTopic.FINANCE,
+  'usdjpy': CanonicalTopic.FINANCE,
+  'gbp/usd': CanonicalTopic.FINANCE,
+  'gbpusd': CanonicalTopic.FINANCE,
+  'treasury': CanonicalTopic.FINANCE,
+  'treasuries': CanonicalTopic.FINANCE,
+  '10-year': CanonicalTopic.FINANCE,
+  '2-year': CanonicalTopic.FINANCE,
+  'bond yield': CanonicalTopic.FINANCE,
+  't-bill': CanonicalTopic.FINANCE,
 
   // Climate tags (v3.0.10: added EV, electric vehicles)
   'hurricane': CanonicalTopic.CLIMATE,

@@ -1,7 +1,9 @@
 /**
- * Signals Index (v3.0.11)
+ * Signals Index (v3.1.0)
  *
  * Exports all signal extraction modules.
+ *
+ * v3.1.0: Added geopolitics and entertainment signals
  */
 
 // Rates signals
@@ -76,3 +78,60 @@ export {
   getExclusionReason,
   SPORTS_KEYWORDS,
 } from './sportsSignals.js';
+
+// Geopolitics signals (v3.1.0)
+export {
+  GeopoliticsRegion,
+  GeopoliticsEventType,
+  REGION_KEYWORDS,
+  EVENT_TYPE_KEYWORDS,
+  ACTORS,
+  COUNTRIES,
+  type GeopoliticsSignals,
+  extractRegion as extractGeopoliticsRegion,
+  extractAllRegions,
+  extractEventType,
+  extractCountries as extractGeopoliticsCountries,
+  extractActors,
+  extractYear as extractGeopoliticsYear,
+  extractDeadline,
+  extractGeopoliticsSignals,
+  isGeopoliticsMarket,
+} from './geopoliticsSignals.js';
+
+// Entertainment signals (v3.1.0)
+export {
+  AwardShow,
+  MediaType,
+  AWARD_KEYWORDS,
+  MEDIA_TYPE_KEYWORDS,
+  AWARD_CATEGORIES,
+  type EntertainmentSignals,
+  extractAwardShow,
+  extractMediaType,
+  extractYear as extractEntertainmentYear,
+  extractCategory as extractAwardCategory,
+  extractNominees,
+  extractEntertainmentSignals,
+  isEntertainmentMarket,
+} from './entertainmentSignals.js';
+
+// Finance signals (v3.1.0)
+export {
+  FinanceAssetClass,
+  FinanceDirection,
+  INDICES,
+  FOREX_PAIRS,
+  BONDS,
+  DIRECTION_KEYWORDS as FINANCE_DIRECTION_KEYWORDS,
+  type FinanceSignals,
+  extractAssetClass,
+  extractInstrument,
+  extractDirection as extractFinanceDirection,
+  extractTargetValue,
+  extractRange,
+  extractDate as extractFinanceDate,
+  extractTimeframe,
+  extractFinanceSignals,
+  isFinanceMarket,
+} from './financeSignals.js';

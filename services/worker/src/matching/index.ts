@@ -101,6 +101,54 @@ export {
   areDateTypesCompatible as climateAreDateTypesCompatible,
   calculateDateScore,
   calculateThresholdScore,
+  // Geopolitics signals (v3.1.0)
+  GeopoliticsRegion,
+  GeopoliticsEventType,
+  REGION_KEYWORDS,
+  EVENT_TYPE_KEYWORDS,
+  ACTORS,
+  COUNTRIES,
+  type GeopoliticsSignals,
+  extractGeopoliticsRegion,
+  extractAllRegions,
+  extractEventType,
+  extractGeopoliticsCountries,
+  extractActors,
+  extractGeopoliticsYear,
+  extractDeadline,
+  extractGeopoliticsSignals,
+  isGeopoliticsMarket,
+  // Entertainment signals (v3.1.0)
+  AwardShow,
+  MediaType,
+  AWARD_KEYWORDS,
+  MEDIA_TYPE_KEYWORDS,
+  AWARD_CATEGORIES,
+  type EntertainmentSignals,
+  extractAwardShow,
+  extractMediaType,
+  extractEntertainmentYear,
+  extractAwardCategory,
+  extractNominees,
+  extractEntertainmentSignals,
+  isEntertainmentMarket,
+  // Finance signals (v3.1.0)
+  FinanceAssetClass,
+  FinanceDirection,
+  INDICES,
+  FOREX_PAIRS,
+  BONDS,
+  FINANCE_DIRECTION_KEYWORDS,
+  type FinanceSignals,
+  extractAssetClass,
+  extractInstrument,
+  extractFinanceDirection,
+  extractTargetValue,
+  extractRange,
+  extractFinanceDate,
+  extractTimeframe,
+  extractFinanceSignals,
+  isFinanceMarket,
 } from './signals/index.js';
 
 // Pipeline registration (v3.0.0)
@@ -237,4 +285,28 @@ export {
   createUniversalPipeline,
   type UniversalMarket,
   type UniversalSignals,
+} from './pipelines/index.js';
+
+// Geopolitics Pipeline (v3.1.0)
+export {
+  GeopoliticsPipeline,
+  geopoliticsPipeline,
+  type GeopoliticsMarket,
+  type GeopoliticsScoreResult,
+} from './pipelines/index.js';
+
+// Entertainment Pipeline (v3.1.0)
+export {
+  EntertainmentPipeline,
+  entertainmentPipeline,
+  type EntertainmentMarket,
+  type EntertainmentScoreResult,
+} from './pipelines/index.js';
+
+// Finance Pipeline (v3.1.0)
+export {
+  FinancePipeline,
+  financePipeline,
+  type FinanceMarket,
+  type FinanceScoreResult,
 } from './pipelines/index.js';

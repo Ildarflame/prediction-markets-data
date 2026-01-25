@@ -1,8 +1,10 @@
 /**
- * Pipeline Registration (v3.0.16)
+ * Pipeline Registration (v3.1.0)
  *
  * Registers all available pipelines with the dispatcher.
  * Call this at application startup.
+ *
+ * v3.1.0: Added GEOPOLITICS, ENTERTAINMENT, FINANCE pipelines
  */
 
 import { registerPipeline } from './dispatcher.js';
@@ -15,6 +17,9 @@ import { commoditiesPipelineV3 } from './pipelines/commoditiesPipelineV3.js';
 import { climatePipeline } from './pipelines/climatePipeline.js';
 import { sportsPipeline } from './pipelines/sportsPipeline.js';
 import { universalPipeline } from './pipelines/universalPipeline.js';
+import { geopoliticsPipeline } from './pipelines/geopoliticsPipeline.js';
+import { entertainmentPipeline } from './pipelines/entertainmentPipeline.js';
+import { financePipeline } from './pipelines/financePipeline.js';
 
 /**
  * Flag to track if pipelines have been registered
@@ -49,8 +54,17 @@ export function registerAllPipelines(): void {
   // Register UNIVERSAL pipeline (v3.0.16) - topic-agnostic matching
   registerPipeline(universalPipeline);
 
+  // Register GEOPOLITICS pipeline (v3.1.0)
+  registerPipeline(geopoliticsPipeline);
+
+  // Register ENTERTAINMENT pipeline (v3.1.0)
+  registerPipeline(entertainmentPipeline);
+
+  // Register FINANCE pipeline (v3.1.0)
+  registerPipeline(financePipeline);
+
   isRegistered = true;
-  console.log('[registerPipelines] Registered: CRYPTO_DAILY, CRYPTO_INTRADAY, MACRO, RATES, ELECTIONS, COMMODITIES, CLIMATE, SPORTS, UNIVERSAL');
+  console.log('[registerPipelines] Registered: CRYPTO_DAILY, CRYPTO_INTRADAY, MACRO, RATES, ELECTIONS, COMMODITIES, CLIMATE, SPORTS, UNIVERSAL, GEOPOLITICS, ENTERTAINMENT, FINANCE');
 }
 
 /**

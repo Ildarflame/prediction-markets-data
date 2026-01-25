@@ -1,5 +1,5 @@
 /**
- * Polymarket Taxonomy Rules (v3.0.2)
+ * Polymarket Taxonomy Rules (v3.1.0)
  *
  * Maps Polymarket categories and tags to canonical topics.
  * Based on analysis of Polymarket Gamma API data.
@@ -7,6 +7,7 @@
  * v3.0.1: Updated to handle actual Gamma API category formats
  * v3.0.2: Metadata-first classification using pmCategories/pmTags from DB
  *         Added precedence rules (crypto overrides politics for price markets)
+ * v3.1.0: Added FINANCE (indices, forex, treasuries), expanded GEOPOLITICS and ENTERTAINMENT
  */
 
 import { CanonicalTopic, TopicRule, PolymarketMarketInfo, TopicClassification, TopicSource } from './types.js';
@@ -209,6 +210,99 @@ export const POLYMARKET_CATEGORY_MAP: Record<string, CanonicalTopic> = {
   'soy': CanonicalTopic.COMMODITIES,
   'agriculture': CanonicalTopic.COMMODITIES,
   'futures': CanonicalTopic.COMMODITIES,
+
+  // === Finance - Indices, Forex, Bonds (v3.1.0) ===
+  'finance': CanonicalTopic.FINANCE,
+  'indices': CanonicalTopic.FINANCE,
+  'index': CanonicalTopic.FINANCE,
+  's&p 500': CanonicalTopic.FINANCE,
+  's&p-500': CanonicalTopic.FINANCE,
+  's&p500': CanonicalTopic.FINANCE,
+  'sp500': CanonicalTopic.FINANCE,
+  'spx': CanonicalTopic.FINANCE,
+  'nasdaq': CanonicalTopic.FINANCE,
+  'nasdaq-100': CanonicalTopic.FINANCE,
+  'dow jones': CanonicalTopic.FINANCE,
+  'dow-jones': CanonicalTopic.FINANCE,
+  'djia': CanonicalTopic.FINANCE,
+  'forex': CanonicalTopic.FINANCE,
+  'eur/usd': CanonicalTopic.FINANCE,
+  'eur-usd': CanonicalTopic.FINANCE,
+  'eurusd': CanonicalTopic.FINANCE,
+  'usd/jpy': CanonicalTopic.FINANCE,
+  'usd-jpy': CanonicalTopic.FINANCE,
+  'usdjpy': CanonicalTopic.FINANCE,
+  'gbp/usd': CanonicalTopic.FINANCE,
+  'gbp-usd': CanonicalTopic.FINANCE,
+  'gbpusd': CanonicalTopic.FINANCE,
+  'treasuries': CanonicalTopic.FINANCE,
+  'treasury': CanonicalTopic.FINANCE,
+  'bonds': CanonicalTopic.FINANCE,
+  'bond': CanonicalTopic.FINANCE,
+  '10-year': CanonicalTopic.FINANCE,
+  '2-year': CanonicalTopic.FINANCE,
+  'stocks': CanonicalTopic.FINANCE,
+  'stock market': CanonicalTopic.FINANCE,
+  'stock-market': CanonicalTopic.FINANCE,
+  'weekly': CanonicalTopic.FINANCE,  // Often used for finance markets
+  'monthly': CanonicalTopic.FINANCE,  // Often used for finance markets
+
+  // === Geopolitics subcategories (v3.1.0) ===
+  'ukraine map': CanonicalTopic.GEOPOLITICS,
+  'ukraine peace deal': CanonicalTopic.GEOPOLITICS,
+  'ukraine-map': CanonicalTopic.GEOPOLITICS,
+  'ukraine-peace-deal': CanonicalTopic.GEOPOLITICS,
+  'india-pakistan': CanonicalTopic.GEOPOLITICS,
+  'india pakistan': CanonicalTopic.GEOPOLITICS,
+  'south korea': CanonicalTopic.GEOPOLITICS,
+  'south-korea': CanonicalTopic.GEOPOLITICS,
+  'north korea': CanonicalTopic.GEOPOLITICS,
+  'north-korea': CanonicalTopic.GEOPOLITICS,
+  'turkey': CanonicalTopic.GEOPOLITICS,
+  'thailand-cambodia': CanonicalTopic.GEOPOLITICS,
+  'thailand cambodia': CanonicalTopic.GEOPOLITICS,
+  'taiwan': CanonicalTopic.GEOPOLITICS,
+  'iran': CanonicalTopic.GEOPOLITICS,
+  'hamas': CanonicalTopic.GEOPOLITICS,
+  'hezbollah': CanonicalTopic.GEOPOLITICS,
+  'yemen': CanonicalTopic.GEOPOLITICS,
+  'syria': CanonicalTopic.GEOPOLITICS,
+  'ceasefire': CanonicalTopic.GEOPOLITICS,
+  'peace deal': CanonicalTopic.GEOPOLITICS,
+  'peace-deal': CanonicalTopic.GEOPOLITICS,
+  'putin': CanonicalTopic.GEOPOLITICS,
+  'zelensky': CanonicalTopic.GEOPOLITICS,
+  'xi jinping': CanonicalTopic.GEOPOLITICS,
+  'xi-jinping': CanonicalTopic.GEOPOLITICS,
+
+  // === Entertainment subcategories (v3.1.0) ===
+  'best of 2025': CanonicalTopic.ENTERTAINMENT,
+  'best-of-2025': CanonicalTopic.ENTERTAINMENT,
+  'best of 2026': CanonicalTopic.ENTERTAINMENT,
+  'best-of-2026': CanonicalTopic.ENTERTAINMENT,
+  'reality tv': CanonicalTopic.ENTERTAINMENT,
+  'reality-tv': CanonicalTopic.ENTERTAINMENT,
+  'mrbeast': CanonicalTopic.ENTERTAINMENT,
+  'mr beast': CanonicalTopic.ENTERTAINMENT,
+  'mr-beast': CanonicalTopic.ENTERTAINMENT,
+  'youtube': CanonicalTopic.ENTERTAINMENT,
+  'youtuber': CanonicalTopic.ENTERTAINMENT,
+  'youtubers': CanonicalTopic.ENTERTAINMENT,
+  'tweets markets': CanonicalTopic.ENTERTAINMENT,
+  'tweets-markets': CanonicalTopic.ENTERTAINMENT,
+  'twitter': CanonicalTopic.ENTERTAINMENT,
+  'gta vi': CanonicalTopic.ENTERTAINMENT,
+  'gta-vi': CanonicalTopic.ENTERTAINMENT,
+  'video games': CanonicalTopic.ENTERTAINMENT,
+  'video-games': CanonicalTopic.ENTERTAINMENT,
+  'gaming': CanonicalTopic.ENTERTAINMENT,
+  'netflix': CanonicalTopic.ENTERTAINMENT,
+  'disney': CanonicalTopic.ENTERTAINMENT,
+  'spotify': CanonicalTopic.ENTERTAINMENT,
+  'billboard': CanonicalTopic.ENTERTAINMENT,
+  'album': CanonicalTopic.ENTERTAINMENT,
+  'box office': CanonicalTopic.ENTERTAINMENT,
+  'box-office': CanonicalTopic.ENTERTAINMENT,
 };
 
 /**
@@ -365,6 +459,70 @@ export const PM_TAG_MAP: Record<string, CanonicalTopic> = {
   'agriculture': CanonicalTopic.COMMODITIES,
   'futures': CanonicalTopic.COMMODITIES,
   // NOTE: 'daily' and 'up-or-down' removed - too generic, causes crypto misclassification
+
+  // === Finance - Indices, Forex, Bonds (v3.1.0) ===
+  'indices': CanonicalTopic.FINANCE,
+  'index': CanonicalTopic.FINANCE,
+  's&p-500': CanonicalTopic.FINANCE,
+  'sp500': CanonicalTopic.FINANCE,
+  'spx': CanonicalTopic.FINANCE,
+  'nasdaq': CanonicalTopic.FINANCE,
+  'nasdaq-100': CanonicalTopic.FINANCE,
+  'dow-jones': CanonicalTopic.FINANCE,
+  'djia': CanonicalTopic.FINANCE,
+  'forex': CanonicalTopic.FINANCE,
+  'eur-usd': CanonicalTopic.FINANCE,
+  'eurusd': CanonicalTopic.FINANCE,
+  'usd-jpy': CanonicalTopic.FINANCE,
+  'usdjpy': CanonicalTopic.FINANCE,
+  'gbp-usd': CanonicalTopic.FINANCE,
+  'gbpusd': CanonicalTopic.FINANCE,
+  'treasuries': CanonicalTopic.FINANCE,
+  'treasury': CanonicalTopic.FINANCE,
+  'bonds': CanonicalTopic.FINANCE,
+  '10-year': CanonicalTopic.FINANCE,
+  '2-year': CanonicalTopic.FINANCE,
+  'stock-market': CanonicalTopic.FINANCE,
+
+  // === Geopolitics tags (v3.1.0) ===
+  'ukraine-map': CanonicalTopic.GEOPOLITICS,
+  'ukraine-peace': CanonicalTopic.GEOPOLITICS,
+  'india-pakistan': CanonicalTopic.GEOPOLITICS,
+  'south-korea': CanonicalTopic.GEOPOLITICS,
+  'north-korea': CanonicalTopic.GEOPOLITICS,
+  'taiwan': CanonicalTopic.GEOPOLITICS,
+  'iran': CanonicalTopic.GEOPOLITICS,
+  'hamas': CanonicalTopic.GEOPOLITICS,
+  'hezbollah': CanonicalTopic.GEOPOLITICS,
+  'yemen': CanonicalTopic.GEOPOLITICS,
+  'syria': CanonicalTopic.GEOPOLITICS,
+  'ceasefire': CanonicalTopic.GEOPOLITICS,
+  'peace-deal': CanonicalTopic.GEOPOLITICS,
+  'sanctions': CanonicalTopic.GEOPOLITICS,
+  'invasion': CanonicalTopic.GEOPOLITICS,
+  'conflict': CanonicalTopic.GEOPOLITICS,
+  'international': CanonicalTopic.GEOPOLITICS,
+  'military': CanonicalTopic.GEOPOLITICS,
+  'troops': CanonicalTopic.GEOPOLITICS,
+
+  // === Entertainment tags (v3.1.0) ===
+  'reality-tv': CanonicalTopic.ENTERTAINMENT,
+  'mrbeast': CanonicalTopic.ENTERTAINMENT,
+  'youtube': CanonicalTopic.ENTERTAINMENT,
+  'youtuber': CanonicalTopic.ENTERTAINMENT,
+  'tiktok': CanonicalTopic.ENTERTAINMENT,
+  'tweets-markets': CanonicalTopic.ENTERTAINMENT,
+  'video-games': CanonicalTopic.ENTERTAINMENT,
+  'gaming': CanonicalTopic.ENTERTAINMENT,
+  'gta-vi': CanonicalTopic.ENTERTAINMENT,
+  'netflix': CanonicalTopic.ENTERTAINMENT,
+  'disney': CanonicalTopic.ENTERTAINMENT,
+  'spotify': CanonicalTopic.ENTERTAINMENT,
+  'billboard': CanonicalTopic.ENTERTAINMENT,
+  'album': CanonicalTopic.ENTERTAINMENT,
+  'box-office': CanonicalTopic.ENTERTAINMENT,
+  'best-picture': CanonicalTopic.ENTERTAINMENT,
+  'academy-awards': CanonicalTopic.ENTERTAINMENT,
 };
 
 /**
@@ -427,6 +585,48 @@ export const POLYMARKET_TITLE_RULES: TopicRule[] = [
   { pattern: /\bcorn\s*\(c\)/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Corn (C)' },
   { pattern: /\bwheat\s*\(w\)/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Wheat (W)' },
   { pattern: /\bsoybeans?\s*\(s\)/i, topic: CanonicalTopic.COMMODITIES, confidence: 0.95, description: 'Soybeans (S)' },
+
+  // Finance - Indices, Forex, Bonds (v3.1.0)
+  { pattern: /\bs&p\s*500\b/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: 'S&P 500' },
+  { pattern: /\bspx\b/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: 'SPX' },
+  { pattern: /\bnasdaq(?:\s*-?\s*100)?\b/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: 'Nasdaq' },
+  { pattern: /\bdow\s*jones\b/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: 'Dow Jones' },
+  { pattern: /\bdjia\b/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: 'DJIA' },
+  { pattern: /\beur\s*\/?\s*usd\b/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: 'EUR/USD' },
+  { pattern: /\busd\s*\/?\s*jpy\b/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: 'USD/JPY' },
+  { pattern: /\bgbp\s*\/?\s*usd\b/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: 'GBP/USD' },
+  { pattern: /\b10[\s-]*year\s+(?:treasury|yield|bond)\b/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: '10-Year Treasury' },
+  { pattern: /\b2[\s-]*year\s+(?:treasury|yield|bond)\b/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: '2-Year Treasury' },
+  { pattern: /\btreasury\s+yield\b/i, topic: CanonicalTopic.FINANCE, confidence: 0.90, description: 'Treasury Yield' },
+  { pattern: /\bt-bill\b/i, topic: CanonicalTopic.FINANCE, confidence: 0.90, description: 'T-Bill' },
+  { pattern: /\bforex\b/i, topic: CanonicalTopic.FINANCE, confidence: 0.85, description: 'Forex' },
+  { pattern: /\bcurrency\s+(?:pair|rate)\b/i, topic: CanonicalTopic.FINANCE, confidence: 0.85, description: 'Currency' },
+
+  // Geopolitics (v3.1.0)
+  { pattern: /\bukraine\b.*\b(?:war|ceasefire|peace|territory|troops|invasion)\b/i, topic: CanonicalTopic.GEOPOLITICS, confidence: 0.95, description: 'Ukraine conflict' },
+  { pattern: /\b(?:zelensky|zelenskyy)\b/i, topic: CanonicalTopic.GEOPOLITICS, confidence: 0.90, description: 'Zelensky' },
+  { pattern: /\bputin\b.*\b(?:resign|step down|removed|power)\b/i, topic: CanonicalTopic.GEOPOLITICS, confidence: 0.90, description: 'Putin leadership' },
+  { pattern: /\bceasefire\b/i, topic: CanonicalTopic.GEOPOLITICS, confidence: 0.90, description: 'Ceasefire' },
+  { pattern: /\bpeace\s+(?:deal|treaty|agreement|negotiation)\b/i, topic: CanonicalTopic.GEOPOLITICS, confidence: 0.90, description: 'Peace deal' },
+  { pattern: /\b(?:gaza|hamas|hezbollah)\b/i, topic: CanonicalTopic.GEOPOLITICS, confidence: 0.90, description: 'Middle East conflict' },
+  { pattern: /\binvasion\b/i, topic: CanonicalTopic.GEOPOLITICS, confidence: 0.85, description: 'Invasion' },
+  { pattern: /\bsanctions?\b.*\b(?:russia|iran|china|north korea)\b/i, topic: CanonicalTopic.GEOPOLITICS, confidence: 0.90, description: 'Sanctions' },
+  { pattern: /\b(?:china|beijing)\b.*\b(?:taiwan|invasion|military)\b/i, topic: CanonicalTopic.GEOPOLITICS, confidence: 0.90, description: 'China-Taiwan' },
+  { pattern: /\bnato\b/i, topic: CanonicalTopic.GEOPOLITICS, confidence: 0.85, description: 'NATO' },
+
+  // Entertainment (v3.1.0)
+  { pattern: /\boscar[s]?\b.*\b(?:best|win|nominated)\b/i, topic: CanonicalTopic.ENTERTAINMENT, confidence: 0.95, description: 'Oscars' },
+  { pattern: /\bacademy\s+award\b/i, topic: CanonicalTopic.ENTERTAINMENT, confidence: 0.95, description: 'Academy Award' },
+  { pattern: /\bgrammy[s]?\b/i, topic: CanonicalTopic.ENTERTAINMENT, confidence: 0.95, description: 'Grammys' },
+  { pattern: /\bemmy[s]?\b/i, topic: CanonicalTopic.ENTERTAINMENT, confidence: 0.95, description: 'Emmys' },
+  { pattern: /\bgolden\s+globe[s]?\b/i, topic: CanonicalTopic.ENTERTAINMENT, confidence: 0.95, description: 'Golden Globes' },
+  { pattern: /\bbest\s+picture\b/i, topic: CanonicalTopic.ENTERTAINMENT, confidence: 0.95, description: 'Best Picture' },
+  { pattern: /\balbum\s+of\s+the\s+year\b/i, topic: CanonicalTopic.ENTERTAINMENT, confidence: 0.95, description: 'Album of the Year' },
+  { pattern: /\bbox\s+office\b/i, topic: CanonicalTopic.ENTERTAINMENT, confidence: 0.90, description: 'Box Office' },
+  { pattern: /\bopening\s+weekend\b/i, topic: CanonicalTopic.ENTERTAINMENT, confidence: 0.85, description: 'Opening Weekend' },
+  { pattern: /\bstreaming\s+(?:number|record|chart)\b/i, topic: CanonicalTopic.ENTERTAINMENT, confidence: 0.85, description: 'Streaming' },
+  { pattern: /\bbillboard\s+(?:hot|100|chart)\b/i, topic: CanonicalTopic.ENTERTAINMENT, confidence: 0.90, description: 'Billboard Chart' },
+  { pattern: /\bspotify\s+(?:stream|chart|record)\b/i, topic: CanonicalTopic.ENTERTAINMENT, confidence: 0.85, description: 'Spotify' },
 ];
 
 /**

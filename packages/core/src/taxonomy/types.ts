@@ -1,5 +1,5 @@
 /**
- * Taxonomy Types (v3.0.16)
+ * Taxonomy Types (v3.1.0)
  *
  * Unified topic classification system for cross-venue market matching.
  * Maps venue-specific categories/tags to canonical topics.
@@ -9,6 +9,7 @@
  * v3.0.10: Added CLIMATE to matchable topics
  * v3.0.11: Added SPORTS to matchable topics
  * v3.0.16: Added UNIVERSAL for topic-agnostic matching
+ * v3.1.0: Added FINANCE topic for indices, forex, bonds
  */
 
 /**
@@ -26,6 +27,7 @@ export enum CanonicalTopic {
   ENTERTAINMENT = 'ENTERTAINMENT',
   COMMODITIES = 'COMMODITIES',  // v3.0.4: Oil, Gold, Agriculture futures
   CLIMATE = 'CLIMATE',
+  FINANCE = 'FINANCE',  // v3.1.0: Indices (S&P, Nasdaq), Forex, Bonds
   UNIVERSAL = 'UNIVERSAL',  // v3.0.16: Topic-agnostic matching for any category
   UNKNOWN = 'UNKNOWN',
 }
@@ -160,10 +162,13 @@ export const MATCHABLE_TOPICS = [
   CanonicalTopic.MACRO,
   CanonicalTopic.RATES,
   CanonicalTopic.ELECTIONS,
-  CanonicalTopic.COMMODITIES,  // v3.0.4
-  CanonicalTopic.CLIMATE,      // v3.0.10
-  CanonicalTopic.SPORTS,       // v3.0.11
-  CanonicalTopic.UNIVERSAL,    // v3.0.16: Topic-agnostic matching
+  CanonicalTopic.COMMODITIES,    // v3.0.4
+  CanonicalTopic.CLIMATE,        // v3.0.10
+  CanonicalTopic.SPORTS,         // v3.0.11
+  CanonicalTopic.GEOPOLITICS,    // v3.1.0: War, peace, sanctions, international relations
+  CanonicalTopic.ENTERTAINMENT,  // v3.1.0: Awards, movies, TV, music
+  CanonicalTopic.FINANCE,        // v3.1.0: Indices, forex, bonds
+  CanonicalTopic.UNIVERSAL,      // v3.0.16: Topic-agnostic matching
 ] as const;
 
 /**

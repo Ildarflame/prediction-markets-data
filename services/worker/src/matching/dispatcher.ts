@@ -1,8 +1,10 @@
 /**
- * Pipeline Dispatcher (v3.0.16)
+ * Pipeline Dispatcher (v3.1.0)
  *
  * Routes canonical topics to their corresponding pipelines.
  * Central registry for all matching pipelines.
+ *
+ * v3.1.0: Added GEOPOLITICS, ENTERTAINMENT, FINANCE topics
  */
 
 import { CanonicalTopic } from '@data-module/core';
@@ -71,7 +73,7 @@ export function clearPipelines(): void {
 }
 
 /**
- * Topics that are currently implemented (v3.0.16)
+ * Topics that are currently implemented (v3.1.0)
  * (Used for validation and CLI help text)
  */
 export const IMPLEMENTED_TOPICS: CanonicalTopic[] = [
@@ -83,7 +85,10 @@ export const IMPLEMENTED_TOPICS: CanonicalTopic[] = [
   CanonicalTopic.COMMODITIES,
   CanonicalTopic.CLIMATE,
   CanonicalTopic.SPORTS,
-  CanonicalTopic.UNIVERSAL,  // v3.0.16: Topic-agnostic matching
+  CanonicalTopic.GEOPOLITICS,    // v3.1.0
+  CanonicalTopic.ENTERTAINMENT,  // v3.1.0
+  CanonicalTopic.FINANCE,        // v3.1.0
+  CanonicalTopic.UNIVERSAL,      // v3.0.16: Topic-agnostic matching
 ];
 
 /**
@@ -116,8 +121,15 @@ export function parseTopicString(topic: string): CanonicalTopic | null {
     'climate': CanonicalTopic.CLIMATE,
     'weather': CanonicalTopic.CLIMATE,
     'sports': CanonicalTopic.SPORTS,
-    'universal': CanonicalTopic.UNIVERSAL,  // v3.0.16
-    'all': CanonicalTopic.UNIVERSAL,         // v3.0.16: alias
+    'geopolitics': CanonicalTopic.GEOPOLITICS,  // v3.1.0
+    'war': CanonicalTopic.GEOPOLITICS,          // v3.1.0
+    'entertainment': CanonicalTopic.ENTERTAINMENT,  // v3.1.0
+    'awards': CanonicalTopic.ENTERTAINMENT,     // v3.1.0
+    'finance': CanonicalTopic.FINANCE,          // v3.1.0
+    'indices': CanonicalTopic.FINANCE,          // v3.1.0
+    'forex': CanonicalTopic.FINANCE,            // v3.1.0
+    'universal': CanonicalTopic.UNIVERSAL,      // v3.0.16
+    'all': CanonicalTopic.UNIVERSAL,            // v3.0.16: alias
   };
 
   const lower = topic.toLowerCase();

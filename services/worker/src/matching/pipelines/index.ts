@@ -1,7 +1,9 @@
 /**
- * Pipelines Index (v3.0.11)
+ * Pipelines Index (v3.1.0)
  *
  * Exports all topic-specific pipelines.
+ *
+ * v3.1.0: Added geopolitics, entertainment, and finance pipelines
  */
 
 // Base pipeline
@@ -79,3 +81,27 @@ export {
   type UniversalMarket,
   type UniversalSignals,
 } from './universalPipeline.js';
+
+// Geopolitics Pipeline (v3.1.0)
+export {
+  GeopoliticsPipeline,
+  geopoliticsPipeline,
+  type GeopoliticsMarket,
+  type GeopoliticsScoreResult,
+} from './geopoliticsPipeline.js';
+
+// Entertainment Pipeline (v3.1.0)
+export {
+  EntertainmentPipeline,
+  entertainmentPipeline,
+  type EntertainmentMarket,
+  type EntertainmentScoreResult,
+} from './entertainmentPipeline.js';
+
+// Finance Pipeline (v3.1.0)
+export {
+  FinancePipeline,
+  financePipeline,
+  type FinanceMarket,
+  type FinanceScoreResult,
+} from './financePipeline.js';

@@ -276,6 +276,25 @@ export const DEFAULT_LIMITS: Record<string, PipelineLimits> = {
     maxPerLeft: 5,
     maxPerRight: 5,
   },
+  // v3.1.0: New topics
+  GEOPOLITICS: {
+    maxLeft: 1000,
+    maxRight: 5000,
+    maxPerLeft: 3,
+    maxPerRight: 3,
+  },
+  ENTERTAINMENT: {
+    maxLeft: 1000,
+    maxRight: 5000,
+    maxPerLeft: 3,
+    maxPerRight: 3,
+  },
+  FINANCE: {
+    maxLeft: 2000,
+    maxRight: 10000,
+    maxPerLeft: 5,
+    maxPerRight: 5,
+  },
 };
 
 /**
@@ -289,6 +308,10 @@ export const DEFAULT_MIN_SCORES: Record<string, number> = {
   ELECTIONS: 0.55,
   CLIMATE: 0.60,
   SPORTS: 0.55,
+  // v3.1.0: New topics
+  GEOPOLITICS: 0.55,
+  ENTERTAINMENT: 0.50,
+  FINANCE: 0.60,
 };
 
 /**
@@ -302,4 +325,8 @@ export const DEFAULT_LOOKBACK_HOURS: Record<string, number> = {
   ELECTIONS: 720,       // 30 days
   CLIMATE: 720,         // 30 days
   SPORTS: 168,          // 7 days (sports events are short-term)
+  // v3.1.0: New topics
+  GEOPOLITICS: 720,     // 30 days
+  ENTERTAINMENT: 720,   // 30 days
+  FINANCE: 720,         // 30 days
 };
