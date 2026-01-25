@@ -1996,6 +1996,22 @@ program
     }
   });
 
+// Review server (v3.1.0: web UI for manual link review)
+program
+  .command('review:server')
+  .description('Start web server for manual link review (v3.1.0)')
+  .option('--port <port>', 'Server port', '3000')
+  .option('--min-score <number>', 'Minimum score to review', '0.75')
+  .option('--limit <number>', 'Batch limit', '500')
+  .action(async (opts) => {
+    process.env.REVIEW_PORT = opts.port;
+    process.env.REVIEW_MIN_SCORE = opts.minScore;
+    process.env.REVIEW_LIMIT = opts.limit;
+
+    // Import and run directly (don't exit, keep server running)
+    await import('./review-server.js');
+  });
+
 // Kalshi series sync (v3.0.1)
 program
   .command('kalshi:series:sync')
