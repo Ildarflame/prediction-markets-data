@@ -7,7 +7,19 @@
 
 import type { MarketLink, Market, Outcome } from '@data-module/db';
 
-export type Topic = 'crypto_daily' | 'crypto_intraday' | 'macro';
+// v3.1.0: Added all implemented topics
+export type Topic =
+  | 'crypto_daily'
+  | 'crypto_intraday'
+  | 'macro'
+  | 'rates'
+  | 'elections'
+  | 'geopolitics'
+  | 'entertainment'
+  | 'finance'
+  | 'climate'
+  | 'commodities'
+  | 'sports';
 
 export interface SafeRuleResult {
   pass: boolean;
@@ -566,12 +578,20 @@ function evaluateMacroRules(
 // ============================================================================
 
 /**
- * Default minimum scores by topic
+ * Default minimum scores by topic (v3.1.0: all topics)
  */
 export const DEFAULT_MIN_SCORES: Record<Topic, number> = {
   crypto_daily: 0.88,
   crypto_intraday: 0.85,
   macro: 0.90,
+  rates: 0.90,              // v3.1.0: Same as macro (FED rates)
+  elections: 0.88,          // v3.1.0: High confidence for elections
+  geopolitics: 0.85,        // v3.1.0: Region/event matching
+  entertainment: 0.88,      // v3.1.0: Awards/nominees matching
+  finance: 0.88,            // v3.1.0: Index/forex matching
+  climate: 0.85,            // v3.1.0: Location/metric matching
+  commodities: 0.85,        // v3.1.0: Commodity/contract matching
+  sports: 0.90,             // v3.1.0: Event/team matching (MVE filtered)
 };
 
 /**

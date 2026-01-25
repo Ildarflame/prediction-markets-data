@@ -35,7 +35,20 @@ export interface AutoConfirmResult {
   byRule: Record<string, number>;
 }
 
-const TOPICS: Topic[] = ['crypto_daily', 'crypto_intraday', 'macro'];
+// v3.1.0: Added ELECTIONS, GEOPOLITICS, ENTERTAINMENT, FINANCE, RATES, CLIMATE, COMMODITIES, SPORTS
+const TOPICS: Topic[] = [
+  'crypto_daily',
+  'crypto_intraday',
+  'macro',
+  'rates',
+  'elections',
+  'geopolitics',
+  'entertainment',
+  'finance',
+  'climate',
+  'commodities',
+  'sports',
+];
 
 export async function runAutoConfirm(
   options: AutoConfirmOptions
