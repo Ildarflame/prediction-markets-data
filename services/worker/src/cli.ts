@@ -1972,6 +1972,7 @@ program
   .option('--batch-size <number>', 'Parallel batch size', '5')
   .option('--ollama-url <url>', 'Ollama API URL', 'http://localhost:11434')
   .option('--openai-api-key <key>', 'OpenAI API key (or use OPENAI_API_KEY env)')
+  .option('--proxy-url <url>', 'HTTP/HTTPS proxy URL (e.g., http://199.217.98.13:8888)')
   .option('--model <model>', 'Model name (default: llama3.2:3b for ollama, gpt-4o-mini for openai)')
   .option('--topic <topic>', 'Filter by topic')
   .option('--dry-run', 'Preview without confirming', false)
@@ -1987,6 +1988,7 @@ program
         provider: opts.provider as 'ollama' | 'openai',
         ollamaUrl: opts.ollamaUrl,
         openaiApiKey: opts.openaiApiKey,
+        proxyUrl: opts.proxyUrl,
         model: opts.model,
         topic: opts.topic,
         dryRun: opts.dryRun,

@@ -6,6 +6,7 @@
  */
 
 import { getClient, type LinkStatus } from '@data-module/db';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 
 export interface LLMValidateOptions {
   minScore?: number;           // Minimum score to validate (default: 0.75)
@@ -14,6 +15,7 @@ export interface LLMValidateOptions {
   provider?: 'ollama' | 'openai';  // LLM provider (default: ollama)
   ollamaUrl?: string;          // Ollama API URL (default: http://localhost:11434)
   openaiApiKey?: string;       // OpenAI API key (default: from OPENAI_API_KEY env)
+  proxyUrl?: string;           // HTTP/HTTPS proxy URL (e.g., http://199.217.98.13:8888)
   model?: string;              // Model name (default: llama3.2:3b for ollama, gpt-4o-mini for openai)
   dryRun?: boolean;            // Preview without confirming (default: true)
   apply?: boolean;             // Actually confirm links (default: false)
@@ -42,7 +44,8 @@ async function validateWithOpenAI(
   leftTitle: string,
   rightTitle: string,
   apiKey: string,
-  model: string
+  model: string,
+  proxyUrl?: string
 ): Promise<ValidationDecision | null> {
   const prompt = `You are a prediction market matching expert. Your task is to determine if two market titles from different platforms are asking about the EXACT SAME EVENT.
 
@@ -77,6 +80,8 @@ Market B (Kalshi): "${rightTitle}"
 Answer with ONLY ONE WORD: YES, NO, or UNCERTAIN`;
 
   try {
+    const agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -92,6 +97,8 @@ Answer with ONLY ONE WORD: YES, NO, or UNCERTAIN`;
         temperature: 0.1,
         max_tokens: 10,
       }),
+      // @ts-ignore - agent is not in standard fetch types but works in Node.js
+      agent,
     });
 
     if (!response.ok) {
@@ -229,6 +236,7 @@ export async function runLLMValidate(options: LLMValidateOptions): Promise<LLMVa
     provider = 'ollama',
     ollamaUrl = 'http://localhost:11434',
     openaiApiKey = process.env.OPENAI_API_KEY,
+    proxyUrl,
     model,
     dryRun = true,
     apply = false,
@@ -248,6 +256,9 @@ export async function runLLMValidate(options: LLMValidateOptions): Promise<LLMVa
   console.log(`Model: ${finalModel}`);
   if (provider === 'openai') {
     console.log(`API Key: ${openaiApiKey ? '***' + openaiApiKey.slice(-4) : 'NOT SET'}`);
+    if (proxyUrl) {
+      console.log(`Proxy: ${proxyUrl}`);
+    }
   } else {
     console.log(`Ollama URL: ${ollamaUrl}`);
   }
@@ -345,7 +356,8 @@ export async function runLLMValidate(options: LLMValidateOptions): Promise<LLMVa
               link.leftMarket.title,
               link.rightMarket.title,
               openaiApiKey!,
-              finalModel
+              finalModel,
+              proxyUrl
             )
           : await validateWithLLM(
               link.leftMarket.title,
