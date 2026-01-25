@@ -1,5 +1,7 @@
 /**
- * Rollback Manual Review Confirmations (v3.1.0)
+ * Rollback Manual Review Actions (v3.1.0)
+ *
+ * Rolls back both confirmations AND rejections from web UI
  */
 
 import { getClient } from '@data-module/db';
@@ -7,9 +9,10 @@ import { getClient } from '@data-module/db';
 export async function runReviewRollback(): Promise<void> {
   const prisma = getClient();
 
-  console.log('\n🔄 Rolling back manual review confirmations...\n');
+  console.log('\n🔄 Rolling back manual review actions...\n');
 
-  const result = await prisma.marketLink.updateMany({
+  // Rollback confirmations
+  const confirmed = await prisma.marketLink.updateMany({
     where: {
       status: 'confirmed',
       reason: 'manual_review@3.1.0:web_ui',
@@ -20,6 +23,19 @@ export async function runReviewRollback(): Promise<void> {
     },
   });
 
-  console.log(`✓ Rolled back ${result.count} accidental confirmations`);
-  console.log('All links returned to "suggested" status\n');
+  // Rollback rejections
+  const rejected = await prisma.marketLink.updateMany({
+    where: {
+      status: 'rejected',
+      reason: 'manual_review@3.1.0:web_ui',
+    },
+    data: {
+      status: 'suggested',
+      reason: null,
+    },
+  });
+
+  console.log(`✓ Rolled back ${confirmed.count} accidental confirmations`);
+  console.log(`✓ Rolled back ${rejected.count} accidental rejections`);
+  console.log(`Total: ${confirmed.count + rejected.count} links returned to "suggested" status\n`);
 }
