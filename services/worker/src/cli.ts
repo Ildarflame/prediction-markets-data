@@ -2012,6 +2012,23 @@ program
     await import('./review-server.js');
   });
 
+// Review rollback (v3.1.0: undo accidental confirmations)
+program
+  .command('review:rollback')
+  .description('Rollback manual review confirmations (v3.1.0)')
+  .action(async () => {
+    const { runReviewRollback } = await import('./commands/index.js');
+
+    try {
+      await runReviewRollback();
+    } catch (error) {
+      console.error('Rollback error:', error);
+      process.exit(1);
+    } finally {
+      await disconnect();
+    }
+  });
+
 // Kalshi series sync (v3.0.1)
 program
   .command('kalshi:series:sync')
