@@ -130,15 +130,64 @@ export const KALSHI_TICKER_RULES: TopicRule[] = [
   { pattern: /^EVSHARE/i, topic: CanonicalTopic.CLIMATE, confidence: 0.90, description: 'EV market share (legacy)' },
   { pattern: /^EVMKT/i, topic: CanonicalTopic.CLIMATE, confidence: 0.90, description: 'EV market' },
 
-  // Sports - Exclude from matching
-  { pattern: /^KXMVESPORT/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Esports' },
-  { pattern: /^KXMVENBASI/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Basketball' },
-  { pattern: /^KXNCAAMBGA/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'NCAA' },
-  { pattern: /^KXTABLETEN/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Table tennis' },
-  { pattern: /^KXNBAREB/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'NBA' },
+  // Sports - Comprehensive coverage (v3.1.1: expanded from Kalshi research)
+  // US Major Leagues
+  { pattern: /^KXNBA/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'NBA' },
   { pattern: /^KXNFL/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'NFL' },
   { pattern: /^KXMLB/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'MLB' },
   { pattern: /^KXNHL/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'NHL' },
+  { pattern: /^KXMLS/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'MLS' },
+
+  // College Sports
+  { pattern: /^KXNCAA/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'NCAA' },
+
+  // European Soccer
+  { pattern: /^KXEPL/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'EPL' },
+  { pattern: /^KXLALIGA/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'La Liga' },
+  { pattern: /^KXBUNDES/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Bundesliga' },
+  { pattern: /^KXSERIEA/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Serie A' },
+  { pattern: /^KXLIGUE/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Ligue 1' },
+  { pattern: /^KXUCL/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Champions League' },
+  { pattern: /^KXUEL/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Europa League' },
+  { pattern: /^KXSOCCER/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Soccer' },
+
+  // Combat Sports
+  { pattern: /^KXUFC/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'UFC' },
+  { pattern: /^KXMMA/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'MMA' },
+  { pattern: /^KXBOXING/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Boxing' },
+  { pattern: /^KXWWE/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'WWE' },
+
+  // Individual Sports
+  { pattern: /^KXPGA/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Golf/PGA' },
+  { pattern: /^KXTENNIS/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Tennis' },
+  { pattern: /^KXCHESS/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Chess' },
+  { pattern: /^KXTABLETEN/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Table Tennis' },
+
+  // Motorsport
+  { pattern: /^KXF1/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Formula 1' },
+  { pattern: /^KXNASCAR/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'NASCAR' },
+  { pattern: /^KXMOTORSPORT/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Motorsport' },
+  { pattern: /^KXINDYCAR/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'IndyCar' },
+  { pattern: /^KXMOTOGP/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'MotoGP' },
+
+  // Esports - specific games
+  { pattern: /^KXDOTA/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Dota 2' },
+  { pattern: /^KXVALORANT/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Valorant' },
+  { pattern: /^KXLOL/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'League of Legends' },
+  { pattern: /^KXCSGO/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'CS:GO' },
+  { pattern: /^KXCS2/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'CS2' },
+  { pattern: /^KXMVESPORT/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Esports MVE' },
+  { pattern: /^KXESPORT/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Esports' },
+
+  // Other sports
+  { pattern: /^KXCRICKET/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Cricket' },
+  { pattern: /^KXIPL/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'IPL Cricket' },
+  { pattern: /^KXOLYMPIC/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Olympics' },
+  { pattern: /^KXHORSERACE/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Horse Racing' },
+  { pattern: /^KXDERBY/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Derby' },
+
+  // Generic sports MVE patterns (legacy)
+  { pattern: /^KXMVENBASI/i, topic: CanonicalTopic.SPORTS, confidence: 0.98, description: 'Basketball MVE' },
 
   // Finance - Indices, Forex, Bonds (v3.1.0)
   { pattern: /^KXSPX/i, topic: CanonicalTopic.FINANCE, confidence: 0.95, description: 'S&P 500' },
@@ -261,20 +310,71 @@ export const KALSHI_TAG_MAP: Record<string, CanonicalTopic> = {
   'senate': CanonicalTopic.ELECTIONS,
   'governor': CanonicalTopic.ELECTIONS,
 
-  // Sports tags
+  // Sports tags (v3.1.1: expanded from Kalshi research)
+  // US Major Leagues
   'nba': CanonicalTopic.SPORTS,
   'nfl': CanonicalTopic.SPORTS,
   'mlb': CanonicalTopic.SPORTS,
   'nhl': CanonicalTopic.SPORTS,
+  'mls': CanonicalTopic.SPORTS,
   'ncaa': CanonicalTopic.SPORTS,
+  'college basketball': CanonicalTopic.SPORTS,
+  'college football': CanonicalTopic.SPORTS,
+  'march madness': CanonicalTopic.SPORTS,
+
+  // European Soccer
   'soccer': CanonicalTopic.SPORTS,
-  'olympics': CanonicalTopic.SPORTS,
+  'football': CanonicalTopic.SPORTS,
+  'premier league': CanonicalTopic.SPORTS,
+  'epl': CanonicalTopic.SPORTS,
+  'la liga': CanonicalTopic.SPORTS,
+  'bundesliga': CanonicalTopic.SPORTS,
+  'serie a': CanonicalTopic.SPORTS,
+  'ligue 1': CanonicalTopic.SPORTS,
+  'champions league': CanonicalTopic.SPORTS,
+  'europa league': CanonicalTopic.SPORTS,
+
+  // Combat Sports
   'ufc': CanonicalTopic.SPORTS,
   'mma': CanonicalTopic.SPORTS,
+  'boxing': CanonicalTopic.SPORTS,
+  'wwe': CanonicalTopic.SPORTS,
+  'wrestling': CanonicalTopic.SPORTS,
+
+  // Individual Sports
   'tennis': CanonicalTopic.SPORTS,
   'golf': CanonicalTopic.SPORTS,
+  'pga': CanonicalTopic.SPORTS,
+  'pga tour': CanonicalTopic.SPORTS,
+  'chess': CanonicalTopic.SPORTS,
+  'table tennis': CanonicalTopic.SPORTS,
+
+  // Motorsport
   'f1': CanonicalTopic.SPORTS,
   'formula 1': CanonicalTopic.SPORTS,
+  'nascar': CanonicalTopic.SPORTS,
+  'indycar': CanonicalTopic.SPORTS,
+  'motogp': CanonicalTopic.SPORTS,
+  'motorsport': CanonicalTopic.SPORTS,
+
+  // Esports
+  'esports': CanonicalTopic.SPORTS,
+  'dota': CanonicalTopic.SPORTS,
+  'dota 2': CanonicalTopic.SPORTS,
+  'valorant': CanonicalTopic.SPORTS,
+  'league of legends': CanonicalTopic.SPORTS,
+  'lol': CanonicalTopic.SPORTS,
+  'csgo': CanonicalTopic.SPORTS,
+  'cs:go': CanonicalTopic.SPORTS,
+  'counter-strike': CanonicalTopic.SPORTS,
+
+  // Other sports
+  'olympics': CanonicalTopic.SPORTS,
+  'olympic': CanonicalTopic.SPORTS,
+  'cricket': CanonicalTopic.SPORTS,
+  'ipl': CanonicalTopic.SPORTS,
+  'horse racing': CanonicalTopic.SPORTS,
+  'kentucky derby': CanonicalTopic.SPORTS,
 
   // Entertainment tags (v3.1.0: expanded)
   'movies': CanonicalTopic.ENTERTAINMENT,

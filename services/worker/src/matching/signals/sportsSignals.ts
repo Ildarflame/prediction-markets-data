@@ -374,6 +374,7 @@ function extractTitleTokens(title: string): string[] {
 
 /**
  * v3.0.15: Extract league from Kalshi series ticker
+ * v3.1.1: Added new sports from Kalshi research (esports subcategories, cricket, boxing, etc.)
  * Series ticker patterns: KXNBAGAME*, KXNFLGAME*, KXNHLGAME*, KXMLBGAME*, etc.
  */
 function detectLeagueFromSeriesTicker(seriesTicker: string | null | undefined): SportsLeague | null {
@@ -382,16 +383,42 @@ function detectLeagueFromSeriesTicker(seriesTicker: string | null | undefined): 
   const tickerUpper = seriesTicker.toUpperCase();
 
   // Map Kalshi series prefixes to leagues
+  // Order matters - more specific patterns first (e.g., KXNCAAWB before KXNCAA)
   const seriesLeagueMap: [string, SportsLeague][] = [
+    // US Major Leagues
     ['KXNBA', SportsLeague.NBA],
     ['KXNFL', SportsLeague.NFL],
     ['KXNHL', SportsLeague.NHL],
     ['KXMLB', SportsLeague.MLB],
     ['KXMLS', SportsLeague.MLS],
+
+    // College Sports - women's before generic
+    ['KXNCAAWB', SportsLeague.NCAA_WBB],  // Women's basketball (v3.1.1)
+    ['KXNCAAMB', SportsLeague.NCAA_BB],   // Men's basketball
+    ['KXNCAAFB', SportsLeague.NCAA_FB],   // Football
+    ['KXNCAABB', SportsLeague.NCAA_BB],   // Alternate men's basketball pattern
+    ['KXNCAA', SportsLeague.NCAA_BB],     // Fallback to men's basketball
+
+    // Combat Sports
     ['KXUFC', SportsLeague.UFC],
+    ['KXBOXING', SportsLeague.BOXING],    // v3.1.1
+    ['KXWWE', SportsLeague.WWE],          // v3.1.1
+
+    // Individual Sports
+    ['KXPGATOUR', SportsLeague.GOLF],     // v3.1.1: More specific
     ['KXPGA', SportsLeague.GOLF],
     ['KXTENNIS', SportsLeague.TENNIS],
+    ['KXCHESS', SportsLeague.CHESS],      // v3.1.1
+    ['KXTABLETEN', SportsLeague.TABLE_TENNIS], // v3.1.1
+
+    // Motorsport
     ['KXF1', SportsLeague.F1],
+    ['KXNASCAR', SportsLeague.NASCAR],    // v3.1.1
+    ['KXMOTORSPORT', SportsLeague.MOTORSPORT], // v3.1.1
+    ['KXINDYCAR', SportsLeague.MOTORSPORT],    // v3.1.1
+    ['KXMOTOGP', SportsLeague.MOTORSPORT],     // v3.1.1
+
+    // European Soccer
     ['KXEPL', SportsLeague.EPL],
     ['KXLALIGA', SportsLeague.LA_LIGA],
     ['KXBUNDES', SportsLeague.BUNDESLIGA],
@@ -399,9 +426,27 @@ function detectLeagueFromSeriesTicker(seriesTicker: string | null | undefined): 
     ['KXLIGUE1', SportsLeague.LIGUE_1],
     ['KXUCL', SportsLeague.UCL],
     ['KXUEL', SportsLeague.UEL],
-    ['KXNCAAFB', SportsLeague.NCAA_FB],
-    ['KXNCAABB', SportsLeague.NCAA_BB],
-    ['KXESPORT', SportsLeague.ESPORTS],
+    ['KXSCOTTISH', SportsLeague.SCOTTISH_PREM], // v3.1.1
+    ['KXEREDIV', SportsLeague.EREDIVISIE],      // v3.1.1
+    ['KXPORTUGAL', SportsLeague.PRIMEIRA_LIGA], // v3.1.1
+    ['KXSOCCER', SportsLeague.FOOTBALL],        // v3.1.1 generic soccer
+
+    // Esports - specific games before generic (v3.1.1)
+    ['KXDOTA2', SportsLeague.DOTA2],
+    ['KXDOTA', SportsLeague.DOTA2],
+    ['KXVALORANT', SportsLeague.VALORANT],
+    ['KXLOL', SportsLeague.LOL],
+    ['KXCSGO', SportsLeague.CSGO],
+    ['KXCS2', SportsLeague.CSGO],
+    ['KXESPORT', SportsLeague.ESPORTS],   // Generic esports fallback
+    ['KXMVESPORT', SportsLeague.ESPORTS],
+
+    // Other sports (v3.1.1)
+    ['KXCRICKET', SportsLeague.CRICKET],
+    ['KXIPL', SportsLeague.CRICKET],      // Indian Premier League
+    ['KXOLYMPIC', SportsLeague.OLYMPICS],
+    ['KXHORSERACE', SportsLeague.HORSE_RACING],
+    ['KXDERBY', SportsLeague.HORSE_RACING], // Kentucky Derby etc.
   ];
 
   for (const [prefix, league] of seriesLeagueMap) {
@@ -684,11 +729,33 @@ export const SPORTS_KEYWORDS = [
   // Matchup patterns
   'vs', 'versus', ' @ ', ' at ',
 
-  // Leagues
-  'nba', 'nfl', 'mlb', 'nhl', 'mls', 'premier league', 'epl',
-  'la liga', 'bundesliga', 'serie a', 'ligue 1',
-  'champions league', 'ucl', 'europa league',
-  'ufc', 'mma',
+  // US Major Leagues
+  'nba', 'nfl', 'mlb', 'nhl', 'mls',
+  'ncaa', 'college basketball', 'college football', 'march madness',
+
+  // European Soccer
+  'premier league', 'epl', 'la liga', 'bundesliga', 'serie a', 'ligue 1',
+  'champions league', 'ucl', 'europa league', 'scottish premiership',
+  'eredivisie', 'primeira liga',
+
+  // Combat Sports
+  'ufc', 'mma', 'boxing', 'wwe', 'wrestling',
+
+  // Individual Sports
+  'tennis', 'atp', 'wta', 'golf', 'pga', 'pga tour',
+  'chess', 'grandmaster', 'table tennis',
+
+  // Motorsport
+  'f1', 'formula 1', 'nascar', 'indycar', 'motogp',
+
+  // Esports (v3.1.1)
+  'esports', 'e-sports', 'dota', 'dota 2', 'valorant',
+  'league of legends', 'lol', 'csgo', 'cs:go', 'counter-strike',
+  'best of 3', 'best of 5', 'map winner', 'total maps',
+
+  // Other sports (v3.1.1)
+  'olympics', 'olympic', 'cricket', 'ipl', 't20',
+  'horse racing', 'kentucky derby',
 
   // Market types
   'moneyline', 'money line', 'spread', 'handicap',

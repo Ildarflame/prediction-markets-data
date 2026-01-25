@@ -23,7 +23,8 @@ export enum SportsLeague {
   UCL = 'UCL',       // UEFA Champions League
   UEL = 'UEL',       // UEFA Europa League
   NCAA_FB = 'NCAA_FB', // College Football
-  NCAA_BB = 'NCAA_BB', // College Basketball
+  NCAA_BB = 'NCAA_BB', // College Basketball (Men's)
+  NCAA_WBB = 'NCAA_WBB', // College Basketball (Women's) - v3.1.1
   UFC = 'UFC',
   TENNIS = 'TENNIS',
   GOLF = 'GOLF',
@@ -37,6 +38,21 @@ export enum SportsLeague {
   BELGIAN_PRO = 'BELGIAN_PRO',        // Belgian
   CHAMPIONSHIP = 'CHAMPIONSHIP',       // English Championship (2nd tier)
   FOOTBALL = 'FOOTBALL',               // Generic football/soccer
+  // v3.1.1: New sports from Kalshi/Polymarket research
+  CRICKET = 'CRICKET',
+  BOXING = 'BOXING',
+  CHESS = 'CHESS',
+  NASCAR = 'NASCAR',
+  MOTORSPORT = 'MOTORSPORT',          // Generic motorsport (not F1/NASCAR)
+  OLYMPICS = 'OLYMPICS',
+  WWE = 'WWE',                        // Wrestling/Entertainment
+  HORSE_RACING = 'HORSE_RACING',
+  TABLE_TENNIS = 'TABLE_TENNIS',
+  // Esports subcategories (v3.1.1)
+  DOTA2 = 'DOTA2',
+  VALORANT = 'VALORANT',
+  LOL = 'LOL',                        // League of Legends
+  CSGO = 'CSGO',                      // Counter-Strike
   UNKNOWN = 'UNKNOWN',
 }
 
@@ -111,6 +127,22 @@ export const LEAGUE_KEYWORDS: Record<SportsLeague, string[]> = {
   [SportsLeague.BELGIAN_PRO]: ['belgian pro league', 'jupiler', 'club brugge', 'anderlecht', 'genk', 'standard liege', 'gent'],
   [SportsLeague.CHAMPIONSHIP]: ['efl championship', 'leeds', 'sheffield wednesday', 'sunderland', 'middlesbrough', 'norwich', 'west brom', 'watford'],
   [SportsLeague.FOOTBALL]: ['soccer', 'football', 'futbol', 'futebol'],  // Generic football keywords
+  // v3.1.1: New sports from Kalshi/Polymarket research
+  [SportsLeague.NCAA_WBB]: ['ncaa women', 'women\'s basketball', 'wnba', 'ncaawb'],
+  [SportsLeague.CRICKET]: ['cricket', 'ipl', 'indian premier league', 't20', 'test match', 'odi', 'world cup cricket', 'ashes'],
+  [SportsLeague.BOXING]: ['boxing', 'heavyweight', 'welterweight', 'middleweight', 'knockout', 'tko', 'boxing match'],
+  [SportsLeague.CHESS]: ['chess', 'grandmaster', 'fide', 'world chess', 'chess championship', 'magnus'],
+  [SportsLeague.NASCAR]: ['nascar', 'cup series', 'xfinity', 'daytona', 'talladega', 'bristol'],
+  [SportsLeague.MOTORSPORT]: ['indycar', 'motogp', 'rally', 'wrc', 'le mans', '24 hours'],
+  [SportsLeague.OLYMPICS]: ['olympics', 'olympic', 'summer games', 'winter games', 'paris 2024', 'la 2028', 'olympic games'],
+  [SportsLeague.WWE]: ['wwe', 'wrestling', 'wrestlemania', 'smackdown', 'raw', 'aew'],
+  [SportsLeague.HORSE_RACING]: ['horse racing', 'kentucky derby', 'preakness', 'belmont', 'triple crown', 'horse race'],
+  [SportsLeague.TABLE_TENNIS]: ['table tennis', 'ping pong', 'ittf'],
+  // v3.1.1: Esports subcategories
+  [SportsLeague.DOTA2]: ['dota 2', 'dota2', 'the international', 'ti11', 'ti12', 'dota pro circuit'],
+  [SportsLeague.VALORANT]: ['valorant', 'vct', 'valorant champions'],
+  [SportsLeague.LOL]: ['league of legends', 'lol worlds', 'lcs', 'lec', 'lpl', 'lck'],
+  [SportsLeague.CSGO]: ['cs:go', 'csgo', 'cs2', 'counter-strike', 'major cs'],
   [SportsLeague.UNKNOWN]: [],
 };
 
@@ -579,14 +611,30 @@ export function detectLeague(text: string): SportsLeague {
     [/\bsuper\s+lig\b|\bturkish\s+league\b/i, SportsLeague.SUPER_LIG],
     [/\beredivisie\b|\bdutch\s+league\b/i, SportsLeague.EREDIVISIE],
     [/\bbelgian\s+(pro|league)\b|\bjupiler\b/i, SportsLeague.BELGIAN_PRO],
-    [/\bchampionship\b|\befl\s+championship\b/i, SportsLeague.CHAMPIONSHIP],
+    [/\befl\s+championship\b|\benglish\s+championship\b/i, SportsLeague.CHAMPIONSHIP],
     [/\bufc\b|\bmma\b/i, SportsLeague.UFC],
+    [/\btable\s+tennis\b|\bping\s+pong\b|\bittf\b/i, SportsLeague.TABLE_TENNIS],  // Check before generic tennis
     [/\batp\b|\bwta\b|\btennis\b/i, SportsLeague.TENNIS],
     [/\bpga\b|\bgolf\b/i, SportsLeague.GOLF],
     [/\bf1\b|\bformula\s*1\b|\bgrand\s+prix\b/i, SportsLeague.F1],
-    [/\besports?\b|\bvalorant\b|\bdota\b|\bleague\s+of\s+legends\b/i, SportsLeague.ESPORTS],
     [/\bncaa\s+football\b|\bcollege\s+football\b|\bcfb\b/i, SportsLeague.NCAA_FB],
     [/\bncaa\s+basketball\b|\bcollege\s+basketball\b|\bmarch\s+madness\b/i, SportsLeague.NCAA_BB],
+    // v3.1.1: Esports subcategories (check before generic ESPORTS)
+    [/\bdota\s*2\b|\bthe\s+international\b|\bdota\s+pro\b/i, SportsLeague.DOTA2],
+    [/\bvalorant\b|\bvct\b/i, SportsLeague.VALORANT],
+    [/\bleague\s+of\s+legends\b|\blol\s+worlds\b|\blcs\b|\blec\b|\blpl\b|\blck\b/i, SportsLeague.LOL],
+    [/\bcs:?go\b|\bcs2\b|\bcounter-?strike\b/i, SportsLeague.CSGO],
+    [/\besports?\b|\be-sports?\b/i, SportsLeague.ESPORTS],
+    // v3.1.1: New sports from Kalshi/Polymarket research
+    [/\bwomen'?s?\s+basketball\b|\bncaa\s*w\s*bb?\b|\bncaawb\b/i, SportsLeague.NCAA_WBB],
+    [/\bcricket\b|\bipl\b|\bt20\b|\bodi\b|\btest\s+match\b|\bashes\b/i, SportsLeague.CRICKET],
+    [/\bboxing\b|\bheavyweight\b|\bwelterweight\b|\bmiddleweight\b/i, SportsLeague.BOXING],
+    [/\bchess\b|\bgrandmaster\b|\bfide\b|\bmagnus\b/i, SportsLeague.CHESS],
+    [/\bnascar\b|\bcup\s+series\b|\bxfinity\b|\bdaytona\b/i, SportsLeague.NASCAR],
+    [/\bindycar\b|\bmotogp\b|\brally\b|\bwrc\b|\ble\s+mans\b/i, SportsLeague.MOTORSPORT],
+    [/\bolympic/i, SportsLeague.OLYMPICS],
+    [/\bwwe\b|\bwrestlemania\b|\bsmackdown\b|\braw\b|\baew\b/i, SportsLeague.WWE],
+    [/\bhorse\s+rac(?:e|ing)\b|\bkentucky\s+derby\b|\bpreakness\b|\bbelmont\b|\btriple\s+crown\b/i, SportsLeague.HORSE_RACING],
   ];
 
   for (const [pattern, league] of explicitPatterns) {
