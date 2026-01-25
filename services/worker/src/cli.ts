@@ -21,13 +21,7 @@ function loadKalshiAuth(): KalshiAuthConfig | undefined {
   const privateKeyPath = process.env.KALSHI_PRIVATE_KEY_PATH;
   const privateKeyPem = process.env.KALSHI_PRIVATE_KEY_PEM;
 
-  console.log('[kalshi] Loading auth config...');
-  console.log('[kalshi] API Key ID:', apiKeyId ? `${apiKeyId.slice(0, 8)}...` : 'NOT SET');
-  console.log('[kalshi] Private Key Path:', privateKeyPath || 'NOT SET');
-  console.log('[kalshi] Private Key PEM:', privateKeyPem ? 'SET (direct)' : 'NOT SET');
-
   if (!apiKeyId) {
-    console.log('[kalshi] No API key ID found, auth disabled');
     return undefined;
   }
 
@@ -36,12 +30,10 @@ function loadKalshiAuth(): KalshiAuthConfig | undefined {
   if (privateKeyPem) {
     // Key provided directly as env var (useful for Docker secrets)
     keyPem = privateKeyPem.replace(/\\n/g, '\n');
-    console.log('[kalshi] Using private key from PEM env var');
   } else if (privateKeyPath) {
     // Key provided as file path
     try {
       keyPem = fs.readFileSync(privateKeyPath, 'utf-8');
-      console.log(`[kalshi] Loaded private key from file: ${privateKeyPath}`);
     } catch (err) {
       console.warn(`[kalshi] Failed to read private key from ${privateKeyPath}: ${err}`);
       return undefined;
@@ -51,7 +43,6 @@ function loadKalshiAuth(): KalshiAuthConfig | undefined {
     return undefined;
   }
 
-  console.log('[kalshi] Auth config loaded successfully');
   return { apiKeyId, privateKeyPem: keyPem };
 }
 

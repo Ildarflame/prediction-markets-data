@@ -576,18 +576,9 @@ export class KalshiAdapter implements VenueAdapter {
       async () => {
         const response = await this.fetchWithTimeout(url);
         if (!response.ok) {
-          // Try to read the error response body
-          let errorBody = '';
-          try {
-            errorBody = await response.text();
-            console.log(`[kalshi] Error response body: ${errorBody}`);
-          } catch (e) {
-            // Ignore if we can't read the body
-          }
-
           const retryAfterMs = parseRetryAfter(response.headers.get('Retry-After'));
           throw new HttpError(
-            `Kalshi API error: ${response.status} ${response.statusText}${errorBody ? `: ${errorBody}` : ''}`,
+            `Kalshi API error: ${response.status} ${response.statusText}`,
             response.status,
             retryAfterMs ? retryAfterMs / 1000 : undefined
           );
@@ -627,8 +618,6 @@ export class KalshiAdapter implements VenueAdapter {
         expiresIn: 300, // 5 minutes
       });
       headers['Authorization'] = `Bearer ${token}`;
-      console.log(`[kalshi] JWT token generated (first 20 chars): ${token.substring(0, 20)}...`);
-      console.log(`[kalshi] Authorization header: Bearer ${token.substring(0, 20)}...`);
     }
 
     try {
