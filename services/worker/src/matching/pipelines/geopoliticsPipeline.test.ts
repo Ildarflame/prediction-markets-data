@@ -28,6 +28,8 @@ function createMockMarket(title: string, closeTime?: Date): EligibleMarket {
     closeTime: closeTime ?? new Date('2026-06-01'),
     createdAt: new Date(),
     updatedAt: new Date(),
+    category: null,
+    tags: [],
   } as EligibleMarket;
 }
 

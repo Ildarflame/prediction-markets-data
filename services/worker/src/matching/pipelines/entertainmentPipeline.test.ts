@@ -10,7 +10,6 @@ import {
   extractAwardShow,
   extractMediaType,
   extractCategory,
-  extractNominees,
   AwardShow,
   MediaType,
 } from '../signals/entertainmentSignals.js';
@@ -28,6 +27,8 @@ function createMockMarket(title: string, closeTime?: Date): EligibleMarket {
     closeTime: closeTime ?? new Date('2026-03-01'),
     createdAt: new Date(),
     updatedAt: new Date(),
+    category: null,
+    tags: [],
   } as EligibleMarket;
 }
 

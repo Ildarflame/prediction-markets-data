@@ -1,0 +1,19 @@
+category,subcategory,polymarket_title,kalshi_title,match_type,notes
+Crypto,Bitcoin Price Daily,Bitcoin above ___ on January 25?,Bitcoin price today at 5pm EST?,SAME_EVENT,Both are daily BTC price targets with brackets
+Crypto,Bitcoin Price Daily,What price will Bitcoin hit in January?,How high will Bitcoin get in January?,SAME_EVENT,Both are January max price one-touch
+Crypto,Bitcoin Up/Down,Bitcoin Up or Down on January 25?,BTC Up or Down - 15 minutes,SIMILAR_EVENT,Same concept different timeframes
+Crypto,Bitcoin Milestones,Bitcoin all time high by March 31 2026?,When will Bitcoin hit $150k? / Before March,SAME_EVENT,Both are milestone markets
+Crypto,Ethereum Price,What price will Ethereum hit in January?,How high will Ethereum get in January?,SAME_EVENT,Expected match (need to verify)
+Crypto,Solana Price,What price will Solana hit in January?,How high will Solana get in January?,SAME_EVENT,Expected match (need to verify)
+Politics,Fed Rates,Fed decision in January?,Fed funds rate - January meeting,SAME_EVENT,Both are FOMC January decision
+Politics,Fed Chair,Who will Trump nominate as Fed Chair?,Who will Trump nominate as Fed Chair?,SAME_EVENT,Exact match expected
+Politics,President 2028,Democratic Presidential Nominee 2028,Democratic nominee for President in 2028?,SAME_EVENT,Both are DNC 2028 nomination
+Politics,President 2028,Presidential Election Winner 2028,Presidential Election Winner 2028,SAME_EVENT,Expected exact match
+Macro,CPI Inflation,January Inflation US,CPI for January,SAME_EVENT,Both are January CPI
+Macro,GDP,US GDP Q1 2026,GDP growth Q1 2026,SAME_EVENT,Expected match
+Climate,Temperature,Global temperature January 2026,January 2026 temperature anomaly,SAME_EVENT,Expected match
+Climate,Hurricanes,Atlantic hurricanes 2026,Hurricane season 2026,SAME_EVENT,Expected match
+Sports,NFL,Super Bowl winner 2026,Super Bowl LX winner,SAME_EVENT,Expected match
+Sports,NBA,NBA Champion 2026,NBA Finals winner 2026,SAME_EVENT,Expected match
+Entertainment,Oscars,Best Picture 2026,Oscar Best Picture 2026,SAME_EVENT,Expected match
+Entertainment,Movies,Box office opening weekend,Opening weekend revenue,SAME_EVENT,Expected match

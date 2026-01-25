@@ -433,8 +433,8 @@ export class FinancePipeline extends BasePipeline<FinanceMarket, FinanceSignals,
    * Check if match should be auto-confirmed
    */
   shouldAutoConfirm(
-    left: FinanceMarket,
-    right: FinanceMarket,
+    _left: FinanceMarket,
+    _right: FinanceMarket,
     scoreResult: FinanceScoreResult
   ): AutoConfirmResult {
     const MIN_SCORE = 0.90;

@@ -90,6 +90,11 @@ const TOPIC_KEYWORDS: Record<CanonicalTopic, string[]> = {
     'war', 'conflict', 'treaty', 'sanctions', 'military', 'nato', 'un',
     'diplomacy', 'foreign', 'international',
   ],
+  [CanonicalTopic.FINANCE]: [
+    's&p', 'sp500', 'nasdaq', 'dow', 'index', 'indices',
+    'forex', 'eur/usd', 'usd/jpy', 'gbp/usd', 'currency',
+    'treasury', 'bond', 'yield', 't-bill',
+  ],
   [CanonicalTopic.UNKNOWN]: [],
   [CanonicalTopic.UNIVERSAL]: [],  // v3.0.16: Topic-agnostic - no specific keywords
 };
