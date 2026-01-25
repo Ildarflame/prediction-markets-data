@@ -11,8 +11,10 @@ export interface LLMValidateOptions {
   minScore?: number;           // Minimum score to validate (default: 0.75)
   limit?: number;              // Max links to process (default: 100)
   batchSize?: number;          // Links to process in parallel (default: 5)
+  provider?: 'ollama' | 'openai';  // LLM provider (default: ollama)
   ollamaUrl?: string;          // Ollama API URL (default: http://localhost:11434)
-  model?: string;              // Model name (default: llama3.2:3b)
+  openaiApiKey?: string;       // OpenAI API key (default: from OPENAI_API_KEY env)
+  model?: string;              // Model name (default: llama3.2:3b for ollama, gpt-4o-mini for openai)
   dryRun?: boolean;            // Preview without confirming (default: true)
   apply?: boolean;             // Actually confirm links (default: false)
   topic?: string;              // Filter by topic (default: all except 'all')
@@ -31,6 +33,97 @@ interface ValidationDecision {
   decision: 'YES' | 'NO' | 'UNCERTAIN';
   confidence: number;
   reasoning?: string;
+}
+
+/**
+ * Call OpenAI API to validate a market pair
+ */
+async function validateWithOpenAI(
+  leftTitle: string,
+  rightTitle: string,
+  apiKey: string,
+  model: string
+): Promise<ValidationDecision | null> {
+  const prompt = `You are a prediction market matching expert. Your task is to determine if two market titles from different platforms are asking about the EXACT SAME EVENT.
+
+Rules:
+- Markets must have the SAME outcome condition (e.g., both asking "will X happen by date Y?")
+- Minor wording differences are OK if the underlying event is identical
+- Different price targets, dates, or conditions mean DIFFERENT events
+
+Examples:
+
+Market A: "Bitcoin above $100,000 on January 31?"
+Market B: "Will Bitcoin price be above $100k by end of January 2025?"
+Answer: YES (same asset, same target, same timeframe)
+
+Market A: "Will Trump win 2024 election?"
+Market B: "Will Biden win 2024 election?"
+Answer: NO (different candidates = different outcomes)
+
+Market A: "S&P 500 above 5000 by March 1?"
+Market B: "S&P 500 above 5500 by March 1?"
+Answer: NO (different price targets = different events)
+
+Market A: "Will Russia invade Ukraine by end of 2024?"
+Market B: "Will there be peace in Ukraine by end of 2024?"
+Answer: NO (opposite outcomes)
+
+Now evaluate these markets:
+
+Market A (Polymarket): "${leftTitle}"
+Market B (Kalshi): "${rightTitle}"
+
+Answer with ONLY ONE WORD: YES, NO, or UNCERTAIN`;
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: 'You are a prediction market matching expert. Answer with only YES, NO, or UNCERTAIN.' },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.1,
+        max_tokens: 10,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error(`OpenAI API error: ${response.status} ${error}`);
+      return null;
+    }
+
+    const data = await response.json() as {
+      choices: Array<{ message: { content: string } }>;
+    };
+
+    const answer = data.choices[0]?.message?.content?.trim().toUpperCase() || '';
+
+    // Parse answer
+    let decision: 'YES' | 'NO' | 'UNCERTAIN' = 'UNCERTAIN';
+    if (answer.includes('YES')) {
+      decision = 'YES';
+    } else if (answer.includes('NO')) {
+      decision = 'NO';
+    }
+
+    return {
+      linkId: 0,
+      decision,
+      confidence: 0.95, // OpenAI is more reliable
+      reasoning: answer,
+    };
+  } catch (error) {
+    console.error(`OpenAI validation error: ${error}`);
+    return null;
+  }
 }
 
 /**
@@ -133,20 +226,31 @@ export async function runLLMValidate(options: LLMValidateOptions): Promise<LLMVa
     minScore = 0.75,
     limit = 100,
     batchSize = 5,
+    provider = 'ollama',
     ollamaUrl = 'http://localhost:11434',
-    model = 'llama3.2:3b',
+    openaiApiKey = process.env.OPENAI_API_KEY,
+    model,
     dryRun = true,
     apply = false,
     topic,
   } = options;
+
+  // Default models based on provider
+  const defaultModel = provider === 'openai' ? 'gpt-4o-mini' : 'llama3.2:3b';
+  const finalModel = model || defaultModel;
 
   const effectiveDryRun = !apply || dryRun;
 
   console.log('\\n============================================================');
   console.log('[llm-validate] LLM Link Validator (v3.1.0)');
   console.log('============================================================');
-  console.log(`Model: ${model}`);
-  console.log(`Ollama URL: ${ollamaUrl}`);
+  console.log(`Provider: ${provider.toUpperCase()}`);
+  console.log(`Model: ${finalModel}`);
+  if (provider === 'openai') {
+    console.log(`API Key: ${openaiApiKey ? '***' + openaiApiKey.slice(-4) : 'NOT SET'}`);
+  } else {
+    console.log(`Ollama URL: ${ollamaUrl}`);
+  }
   console.log(`Min Score: ${minScore}`);
   console.log(`Limit: ${limit}`);
   console.log(`Batch Size: ${batchSize}`);
@@ -154,26 +258,35 @@ export async function runLLMValidate(options: LLMValidateOptions): Promise<LLMVa
   console.log(`Mode: ${effectiveDryRun ? 'DRY RUN' : '⚠️  APPLY (will confirm)'}`);
   console.log();
 
-  // Test Ollama connection
-  try {
-    const testResponse = await fetch(`${ollamaUrl}/api/tags`);
-    if (!testResponse.ok) {
-      console.error(`❌ Cannot connect to Ollama at ${ollamaUrl}`);
-      console.error('   Make sure Ollama is running: ollama serve');
+  // Test connection
+  if (provider === 'openai') {
+    if (!openaiApiKey) {
+      console.error(`❌ OpenAI API key not found`);
+      console.error('   Set OPENAI_API_KEY environment variable or use --openai-api-key');
       process.exit(1);
     }
-    const tags = await testResponse.json() as { models?: Array<{ name: string }> };
-    const hasModel = tags.models?.some((m) => m.name.startsWith(model));
-    if (!hasModel) {
-      console.error(`❌ Model ${model} not found`);
-      console.error(`   Available models: ${tags.models?.map((m) => m.name).join(', ')}`);
-      console.error(`   Download it: ollama pull ${model}`);
+    console.log(`✓ Using OpenAI API with model ${finalModel}\\n`);
+  } else {
+    try {
+      const testResponse = await fetch(`${ollamaUrl}/api/tags`);
+      if (!testResponse.ok) {
+        console.error(`❌ Cannot connect to Ollama at ${ollamaUrl}`);
+        console.error('   Make sure Ollama is running: ollama serve');
+        process.exit(1);
+      }
+      const tags = await testResponse.json() as { models?: Array<{ name: string }> };
+      const hasModel = tags.models?.some((m) => m.name.startsWith(finalModel));
+      if (!hasModel) {
+        console.error(`❌ Model ${finalModel} not found`);
+        console.error(`   Available models: ${tags.models?.map((m) => m.name).join(', ')}`);
+        console.error(`   Download it: ollama pull ${finalModel}`);
+        process.exit(1);
+      }
+      console.log(`✓ Connected to Ollama, model ${finalModel} available\\n`);
+    } catch (error) {
+      console.error(`❌ Failed to connect to Ollama: ${error}`);
       process.exit(1);
     }
-    console.log(`✓ Connected to Ollama, model ${model} available\\n`);
-  } catch (error) {
-    console.error(`❌ Failed to connect to Ollama: ${error}`);
-    process.exit(1);
   }
 
   const prisma = getClient();
@@ -227,12 +340,19 @@ export async function runLLMValidate(options: LLMValidateOptions): Promise<LLMVa
     // Process batch in parallel
     const decisions = await Promise.all(
       batch.map(async (link) => {
-        const decision = await validateWithLLM(
-          link.leftMarket.title,
-          link.rightMarket.title,
-          ollamaUrl,
-          model
-        );
+        const decision = provider === 'openai'
+          ? await validateWithOpenAI(
+              link.leftMarket.title,
+              link.rightMarket.title,
+              openaiApiKey!,
+              finalModel
+            )
+          : await validateWithLLM(
+              link.leftMarket.title,
+              link.rightMarket.title,
+              ollamaUrl,
+              finalModel
+            );
 
         if (!decision) {
           errors++;
@@ -271,7 +391,7 @@ export async function runLLMValidate(options: LLMValidateOptions): Promise<LLMVa
             where: { id: decision.linkId },
             data: {
               status: 'confirmed',
-              reason: `llm_validate@3.1.0:${model}:${decision.confidence.toFixed(2)}`,
+              reason: `llm_validate@3.1.0:${provider}:${finalModel}:${decision.confidence.toFixed(2)}`,
             },
           });
         }

@@ -1965,12 +1965,14 @@ program
 // LLM validation (v3.1.0: use local Ollama to validate suggestions)
 program
   .command('llm:validate')
-  .description('Validate link suggestions using local LLM (Ollama) (v3.1.0)')
+  .description('Validate link suggestions using LLM (Ollama or OpenAI) (v3.1.0)')
+  .option('--provider <provider>', 'LLM provider: ollama or openai', 'ollama')
   .option('--min-score <number>', 'Minimum score to consider', '0.75')
   .option('--limit <number>', 'Max links to process', '100')
   .option('--batch-size <number>', 'Parallel batch size', '5')
   .option('--ollama-url <url>', 'Ollama API URL', 'http://localhost:11434')
-  .option('--model <model>', 'Model name', 'llama3.2:3b')
+  .option('--openai-api-key <key>', 'OpenAI API key (or use OPENAI_API_KEY env)')
+  .option('--model <model>', 'Model name (default: llama3.2:3b for ollama, gpt-4o-mini for openai)')
   .option('--topic <topic>', 'Filter by topic')
   .option('--dry-run', 'Preview without confirming', false)
   .option('--apply', 'Actually confirm links', false)
@@ -1982,7 +1984,9 @@ program
         minScore: parseFloat(opts.minScore),
         limit: parseInt(opts.limit, 10),
         batchSize: parseInt(opts.batchSize, 10),
+        provider: opts.provider as 'ollama' | 'openai',
         ollamaUrl: opts.ollamaUrl,
+        openaiApiKey: opts.openaiApiKey,
         model: opts.model,
         topic: opts.topic,
         dryRun: opts.dryRun,
