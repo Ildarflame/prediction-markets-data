@@ -61,6 +61,63 @@ pnpm --filter @data-module/worker watchlist:cleanup --older-than-days 30 --dry-r
 # Review Loop (v2.6.7) - manage suggested links
 pnpm --filter @data-module/worker links:queue --topic crypto_daily  # Show links for review
 pnpm --filter @data-module/worker links:auto-reject --dry-run       # Auto-reject low-quality
+
+# V3 Engine Commands (v3.0.0+)
+pnpm --filter @data-module/worker v3:suggest-matches --topic RATES      # Run V3 matching for specific topic
+pnpm --filter @data-module/worker v3:suggest-all                        # Run V3 matching for all topics
+pnpm --filter @data-module/worker v3:best --topic CRYPTO_DAILY          # Show top matches by score
+pnpm --filter @data-module/worker v3:worst --topic CRYPTO_DAILY         # Show worst matches (potential false positives)
+
+# LLM Validation & Review (v3.1.0)
+pnpm --filter @data-module/worker llm:validate --link-id <id>           # Validate link using LLM (Ollama or OpenAI)
+pnpm --filter @data-module/worker review:server                         # Start web UI for manual review
+pnpm --filter @data-module/worker review:rollback --link-id <id>        # Undo accidental confirmation/rejection
+
+# Taxonomy Classification (v3.0.0+)
+pnpm --filter @data-module/worker taxonomy:coverage                     # Show topic coverage across venues
+pnpm --filter @data-module/worker taxonomy:overlap --topic RATES        # Cross-venue market overlap per topic
+pnpm --filter @data-module/worker taxonomy:gap-report --topic SPORTS    # Analyze why topic has low overlap
+pnpm --filter @data-module/worker taxonomy:truth-audit --topic RATES    # Verify taxonomy classification accuracy
+pnpm --filter @data-module/worker polymarket:taxonomy:backfill          # Backfill Polymarket taxonomy
+pnpm --filter @data-module/worker kalshi:taxonomy:backfill              # Backfill Kalshi taxonomy
+
+# Operations & Automation (v2.6.8+)
+pnpm --filter @data-module/worker ops:run                               # Run scheduled operations loop (V2)
+pnpm --filter @data-module/worker ops:run:v3 --topics RATES,CRYPTO      # Run V3 operations loop
+pnpm --filter @data-module/worker ops:kpi                               # Show key performance indicators dashboard
+
+# Testing & Debugging (v3.0.16)
+pnpm --filter @data-module/worker test:extractor --topic RATES          # Test Universal Entity Extractor
+pnpm --filter @data-module/worker test:universal-scorer --topic RATES   # Test Universal Scorer
+
+# Events Management (v3.0.4+)
+pnpm --filter @data-module/worker polymarket:events:sync                # Sync Polymarket events from Gamma API
+pnpm --filter @data-module/worker polymarket:events:coverage            # Show Polymarket events linkage coverage
+pnpm --filter @data-module/worker kalshi:events:sync --series KXNBA     # Sync Kalshi events for series
+pnpm --filter @data-module/worker kalshi:events:smart-sync --non-mve    # Smart sync based on market eventTickers
+pnpm --filter @data-module/worker kalshi:series:sync                    # Sync Kalshi series metadata
+pnpm --filter @data-module/worker kalshi:series:audit --topic SPORTS    # Audit series categories/tags mapping
+
+# Topic-Specific Commands
+
+## Commodities (v3.0.4+)
+pnpm --filter @data-module/worker commodities:counts                    # Count commodities markets per venue
+pnpm --filter @data-module/worker commodities:overlap                   # Find commodities overlap
+pnpm --filter @data-module/worker commodities:best                      # Show best commodities matches
+
+## Sports (v3.0.12+)
+pnpm --filter @data-module/worker sports:audit                          # Show sports market breakdown by eligibility
+pnpm --filter @data-module/worker sports:sample                         # Show sample sports markets with signals
+pnpm --filter @data-module/worker sports:eligible                       # Show eligible sports markets count
+pnpm --filter @data-module/worker sports:event-coverage --venue kalshi  # Show event coverage for sports
+pnpm --filter @data-module/worker kalshi:mve:backfill                   # Backfill isMve field for Kalshi sports
+pnpm --filter @data-module/worker kalshi:mve:audit                      # Audit MVE truth field coverage
+pnpm --filter @data-module/worker kalshi:sports:breakdown               # Show MVE vs Non-MVE breakdown
+
+## Crypto Intraday (v2.6.3+)
+pnpm --filter @data-module/worker crypto:intraday:counts                # Count intraday crypto markets
+pnpm --filter @data-module/worker crypto:intraday:overlap               # Find intraday crypto overlap
+pnpm --filter @data-module/worker crypto:intraday:best --apply          # Show/auto-confirm best intraday matches
 ```
 
 ## Architecture

@@ -192,9 +192,53 @@ export class MarketLinkRepository {
         score: { gte: minScore },
         ...(status ? { status } : {}),
       },
-      include: {
-        leftMarket: { include: { outcomes: true } },
-        rightMarket: { include: { outcomes: true } },
+      select: {
+        id: true,
+        leftVenue: true,
+        leftMarketId: true,
+        rightVenue: true,
+        rightMarketId: true,
+        status: true,
+        score: true,
+        reason: true,
+        topic: true,
+        algoVersion: true,
+        createdAt: true,
+        updatedAt: true,
+        leftMarket: {
+          select: {
+            id: true,
+            externalId: true,
+            title: true,
+            venue: true,
+            status: true,
+            closeTime: true,
+            outcomes: {
+              select: {
+                id: true,
+                title: true,
+                index: true,
+              },
+            },
+          },
+        },
+        rightMarket: {
+          select: {
+            id: true,
+            externalId: true,
+            title: true,
+            venue: true,
+            status: true,
+            closeTime: true,
+            outcomes: {
+              select: {
+                id: true,
+                title: true,
+                index: true,
+              },
+            },
+          },
+        },
       },
       orderBy: { score: 'desc' },
       take: limit,
@@ -208,9 +252,53 @@ export class MarketLinkRepository {
   async getById(id: number): Promise<MarketLinkWithMarkets | null> {
     return this.prisma.marketLink.findUnique({
       where: { id },
-      include: {
-        leftMarket: { include: { outcomes: true } },
-        rightMarket: { include: { outcomes: true } },
+      select: {
+        id: true,
+        leftVenue: true,
+        leftMarketId: true,
+        rightVenue: true,
+        rightMarketId: true,
+        status: true,
+        score: true,
+        reason: true,
+        topic: true,
+        algoVersion: true,
+        createdAt: true,
+        updatedAt: true,
+        leftMarket: {
+          select: {
+            id: true,
+            externalId: true,
+            title: true,
+            venue: true,
+            status: true,
+            closeTime: true,
+            outcomes: {
+              select: {
+                id: true,
+                title: true,
+                index: true,
+              },
+            },
+          },
+        },
+        rightMarket: {
+          select: {
+            id: true,
+            externalId: true,
+            title: true,
+            venue: true,
+            status: true,
+            closeTime: true,
+            outcomes: {
+              select: {
+                id: true,
+                title: true,
+                index: true,
+              },
+            },
+          },
+        },
       },
     });
   }
@@ -255,17 +343,66 @@ export class MarketLinkRepository {
   /**
    * Get confirmed links for a venue
    */
-  async getConfirmedLinks(venue: Venue): Promise<MarketLinkWithMarkets[]> {
+  async getConfirmedLinks(
+    venue: Venue,
+    options?: { limit?: number; offset?: number }
+  ): Promise<MarketLinkWithMarkets[]> {
     return this.prisma.marketLink.findMany({
       where: {
         status: 'confirmed',
         OR: [{ leftVenue: venue }, { rightVenue: venue }],
       },
-      include: {
-        leftMarket: { include: { outcomes: true } },
-        rightMarket: { include: { outcomes: true } },
+      select: {
+        id: true,
+        leftVenue: true,
+        leftMarketId: true,
+        rightVenue: true,
+        rightMarketId: true,
+        status: true,
+        score: true,
+        reason: true,
+        topic: true,
+        algoVersion: true,
+        createdAt: true,
+        updatedAt: true,
+        leftMarket: {
+          select: {
+            id: true,
+            externalId: true,
+            title: true,
+            venue: true,
+            status: true,
+            closeTime: true,
+            outcomes: {
+              select: {
+                id: true,
+                title: true,
+                index: true,
+              },
+            },
+          },
+        },
+        rightMarket: {
+          select: {
+            id: true,
+            externalId: true,
+            title: true,
+            venue: true,
+            status: true,
+            closeTime: true,
+            outcomes: {
+              select: {
+                id: true,
+                title: true,
+                index: true,
+              },
+            },
+          },
+        },
       },
       orderBy: { score: 'desc' },
+      take: options?.limit ?? 1000, // Default limit to prevent OOM
+      skip: options?.offset ?? 0,
     });
   }
 

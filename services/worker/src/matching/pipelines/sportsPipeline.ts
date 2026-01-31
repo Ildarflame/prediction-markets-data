@@ -27,7 +27,7 @@
  *     - side: 0.05
  */
 
-import { CanonicalTopic, SportsLeague, SportsMarketType, areTimeBucketsAdjacent, teamsMatch } from '@data-module/core';
+import { CanonicalTopic, SportsLeague, SportsMarketType, areTimeBucketsAdjacent, teamsMatch, jaccard } from '@data-module/core';
 import type { MarketRepository, KalshiEventRepository } from '@data-module/db';
 import {
   extractSportsSignals,
@@ -113,18 +113,6 @@ const MIN_WINNER_GAP = 0.10;
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
-
-/**
- * Calculate Jaccard similarity
- */
-function jaccardSimilarity(a: string[], b: string[]): number {
-  if (a.length === 0 || b.length === 0) return 0;
-  const setA = new Set(a);
-  const setB = new Set(b);
-  const intersection = [...setA].filter(x => setB.has(x)).length;
-  const union = new Set([...setA, ...setB]).size;
-  return union > 0 ? intersection / union : 0;
-}
 
 /**
  * Build index keys for a sports market
@@ -593,7 +581,7 @@ export const sportsPipeline: TopicPipeline<SportsMarket, SportsSignals, SportsSc
     }
 
     // Text sanity check
-    const textSanity = jaccardSimilarity(left.signals.titleTokens, right.signals.titleTokens);
+    const textSanity = jaccard(left.signals.titleTokens, right.signals.titleTokens);
     if (textSanity < AUTO_CONFIRM_MIN_TEXT_SANITY) {
       return { shouldConfirm: false, rule: null, confidence: 0 };
     }

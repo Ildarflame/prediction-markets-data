@@ -188,16 +188,26 @@ export class KalshiEventRepository {
       });
       const existingSet = new Set(existingEvents.map(e => e.eventTicker));
 
+      // Batch update: group markets by eventTicker to minimize DB calls
+      const marketsByEventTicker = new Map<string, number[]>();
       for (const market of batch) {
         if (existingSet.has(market.eventTicker)) {
-          await this.prisma.market.update({
-            where: { id: market.id },
-            data: { kalshiEventTicker: market.eventTicker },
-          });
-          linked++;
+          if (!marketsByEventTicker.has(market.eventTicker)) {
+            marketsByEventTicker.set(market.eventTicker, []);
+          }
+          marketsByEventTicker.get(market.eventTicker)!.push(market.id);
         } else {
           noEvent++;
         }
+      }
+
+      // Update all markets for each eventTicker in a single query
+      for (const [eventTicker, marketIds] of marketsByEventTicker) {
+        await this.prisma.market.updateMany({
+          where: { id: { in: marketIds } },
+          data: { kalshiEventTicker: eventTicker },
+        });
+        linked += marketIds.length;
       }
     }
 
@@ -214,27 +224,28 @@ export class KalshiEventRepository {
 
   /**
    * Get sync stats for SPORTS markets
+   * Optimized: Uses single raw query instead of 4 separate queries
    */
   async getSportsStats(derivedTopic = 'SPORTS'): Promise<EventSyncStats> {
-    const totalEvents = await this.prisma.kalshiEvent.count();
+    // Combine first 3 counts into a single query
+    const [statsRow] = await this.prisma.$queryRaw<
+      Array<{ totalEvents: bigint; linkedMarkets: bigint; unlinkedMarkets: bigint }>
+    >`
+      SELECT
+        (SELECT COUNT(*) FROM kalshi_events) AS "totalEvents",
+        (SELECT COUNT(*) FROM markets
+         WHERE venue = 'kalshi'
+           AND derived_topic = ${derivedTopic}
+           AND kalshi_event_ticker IS NOT NULL
+        ) AS "linkedMarkets",
+        (SELECT COUNT(*) FROM markets
+         WHERE venue = 'kalshi'
+           AND derived_topic = ${derivedTopic}
+           AND kalshi_event_ticker IS NULL
+        ) AS "unlinkedMarkets"
+    `;
 
-    const linkedMarkets = await this.prisma.market.count({
-      where: {
-        venue: 'kalshi',
-        derivedTopic,
-        kalshiEventTicker: { not: null },
-      },
-    });
-
-    const unlinkedMarkets = await this.prisma.market.count({
-      where: {
-        venue: 'kalshi',
-        derivedTopic,
-        kalshiEventTicker: null,
-      },
-    });
-
-    // Top series by event count
+    // Top series still needs separate query for GROUP BY
     const topSeries = await this.prisma.kalshiEvent.groupBy({
       by: ['seriesTicker'],
       _count: { id: true },
@@ -243,9 +254,9 @@ export class KalshiEventRepository {
     });
 
     return {
-      totalEvents,
-      linkedMarkets,
-      unlinkedMarkets,
+      totalEvents: Number(statsRow.totalEvents),
+      linkedMarkets: Number(statsRow.linkedMarkets),
+      unlinkedMarkets: Number(statsRow.unlinkedMarkets),
       topSeriesTickers: topSeries.map(s => ({
         seriesTicker: s.seriesTicker,
         count: s._count.id,

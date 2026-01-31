@@ -4,6 +4,7 @@ import { PolymarketAdapter } from './polymarket.adapter.js';
 import { KalshiAdapter, type KalshiAuthConfig } from './kalshi.adapter.js';
 
 export { type VenueAdapter, type AdapterConfig } from './types.js';
+export { BaseAdapter, type BaseAdapterConfig } from './base.adapter.js';
 export { PolymarketAdapter } from './polymarket.adapter.js';
 export { KalshiAdapter, type KalshiAuthConfig, type KalshiFetchStats } from './kalshi.adapter.js';
 export { type KalshiConfig, type KalshiMode, loadKalshiConfig, formatKalshiConfig } from './kalshi.config.js';

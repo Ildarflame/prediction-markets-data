@@ -1,4 +1,4 @@
-# Data Module v1.2.0
+# Data Module v3.1.0
 
 Data ingestion module for prediction markets (Polymarket, Kalshi). Collects markets, outcomes, and price quotes with deduplication, checkpointing, and archival support.
 

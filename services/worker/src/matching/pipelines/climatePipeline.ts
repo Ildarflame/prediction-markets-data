@@ -15,7 +15,7 @@
  *   text: 0.05
  */
 
-import { CanonicalTopic } from '@data-module/core';
+import { CanonicalTopic, jaccard } from '@data-module/core';
 import type { MarketRepository } from '@data-module/db';
 import {
   extractClimateSignals,
@@ -84,18 +84,6 @@ const AUTO_REJECT_MIN_TEXT = 0.05;
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
-
-/**
- * Calculate Jaccard similarity between two token arrays
- */
-function jaccardSimilarity(a: string[], b: string[]): number {
-  if (a.length === 0 || b.length === 0) return 0;
-  const setA = new Set(a);
-  const setB = new Set(b);
-  const intersection = [...setA].filter(x => setB.has(x)).length;
-  const union = new Set([...setA, ...setB]).size;
-  return union > 0 ? intersection / union : 0;
-}
 
 /**
  * Build index key for a climate market
@@ -282,7 +270,7 @@ export const climatePipeline: TopicPipeline<ClimateMarket, ClimateSignals, Clima
     const thresholdScore = calculateThresholdScore(ls.thresholds, rs.thresholds);
 
     // Text similarity (Jaccard on tokens)
-    const textScore = jaccardSimilarity(ls.titleTokens, rs.titleTokens);
+    const textScore = jaccard(ls.titleTokens, rs.titleTokens);
 
     // Comparator match
     let comparatorMatch: boolean | null = null;
