@@ -1,0 +1,39 @@
+# Production Dockerfile for Data Module Sports Worker
+
+FROM node:20-alpine AS base
+
+# Install pnpm
+RUN npm install -g pnpm@8
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/core/package.json ./packages/core/
+COPY packages/db/package.json ./packages/db/
+COPY services/worker/package.json ./services/worker/
+
+# Install dependencies
+RUN pnpm install --frozen-lockfile --prod
+
+# Copy source code
+COPY packages/core ./packages/core
+COPY packages/db ./packages/db
+COPY services/worker ./services/worker
+
+# Build all packages
+RUN pnpm build
+
+# Generate Prisma client
+RUN pnpm --filter @data-module/db db:generate
+
+# Create logs directory
+RUN mkdir -p /app/logs && chmod 777 /app/logs
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD pnpm --filter @data-module/worker health || exit 1
+
+# Default command (can be overridden in docker-compose)
+CMD ["pnpm", "--filter", "@data-module/worker", "ops:run:v3", "--topics", "SPORTS"]

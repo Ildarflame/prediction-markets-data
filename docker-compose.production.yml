@@ -1,0 +1,244 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sports_db
+    environment:
+      POSTGRES_DB: data_module_sports
+      POSTGRES_USER: sports_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      # Performance tuning for sports data
+      POSTGRES_SHARED_BUFFERS: 256MB
+      POSTGRES_EFFECTIVE_CACHE_SIZE: 1GB
+      POSTGRES_WORK_MEM: 16MB
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+      - ./deploy/postgres-init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sports_user -d data_module_sports"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sports_network
+
+  # Main matching worker (V3 sports pipeline)
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: sports_worker
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://sports_user:${DB_PASSWORD}@postgres:5432/data_module_sports
+
+      # Sports-only mode
+      SPORTS_ONLY_MODE: "true"
+      FOCUS_TOPICS: SPORTS
+      EXCLUDE_MVE_MARKETS: "true"
+
+      # Kalshi API
+      KALSHI_MODE: catalog
+      KALSHI_API_KEY_ID: ${KALSHI_API_KEY_ID}
+      KALSHI_PRIVATE_KEY_PATH: /secrets/kalshi-private-key.pem
+      HTTP_PROXY: ${HTTP_PROXY:-}
+
+      # Operations
+      OPS_INTERVAL_MINUTES: 10
+      OPS_AUTO_CONFIRM: "true"
+      OPS_AUTO_REJECT: "true"
+
+      # Logging
+      LOG_LEVEL: info
+      LOG_FILE: /app/logs/worker.log
+    volumes:
+      - ./secrets:/secrets:ro
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    command: pnpm --filter @data-module/worker ops:run:v3 --topics SPORTS
+    networks:
+      - sports_network
+
+  # Kalshi ingestion (split mode: markets + quotes)
+  ingestion-kalshi:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: sports_ingestion_kalshi
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://sports_user:${DB_PASSWORD}@postgres:5432/data_module_sports
+      SPORTS_ONLY_MODE: "true"
+      KALSHI_MODE: catalog
+      KALSHI_API_KEY_ID: ${KALSHI_API_KEY_ID}
+      KALSHI_PRIVATE_KEY_PATH: /secrets/kalshi-private-key.pem
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      LOG_LEVEL: info
+      LOG_FILE: /app/logs/ingestion-kalshi.log
+    volumes:
+      - ./secrets:/secrets:ro
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    command: pnpm --filter @data-module/worker ingest -v kalshi -m split
+    networks:
+      - sports_network
+
+  # Polymarket ingestion (split mode: markets + quotes)
+  ingestion-polymarket:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: sports_ingestion_polymarket
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://sports_user:${DB_PASSWORD}@postgres:5432/data_module_sports
+      SPORTS_ONLY_MODE: "true"
+      LOG_LEVEL: info
+      LOG_FILE: /app/logs/ingestion-polymarket.log
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    command: pnpm --filter @data-module/worker ingest -v polymarket -m split
+    networks:
+      - sports_network
+
+  # High-frequency quotes worker (watchlist mode, 15s interval)
+  quotes-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: sports_quotes
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://sports_user:${DB_PASSWORD}@postgres:5432/data_module_sports
+
+      # Watchlist quotes mode
+      QUOTES_MODE: watchlist
+      QUOTES_INTERVAL_SECONDS: 15
+      QUOTES_WATCHLIST_LIMIT: 500
+
+      # Kalshi API (for quote fetching)
+      KALSHI_API_KEY_ID: ${KALSHI_API_KEY_ID}
+      KALSHI_PRIVATE_KEY_PATH: /secrets/kalshi-private-key.pem
+      HTTP_PROXY: ${HTTP_PROXY:-}
+
+      LOG_LEVEL: info
+      LOG_FILE: /app/logs/quotes.log
+    volumes:
+      - ./secrets:/secrets:ro
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    # Note: Assuming there's a quotes:loop command. If not, we'll create it.
+    command: pnpm --filter @data-module/worker quotes:loop
+    networks:
+      - sports_network
+
+  # Events sync worker (Kalshi events for team/time enrichment)
+  events-sync:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: sports_events_sync
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://sports_user:${DB_PASSWORD}@postgres:5432/data_module_sports
+      KALSHI_API_KEY_ID: ${KALSHI_API_KEY_ID}
+      KALSHI_PRIVATE_KEY_PATH: /secrets/kalshi-private-key.pem
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      LOG_LEVEL: info
+      LOG_FILE: /app/logs/events-sync.log
+    volumes:
+      - ./secrets:/secrets:ro
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    # Run smart-sync every hour
+    command: >
+      sh -c "while true; do
+        pnpm --filter @data-module/worker kalshi:events:smart-sync --non-mve;
+        sleep 3600;
+      done"
+    networks:
+      - sports_network
+
+  # Health monitoring & alerts
+  monitoring:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: sports_monitoring
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://sports_user:${DB_PASSWORD}@postgres:5432/data_module_sports
+      ENABLE_LIVE_EVENTS_MONITOR: "true"
+      LIVE_EVENT_THRESHOLD_MINUTES: 15
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+      LOG_LEVEL: info
+      LOG_FILE: /app/logs/monitoring.log
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    # Run health checks every 60 seconds
+    command: >
+      sh -c "while true; do
+        pnpm --filter @data-module/worker health;
+        sleep 60;
+      done"
+    networks:
+      - sports_network
+
+  # Web UI for manual review (accessible at http://192.168.1.251:3000)
+  web-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: sports_web_ui
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://sports_user:${DB_PASSWORD}@postgres:5432/data_module_sports
+      REVIEW_PORT: ${REVIEW_SERVER_PORT:-3000}
+      REVIEW_MIN_SCORE: "0.75"
+      REVIEW_LIMIT: "500"
+      LOG_LEVEL: info
+      LOG_FILE: /app/logs/web-ui.log
+    volumes:
+      - ./logs:/app/logs
+    ports:
+      - "${REVIEW_SERVER_PORT:-3000}:${REVIEW_SERVER_PORT:-3000}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    command: pnpm --filter @data-module/worker review:server --port ${REVIEW_SERVER_PORT:-3000}
+    networks:
+      - sports_network
+
+networks:
+  sports_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
